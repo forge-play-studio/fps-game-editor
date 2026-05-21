@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": {
+      "@fps-games/editor-protocol": [
+        "packages/editor-protocol/src/index.ts"
+      ],
+      "@fps-games/editor-browser": [
+        "packages/editor-browser/src/index.ts"
+      ],
+      "@fps-games/editor-core": [
+        "packages/editor-core/src/index.ts"
+      ],
+      "@fps-games/editor-forge-play": [
+        "packages/editor-forge-play/src/index.ts"
+      ],
+      "@fps-games/editor-babylon": [
+        "packages/editor-babylon/src/index.ts"
+      ],
+      "@fps-games/editor-babylon/legacy-runtime": [
+        "packages/editor-babylon/src/legacy-runtime.ts"
+      ],
+      "@fps-games/editor": [
+        "packages/editor/src/index.ts"
+      ]
+    }
+  }
+}

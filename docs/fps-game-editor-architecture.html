@@ -1,0 +1,2357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>fps-game-editor 架构当前状态与包设计</title>
+<style>
+  :root {
+    --bg:#0d1117;
+    --bg2:#161b22;
+    --panel:#1f2633;
+    --border:#30363d;
+    --text:#c9d1d9;
+    --muted:#8b949e;
+    --blue:#58a6ff;
+    --green:#3fb950;
+    --purple:#d2a8ff;
+    --yellow:#d29922;
+    --red:#f85149;
+    --radius:6px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:38px 20px}
+  .container{max-width:1180px;margin:0 auto}
+  h1{font-size:2.05em;line-height:1.2;color:#fff;margin-bottom:10px}
+  h2{font-size:1.28em;color:var(--blue);border-bottom:1px solid var(--border);padding-bottom:8px;margin:38px 0 16px}
+  h3{font-size:1.04em;color:var(--purple);margin:24px 0 10px}
+  p{color:var(--muted);font-size:.94em;margin-bottom:10px}
+  strong{color:var(--text)}
+  code{background:rgba(88,166,255,.1);color:var(--blue);padding:1px 5px;border-radius:3px;font-size:.9em}
+  pre{background:#0d1117;border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;overflow-x:auto;font-size:.84em;line-height:1.5;margin:10px 0 16px;color:var(--text)}
+  table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:.88em}
+  th{text-align:left;color:var(--blue);padding:8px 12px;border-bottom:1px solid var(--border);background:rgba(88,166,255,.04)}
+  td{padding:8px 12px;border-bottom:1px solid var(--border);color:var(--muted);vertical-align:top}
+  ul,ol{margin:8px 0 14px 22px;color:var(--muted);font-size:.93em}
+  li{margin:5px 0}
+  .lead{font-size:1em;margin-bottom:24px;color:var(--muted)}
+  .notice{border:1px solid var(--border);border-left:4px solid var(--blue);background:var(--bg2);border-radius:var(--radius);padding:14px 16px;margin:16px 0;color:var(--muted);font-size:.93em}
+  .notice.green{border-left-color:var(--green)}
+  .notice.yellow{border-left-color:var(--yellow)}
+  .notice.red{border-left-color:var(--red)}
+  .status-tag{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:.76em;font-weight:700;margin-right:6px;white-space:nowrap}
+  .tag-current{color:var(--green);border-color:rgba(63,185,80,.6);background:rgba(63,185,80,.08)}
+  .tag-temp{color:var(--yellow);border-color:rgba(210,153,34,.6);background:rgba(210,153,34,.08)}
+  .tag-history{color:var(--muted);border-color:var(--border);background:rgba(139,148,158,.08)}
+  .tag-risk{color:var(--red);border-color:rgba(248,81,73,.6);background:rgba(248,81,73,.08)}
+  .tab-nav{display:flex;gap:4px;flex-wrap:wrap;margin:26px 0 30px;border-bottom:1px solid var(--border)}
+  .tab-btn{background:none;border:none;color:var(--muted);font-size:.9em;font-weight:700;padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+  .tab-btn:hover{color:var(--text)}
+  .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+  .page{display:none}
+  .page.active{display:block}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0 18px}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0 18px}
+  .card{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);padding:14px 16px}
+  .card h3{margin-top:0;color:var(--text)}
+  .card .path{font-size:.78em;color:var(--muted);margin-top:8px;word-break:break-all}
+  .role{font-weight:700;color:var(--green);margin-bottom:4px}
+  .diagram{border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:18px;margin:14px 0 20px;overflow-x:auto}
+  .flow{display:flex;align-items:stretch;gap:8px;min-width:840px}
+  .flow-box{flex:1;border:1px solid var(--border);border-radius:var(--radius);padding:12px;text-align:center;background:#111722}
+  .flow-box .title{font-weight:800;margin-bottom:5px}
+  .flow-box .sub{font-size:.8em;color:var(--muted)}
+  .flow-arrow{display:flex;align-items:center;color:var(--muted);font-weight:700}
+  .blue{color:var(--blue)} .green{color:var(--green)} .yellow{color:var(--yellow)} .purple{color:var(--purple)} .red{color:var(--red)}
+  details{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);padding:12px 14px;margin:12px 0}
+  summary{cursor:pointer;font-weight:700;color:var(--text)}
+  .footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--border);color:var(--muted);font-size:.78em}
+  @media(max-width:760px){body{padding:24px 12px}.grid-2,.grid-3{grid-template-columns:1fr}.tab-btn{padding:8px 10px}.flow{min-width:760px}}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>fps-game-editor 架构当前状态与包设计</h1>
+  <p class="lead">
+    本文档是 <strong>fps-game-editor</strong> 新仓库的主架构文档，记录独立游戏编辑器生态的当前状态和已经确认的包设计共识。它不记录排期或任务拆分。当前主线是：<strong>平台传输意图，Vite 插件提供开发期注入，编辑器解释语义，项目适配 authored config，游戏运行时消费最终配置</strong>。新增核心原则是：<strong>永远以数据为准，Babylon Scene 只是某个 world 的渲染投影，不是权威数据源</strong>。平台对接原则是：<strong>平台负责承载、传输、调度、观测；编辑器负责解释、修改、保存、生成</strong>。当前工作原则是：<strong>快速迭代，只要方向正确即可继续推进，不急于过早优化或定死最终设计</strong>。
+  </p>
+
+  <div class="notice green">
+    <span class="status-tag tag-current">当前正式认知</span>
+    <strong>forge-play</strong>、<strong>vite-plugins</strong>、<strong>lumber_order</strong>、<strong>pa_maker</strong> 都服务于新的独立游戏编辑器生态。文档主线不再以单个项目为中心，而是记录这些项目在当前架构里的实际职责。
+  </div>
+
+  <div class="notice yellow">
+    <span class="status-tag tag-current">平台对接红线</span>
+    <strong>forge-play</strong> 可以优化 HostKernel、iframe/sandbox 生命周期、Service Worker proxy、资源传输、缓存、capture、性能观测和错误恢复；但 <strong>fps-game-editor</strong> 的 <code>SceneDocument / EditorSession / AuthoringSource</code> 才是编辑态权威。平台只能发送请求、传递资源和保存编辑器导出的结果，所有场景语义修改必须进入 editor command / project adapter / authoring source 链路，不能由平台 scene store、MCP tool、IndexedDB scene blob 或 sandbox runtime 直接写入权威场景数据。<code>forge-play/docs/editor-game-api.md</code> 当前只视为平台临时宿主协议草案，不能反向规定 <code>fps-game-editor</code> 的 source、保存或恢复语义。
+  </div>
+
+  <div class="tab-nav">
+    <button class="tab-btn active" onclick="switchPage('overview', this)">总览</button>
+    <button class="tab-btn" onclick="switchPage('design', this)">设计共识</button>
+    <button class="tab-btn" onclick="switchPage('authoring', this)">Authoring Source</button>
+    <button class="tab-btn" onclick="switchPage('worlds', this)">三态设计</button>
+    <button class="tab-btn" onclick="switchPage('mvp', this)">MVP 闭环</button>
+    <button class="tab-btn" onclick="switchPage('state', this)">状态管理</button>
+    <button class="tab-btn" onclick="switchPage('baseline', this)">迁移基线</button>
+    <button class="tab-btn" onclick="switchPage('projects', this)">项目职责现状</button>
+    <button class="tab-btn" onclick="switchPage('boundaries', this)">当前边界</button>
+    <button class="tab-btn" onclick="switchPage('flows', this)">当前数据链路</button>
+    <button class="tab-btn" onclick="switchPage('inspector', this)">Inspector 现状</button>
+    <button class="tab-btn" onclick="switchPage('legacy', this)">Legacy 状态</button>
+    <button class="tab-btn" onclick="switchPage('risks', this)">已知问题</button>
+    <button class="tab-btn" onclick="switchPage('sources', this)">源码依据</button>
+    <button class="tab-btn" onclick="switchPage('history', this)">历史背景</button>
+  </div>
+
+  <div id="page-overview" class="page active">
+    <h2>文档目的</h2>
+    <p>本文档只记录当前已经观察到、已经确认、已经形成边界共识的事实。它刻意不包含行动安排或阶段拆分。</p>
+    <p>如果某段内容仍然不稳定，会被明确标注为 <span class="status-tag tag-temp">当前临时兼容</span>、<span class="status-tag tag-history">历史背景</span> 或 <span class="status-tag tag-risk">已知风险</span>。</p>
+
+    <h2>当前实现状态快照</h2>
+    <div class="notice yellow">
+      <span class="status-tag tag-current">核对日期</span>
+      本快照按 2026-05-20 的本地代码状态核对。主架构文档是当前文件 <code>docs/fps-game-editor-architecture.html</code>；此前临时生成的 <code>docs/authoring-command-pipeline-design.html</code> 当前不在 <code>fps-game-editor</code> 仓库文件和 git 跟踪文件中，不再作为当前事实来源。
+    </div>
+    <table>
+      <tr><th>代码库</th><th>核对分支 / 提交</th><th>本文档采用的事实来源</th></tr>
+      <tr>
+        <td><code>fps-game-editor</code></td>
+        <td><code>main</code> / <code>c2d364e</code></td>
+        <td><code>packages/editor-core/src/authoring-source.ts</code>、<code>packages/editor/src/local-editor-harness.ts</code>、<code>packages/editor-browser/src/local-editor-ui.ts</code> 等当前源码。</td>
+      </tr>
+      <tr>
+        <td><code>lumber_order</code></td>
+        <td><code>codex/forge-play-integration</code> / <code>e6bcee0</code></td>
+        <td>联调 worktree 的 <code>src/debug/local-editor-mode-switcher.ts</code>、<code>src/fps-game-editor-adapter/scene-main-source-driver.ts</code>、<code>vite.config.ts</code>。</td>
+      </tr>
+      <tr>
+        <td><code>forge-play</code></td>
+        <td><code>feat/fps-editor-forge-play-integration</code> / <code>2520f48</code></td>
+        <td>当前联调分支的 HostKernel / bridge 语义，以及 <code>lumber_order</code> 侧 <code>forge-play-game-bridge</code> 接线。</td>
+      </tr>
+    </table>
+
+    <h2>迭代原则</h2>
+    <p><span class="status-tag tag-current">当前工作原则</span>我们不急于优化，也不急于把设计一次性定死。只要整体方向正确，就优先快速迭代、尽早接入真实项目，并用运行反馈修正边界。</p>
+    <ul>
+      <li>方向优先于完美抽象：先保持“平台传意图、编辑器解释、项目适配、运行时消费”这条主线成立。</li>
+      <li>小步可回退：每轮迁移保持可验证、可回滚，不让未验证的抽象扩大影响面。</li>
+      <li>事实推动设计：被真实接入、被验证、被文档化的能力，才逐步提升为稳定边界。</li>
+      <li>不过早优化：性能、API 形状、包拆分细节在真实使用反馈出现后再收敛。</li>
+    </ul>
+
+    <h2>当前生态项目</h2>
+    <div class="grid-3">
+      <div class="card"><h3>forge-play</h3><div class="role">平台宿主与传输层</div><p>负责沙盒、bridge、terminal、preview、dev supervisor、文件写入与保存通道；不拥有项目场景语义。</p></div>
+      <div class="card"><h3>vite-plugins</h3><div class="role">Vite 插件集合</div><p>当前 Babylon Inspector loader 已拆入该项目，通过插件注入 <code>ensureInspectorReady()</code>。</p></div>
+      <div class="card"><h3>fps-game-editor</h3><div class="role">新公共编辑器包</div><p>当前已落地 protocol、core、browser、forge-play、babylon、editor 聚合入口，把无 schema 的编辑器能力从项目内实现中抽出。</p></div>
+      <div class="card"><h3>lumber_order</h3><div class="role">真实游戏项目</div><p>当前验证 Scene JSON V2、项目侧 <code>fps-game-editor-adapter</code>、AssetManager 和 Mock Platform Assets。</p></div>
+      <div class="card"><h3>pa_maker</h3><div class="role">scaffold / 标准参考</div><p>提供新项目接入公共编辑器包的标准结构和文档参考。</p></div>
+      <div class="card"><h3>游戏 runtime</h3><div class="role">最终配置消费者</div><p>通过项目的 <code>SceneBuilder</code>、<code>ConfigService</code> 等服务消费 authored config。</p></div>
+    </div>
+
+    <h2>总边界</h2>
+    <div class="diagram">
+      <div class="flow">
+        <div class="flow-box"><div class="title blue">平台传输</div><div class="sub">forge-play 识别用户操作，发送意图，保存文件；不改场景语义</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><div class="title yellow">插件注入</div><div class="sub">vite-plugins 注入 dev-only 能力，例如 Inspector loader</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><div class="title purple">编辑器解释</div><div class="sub">@fps-games/editor 解释命令、维护 shell、连接 document adapter</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><div class="title green">项目适配</div><div class="sub">项目 adapter 更新 Scene JSON V2、资产注册、runtime binding</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><div class="title green">游戏消费</div><div class="sub">SceneBuilder 从 authored config 构建 Babylon runtime</div></div>
+      </div>
+    </div>
+
+    <div class="notice yellow">
+      <span class="status-tag tag-current">当前迁移事实</span>
+      <code>lumber_order</code> 已删除旧 <code>src/editor-package</code> runtime fallback，默认只走 npm 包 <code>@fps-games/editor*</code> 路径。项目侧接入点是 <code>src/fps-game-editor-adapter</code>；<code>pa_maker/scaffold/src/editor-package</code> 仍只作为历史同源参考，不作为当前实现入口。
+    </div>
+
+    <h2>本轮跨仓库审计结论</h2>
+    <table>
+      <tr><th>结论</th><th>当前状态</th><th>说明</th></tr>
+      <tr>
+        <td>平台只传意图和保存文本</td>
+        <td><span class="status-tag tag-current">已证实</span></td>
+        <td><code>forge-play</code> 定义并发送 <code>asset.import</code>、<code>mode.change</code>、<code>document.export</code>、<code>document.commit</code>，保存 API 只做 JSON/metadata 级处理，不理解 <code>scene.assets[]</code> 或 <code>scene.nodes[]</code>。</td>
+      </tr>
+      <tr>
+        <td>Inspector loader 归属</td>
+        <td><span class="status-tag tag-current">已证实</span></td>
+        <td><code>vite-plugins</code> 注入 <code>ensureInspectorReady()</code>；<code>editor-babylon</code> 负责 Inspector host、runtime monitor 和持久化回调连接。</td>
+      </tr>
+      <tr>
+        <td>公共包与项目语义边界</td>
+        <td><span class="status-tag tag-current">已证实</span></td>
+        <td><code>fps-game-editor</code> 已落地 6 个公共包，并通过 boundary check 禁止依赖 <code>SceneJsonV2Validator</code>、<code>configService</code>、<code>AssetManager</code>、<code>SceneBuilder</code> 等项目语义。</td>
+      </tr>
+      <tr>
+        <td>Scene JSON V2 主线</td>
+        <td><span class="status-tag tag-current">已证实</span></td>
+        <td><code>lumber_order</code> 正式 authored scene 结构是 <code>scene.assets[] + scene.nodes[]</code>；<code>sceneInstances</code> 只作为历史迁移风险存在。</td>
+      </tr>
+      <tr>
+        <td>capability / semver / lockfile handshake</td>
+        <td><span class="status-tag tag-temp">部分证实</span></td>
+        <td>当前能看到 capability registry 和包版本雏形；完整版本协商、lockfile 固定和升级策略仍属于设计约束。</td>
+      </tr>
+      <tr>
+        <td>新 runtime platform-sim 验证</td>
+        <td><span class="status-tag tag-risk">需修正旧表述</span></td>
+        <td>裸 <code>npm run sim:platform</code> 默认走旧 runtime；新公共包路径需要显式 <code>VITE_USE_FPS_GAME_EDITOR=true</code>。</td>
+      </tr>
+    </table>
+  </div>
+
+
+  <div id="page-design" class="page">
+    <h2>仓库定位</h2>
+    <div class="notice yellow"><span class="status-tag tag-temp">设计共识，部分实现</span>本页记录已经讨论确认的包设计方向。当前仓库中 <code>packages/editor-protocol</code>、<code>packages/editor-browser</code>、<code>packages/editor-forge-play</code>、<code>packages/editor-core</code>、<code>packages/editor-babylon</code>、<code>packages/editor</code> 已有迁移实现；<code>editor-browser</code> 已提供最小 Local Editor UI shell，但还不是完整独立 <code>editor-ui</code> 产品层。本页内容不作为行动安排。</div>
+    <p><span class="status-tag tag-current">当前设计共识</span><code>fps-game-editor</code> 是独立游戏编辑器的代码仓库，不属于某一个游戏项目，也不属于 <code>forge-play</code> 平台内部实现。它服务于多游戏项目接入编辑能力，并通过 adapter 与具体项目交互。</p>
+    <p>编辑器运行在游戏 iframe 内，需要能访问浏览器环境、canvas、Babylon scene、项目 runtime、项目 authored config，同时通过 bridge 与平台通信。因此它不能是纯平台包，也不能是纯游戏业务包。</p>
+
+    <h2>整体思路</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>当前设计不是把某个项目内的 <code>editor-package</code> 原样搬成公共包，而是把可复用的编辑器运行能力抽到独立仓库，把项目语义保留在项目 adapter 中。通用包负责“编辑器如何工作”，项目 adapter 负责“这个游戏的 authored config 应该如何变化”。</p>
+    <p>整体架构按职责分层，而不是按当前文件来源分层。平台只传递意图和保存结果；协议包定义共同语言；core 管命令、document 状态、生命周期和能力；browser/Babylon 包处理宿主环境和运行时观测；聚合包给游戏项目提供默认组装入口；项目 adapter 才理解 schema、资产规则和 runtime binding。</p>
+    <p><span class="status-tag tag-current">平台对接原则</span><code>forge-play</code> 可以提供更强的 HostKernel、sandbox 生命周期、Service Worker proxy、资源 bytes 管道、缓存、capture 和性能观测能力；但这些能力只属于宿主、传输、调度和观测层。平台不能把自己的 scene store、headless scene blob、MCP scene tools、IndexedDB restore、<code>document:changed</code> opaque snapshot 或 Babylon runtime object 升级为 <code>fps-game-editor</code> 的编辑态权威。平台侧临时 <code>editor-game-api.md</code> 中与此冲突的 document/restore 设计，应服从 <code>fps-game-editor</code> 的 authoring source 设计，而不是要求编辑器迁就平台 snapshot 模型。</p>
+    <table>
+      <tr><th>层</th><th>整体职责</th><th>当前收敛方向</th></tr>
+      <tr><td>平台层</td><td>承载预览、bridge、命令传输、文件保存、运行状态展示、sandbox 性能与可观测性。</td><td>不理解项目 schema，不直接决定 authored config 的结构，不直接修改场景数据。</td></tr>
+      <tr><td>协议层</td><td>定义命令、事件、capability 和跨包共享类型。</td><td>保持轻量、稳定、向后兼容。</td></tr>
+      <tr><td>编辑器核心层</td><td>解释通用编辑命令，维护 document 状态、history、dirty、生命周期和能力注册。</td><td>只依赖抽象 adapter，不引入具体游戏规则。</td></tr>
+      <tr><td>运行时适配层</td><td>处理浏览器宿主、Babylon scene、Inspector、gizmo、selection 和 runtime change 观测。</td><td>产出 canonical change，把持久化交给项目 document adapter。</td></tr>
+      <tr><td>聚合入口层</td><td>提供游戏项目默认接入入口，组合 core、browser、Babylon 和 Forge Play bridge。</td><td>降低接入成本，但不吞掉项目 adapter 的语义职责。</td></tr>
+      <tr><td>项目 adapter 层</td><td>实现 schema、资产注册、scene node 创建删除、runtime binding 和保存确认。</td><td>保留项目差异，避免通用包绑定某个游戏。</td></tr>
+      <tr><td>游戏 runtime 层</td><td>消费最终 authored config，创建真实运行时对象。</td><td>只把配置当最终事实，不反向承担编辑器通用职责。</td></tr>
+    </table>
+
+    <h2>包组织方式现状</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>当前设计共识是 <strong>monorepo 多包维护 + 一个聚合入口包给游戏项目使用</strong>。当前实现状态是 <code>@fps-games/editor-protocol</code>、<code>@fps-games/editor-browser</code>、<code>@fps-games/editor-forge-play</code>、<code>@fps-games/editor-core</code>、<code>@fps-games/editor-babylon</code>、<code>@fps-games/editor</code> 已落地，UI 包尚未实现。</p>
+    <p><span class="status-tag tag-current">发布与使用原则</span>多包结构是维护和发布边界，不是普通游戏项目的使用心智。对外默认入口是 <code>@fps-games/editor</code>；其他 <code>@fps-games/editor-*</code> 包属于分层实现包和高级接入面。所有 editor 包采用 lockstep version，同一轮发布使用同一个版本号。游戏项目在快速迭代期应使用精确 alpha 版本和 lockfile 固定依赖。</p>
+    <table>
+      <tr><th>包</th><th>职责</th><th>是否直接依赖项目 schema</th></tr>
+      <tr><td><code>@fps-games/editor</code></td><td>游戏项目主要引入的聚合入口，当前组合 core、browser、Babylon、forge-play bridge，并新增本地 EditorWorld harness。</td><td>否，依赖项目提供 adapters</td></tr>
+      <tr><td><code>@fps-games/editor-core</code></td><td>命令、事件、document session、history、dirty 状态、生命周期、capability registry。</td><td>否</td></tr>
+      <tr><td><code>@fps-games/editor-protocol</code></td><td>平台与项目共享的 command/event/capability 类型和协议版本。</td><td>否</td></tr>
+      <tr><td><code>@fps-games/editor-browser</code></td><td>浏览器 host 能力：window、document、canvas、pointer、keyboard、resize、iframe/focus 环境。</td><td>否</td></tr>
+      <tr><td><code>@fps-games/editor-babylon</code></td><td>当前已包含 Babylon 编辑运行时：viewport camera、event guard、input、tool/gizmo、selection、edit session、Inspector host、runtime monitor、material/outline adapter。</td><td>否，依赖项目提供 binding adapter 和 document callbacks</td></tr>
+      <tr><td><code>@fps-games/editor-forge-play</code></td><td>适配 forge-play bridge：<code>window.__bridge</code>、postMessage、<code>document.export</code>、<code>document.commit</code>、mode command。</td><td>否</td></tr>
+      <tr><td>UI 层</td><td><code>@fps-games/editor-browser</code> 提供 EditorWorld 工作台、Hierarchy、Asset Library、Component Inspector、工具栏和快捷键 shell；完整 <code>editor-ui</code> 产品层尚未单独落地。</td><td>只消费 session state、SerializedObject、tree adapter 和 asset item，不直接依赖项目 schema</td></tr>
+      <tr><td>project adapter</td><td>每个游戏项目实现：Scene JSON schema、Asset registry、SceneBuilder、Game runtime、业务节点规则。</td><td>是，留在游戏项目内</td></tr>
+    </table>
+
+    <h2>通用编辑器与状态化扩展</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span><code>fps-game-editor</code> 的核心能力应保持通用场景编辑，不把 PA 单帧制作里的状态化编辑直接塞进 core。状态化编辑应作为可选扩展建立在通用编辑能力之上，这样普通项目仍然可以只做标准场景编辑。</p>
+    <table>
+      <tr><th>层</th><th>能力范围</th><th>适用项目</th><th>当前归属判断</th></tr>
+      <tr>
+        <td>Generic Scene Editing</td>
+        <td>asset import、GameObject hierarchy、selection、gizmo transform、Component Inspector / property panel、undo/redo、document export/commit、camera/viewport、material/light/outline editing、persistent binding、Prefab definition / instance、Babylon projection sync。Babylon Inspector 只作为 debug UI。</td>
+        <td>所有需要基础场景编辑的项目。</td>
+        <td>属于 <code>editor-core</code>、<code>editor-babylon</code>、<code>editor-forge-play</code>、<code>@fps-games/editor</code> 主线。</td>
+      </tr>
+      <tr>
+        <td>当前已落地的 EditorWorld 能力</td>
+        <td>GameObject hierarchy 选择/多选/重命名/创建 Group/删除子树/inside reparent、Asset Browser 放置、Transform Inspector、Gizmo/View Plane Move、Undo/Redo、Dirty/History 和 Babylon projection sync。</td>
+        <td><code>lumber_order</code> 联调场景。</td>
+        <td>公共 UI / harness / Babylon projection 已落地，项目 adapter 提供 schema patch、校验和 compile。</td>
+      </tr>
+      <tr>
+        <td>Snapshot / Presentation Preview Editing</td>
+        <td><code>PreviewSnapshot</code>、<code>SnapshotOverride</code>、<code>EditingScope</code>、预览时间、截图/视频预览、差异编辑、预览校验。<code>PresentationPreset</code> 暂不作为第一版必需概念。</td>
+        <td>PA 单帧制作、需要在同一基础场景上编辑多组画面状态的项目。</td>
+        <td><span class="status-tag tag-temp">设计共识，尚未实现</span>推荐作为可选扩展，例如未来的 <code>@fps-games/editor-presentation</code> 或插件能力。</td>
+      </tr>
+      <tr>
+        <td>Project Domain Editing</td>
+        <td>游戏特定规则、业务节点、玩法配置、程序逻辑参考、项目内校验。</td>
+        <td>具体游戏项目。</td>
+        <td>留在 project adapter 或项目自己的 domain editor，不进入公共 core。</td>
+      </tr>
+    </table>
+    <p>普通场景编辑项目只需要 Generic Scene Editing；PA 项目可以在此之上启用 Snapshot / Presentation Preview Editing；更复杂项目也可以接入自己的 domain editor，而不必接受 PA 的画面快照模型。</p>
+
+    <h2>Unity 风格命名原则</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>核心数据和对外沟通命名可以偏向 Unity 风格，因为 <code>Scene</code>、<code>GameObject</code>、<code>Component</code>、<code>Prefab</code>、<code>Asset</code>、<code>Material</code>、<code>Transform</code> 对美术、技术美术和程序都更直观。但这只是术语和数据组织上的借鉴，不代表要复刻 Unity runtime、序列化系统或生命周期。</p>
+    <table>
+      <tr><th>命名</th><th>建议用法</th><th>边界</th></tr>
+      <tr>
+        <td>SceneDocument</td>
+        <td>保存到文件或平台的完整场景文档容器，可包含 <code>Scene</code>、资源引用、预览快照和文档元信息。</td>
+        <td>不叫 <code>EditorSceneDocument</code>，因为核心数据不是编辑器私有；编辑器只是 author 它。</td>
+      </tr>
+      <tr>
+        <td>Scene</td>
+        <td>文档里的核心 authored scene 数据，包括对象层级、基础对象、组件和共享表现数据。</td>
+        <td>不是 Babylon <code>Scene</code>；Babylon Scene 只是某个 world 的 projection。</td>
+      </tr>
+      <tr>
+        <td>GameObject</td>
+        <td>替代长期对外的泛化 <code>Scene Node</code> 命名，表示文档里的 authored object identity。</td>
+        <td>不等于运行时 Babylon <code>TransformNode</code>，也不自动拥有 Unity 的 lifecycle。</td>
+      </tr>
+      <tr>
+        <td>Component</td>
+        <td>表达对象能力，例如 <code>TransformComponent</code>、<code>ModelRendererComponent</code>、<code>DecalComponent</code>、<code>LightComponent</code>、<code>CameraComponent</code>、<code>OutlineComponent</code>、<code>GameplayBindingComponent</code>。</td>
+        <td>用于拆开“对象身份”和“对象能力”，避免继续扩张 <code>kind / transformType / overrides</code> 大桶。</td>
+      </tr>
+      <tr>
+        <td>Prefab</td>
+        <td>编辑器层可复用对象模板，可展开为一组 GameObject + Component，并引用 Asset、Material 等资源。</td>
+        <td>第一版不引入复杂嵌套继承或 Unity Prefab Variant 语义。</td>
+      </tr>
+      <tr>
+        <td>Asset / Material / Transform</td>
+        <td>保持接近 Unity 的通用含义：原始资源、材质资源或参数、空间变换数据。</td>
+        <td>GLB 是 Asset，不等于 Prefab；Transform 是 authored data，不等于 Babylon runtime object。</td>
+      </tr>
+    </table>
+    <p>因此命名方向是：用 Unity 风格降低沟通成本，用我们自己的数据边界保证 PA 编辑器链路清晰。不要引入 <code>Awake</code>、<code>Start</code>、<code>Update</code> 等 Unity lifecycle，也不要让 <code>GameObject</code> 成为某个具体 engine runtime object 的别名。</p>
+
+    <h2>数据用途命名边界</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>命名必须先服务数据用途划分。不是所有可保存数据都属于 Scene，也不是所有运行时可调参数都应该回写 authored source of truth。</p>
+    <table>
+      <tr><th>数据类别</th><th>建议命名</th><th>用途</th><th>是否进入运行时</th></tr>
+      <tr>
+        <td>共享 authored 数据</td>
+        <td><code>SceneDocument / Scene / GameObject / Component / Prefab / Asset / Material</code></td>
+        <td>编辑器和运行时都需要的长期源数据。</td>
+        <td>通过项目 adapter 编译后进入 GameWorld。</td>
+      </tr>
+      <tr>
+        <td>编辑器私有数据</td>
+        <td><code>EditorWorkspace</code></td>
+        <td>selection、展开折叠、editor camera、grid、snap、gizmo、panel layout、拖拽中间态。</td>
+        <td>不进入 GameWorld。</td>
+      </tr>
+      <tr>
+        <td>画面预览数据</td>
+        <td><code>PreviewSnapshot / SnapshotOverride</code></td>
+        <td>美术验收截图、关键画面或短视频状态；可以有时间和局部覆盖。</td>
+        <td>进入 PresentationPreviewWorld；不自动成为 gameplay state。</td>
+      </tr>
+      <tr>
+        <td>运行时 authored 配置</td>
+        <td><code>RuntimeTuning / GameConfig</code></td>
+        <td>程序或 AI 可调的运行参数，例如经济、AI 默认参数、机器参数、world bounds。</td>
+        <td>进入 GameWorld，但不是场景对象层级。</td>
+      </tr>
+      <tr>
+        <td>单次运行状态</td>
+        <td><code>RuntimeSessionState</code></td>
+        <td>玩家位置、NPC AI 状态、建造进度、资源数量、AI 动态调参即时值。</td>
+        <td>只属于一次运行；默认不回写 SceneDocument。</td>
+      </tr>
+    </table>
+    <p>AI 在运行时做动态调整时，应先落在 <code>RuntimeSessionState</code> 或 <code>RuntimeTuningDraft</code>。只有经过人工确认或明确 apply/bake 流程后，才允许进入可发布的 <code>RuntimeTuning</code> 或 authored scene 数据。</p>
+
+    <h2>Prefab 归属原则</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>Babylon 不提供 Unity 式完整 Prefab 系统；它提供的是 AssetContainer、clone、instance、thin instance、<code>instantiateModelsToScene()</code> 等渲染和实例化能力。最佳设计是由 <code>fps-game-editor</code> 定义编辑器层 Prefab 语义，Babylon 只作为 runtime projection / instantiate 后端。</p>
+    <table>
+      <tr><th>概念</th><th>定位</th><th>说明</th></tr>
+      <tr>
+        <td>Asset</td>
+        <td>原始资源</td>
+        <td>例如 glb、texture、material、animation、vfx 文件。GLB 是资源，不等同于 Prefab。</td>
+      </tr>
+      <tr>
+        <td>Prefab</td>
+        <td>authored template</td>
+        <td>编辑器里的可复用对象模板，可引用一个或多个 asset，包含默认 GameObject 层级、默认 component、默认 transform、默认材质和编辑器元数据。</td>
+      </tr>
+      <tr>
+        <td>PrefabInstance / GameObject</td>
+        <td>场景实例</td>
+        <td>场景中放置出来的一个 authored object，引用 <code>prefabId</code> 或直接挂载 components，拥有自身 transform 和 instance override。</td>
+      </tr>
+      <tr>
+        <td>Babylon objects</td>
+        <td>渲染投影</td>
+        <td>Mesh、TransformNode、Material、Light 等是 Prefab/GameObject 在某个 world 中的投影，不是 Prefab 本身。</td>
+      </tr>
+    </table>
+    <p>因此 Prefab 应是通用编辑器能力，不只属于 PA 单帧制作。PA 的画面快照和状态化编辑建立在 Prefab / GameObject 之上。</p>
+    <pre><code>Asset
+  -> Prefab
+  -> PrefabInstance / GameObject
+  -> PreviewSnapshot / SnapshotOverride
+  -> Babylon projection</code></pre>
+
+    <table>
+      <tr><th>规则</th><th>当前约定</th><th>原因</th></tr>
+      <tr><td>默认安装入口</td><td><code>@fps-games/editor</code></td><td>降低游戏项目接入成本，避免把内部包组合暴露成默认使用方式。</td></tr>
+      <tr><td>分层包可见性</td><td><code>@fps-games/editor-protocol</code>、<code>editor-core</code>、<code>editor-browser</code>、<code>editor-babylon</code>、<code>editor-forge-play</code> 继续发布</td><td>聚合包依赖它们，且边界真实存在；少数项目可直接引用高级 helper/type。</td></tr>
+      <tr><td>版本策略</td><td>lockstep version，例如全部使用 <code>0.1.0-alpha.0</code></td><td>减少跨包版本组合风险，适合当前快速迭代阶段。</td></tr>
+      <tr><td>消费策略</td><td>游戏项目使用精确版本并提交 lockfile</td><td>平台不能远程强行升级旧项目，项目升级必须显式发生。</td></tr>
+    </table>
+
+    <h2>项目侧接入形态共识</h2>
+    <p>当前聚合入口 <code>createBabylonForgePlayEditor(...)</code> 已存在。游戏项目默认只需要接入聚合包，而不是直接拼装所有内部包。项目侧必须提供 adapter，把通用编辑器能力映射到自己的 authored config 和 runtime。</p>
+    <pre><code>import { createBabylonForgePlayEditor } from '@fps-games/editor';
+
+createBabylonForgePlayEditor({
+  scene,
+  engine,
+  canvas,
+  game,
+  documentAdapter,
+  assetAdapter,
+  sceneAdapter,
+  persistentBindingAdapter,
+  lifecycleAdapter,
+});</code></pre>
+
+    <table>
+      <tr><th>adapter</th><th>由谁实现</th><th>当前职责</th></tr>
+      <tr><td><code>documentAdapter</code></td><td>游戏项目</td><td>读写 authored document，导出 <code>scene.json</code> 文本，维护 schema 规则。</td></tr>
+      <tr><td><code>assetAdapter</code></td><td>游戏项目</td><td>注册资产、解析 sourceId/assetId、返回 asset reference。</td></tr>
+      <tr><td><code>sceneAdapter</code></td><td>游戏项目</td><td>创建/删除/查询 scene node，并与 <code>SceneBuilder</code> 和 runtime binding 对接。</td></tr>
+      <tr><td><code>lifecycleAdapter</code></td><td>游戏项目</td><td>进入/退出编辑模式时暂停或隔离游戏运行时、输入、AI、经济系统等。</td></tr>
+      <tr><td><code>engineAdapter</code></td><td><code>editor-babylon</code> + 项目上下文</td><td>访问 Babylon scene、picking、gizmo、Inspector host、runtime 变更观测；持久化仍由 document adapter 处理。</td></tr>
+      <tr><td><code>platformBridge</code></td><td><code>editor-forge-play</code></td><td>与 forge-play 交换命令、事件和保存结果。</td></tr>
+    </table>
+
+    <h2>Inspector 与编辑器数据关系</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>Babylon Inspector 是开发期 runtime inspection UI，不是编辑器的数据权威。编辑器可以读取 Inspector 暴露的运行时上下文，也可以观测 Inspector 修改 Babylon runtime object 后造成的变化，但不能让 Inspector 直接成为 <code>scene.json</code> 写入者。</p>
+    <pre><code>Babylon Inspector 修改 runtime object
+  -> editor-babylon 观测 TransformNode / Material / Mesh 变化
+  -> persistent binding 映射到项目 scene node
+  -> editor-core 记录 history / dirty / undo / redo
+  -> project documentAdapter 写 authored config
+  -> document.export 输出 scene.json</code></pre>
+    <p><code>vite-plugins</code> 负责注入 Inspector loader 和 <code>ensureInspectorReady()</code>；<code>editor-babylon</code> 负责 Inspector host、show/hide、runtime 观测和与 editor document 的连接。</p>
+
+    <h2>正式编辑 UI 归属原则</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>正式 authoring UI 必须由 <code>fps-game-editor</code> / 项目 editor UI 自己实现，不能复用 Babylon Inspector 作为层级树或属性面板。Babylon Inspector 面向 Babylon runtime object；我们的正式编辑对象是 <code>SceneDocument / GameObject / Component</code>。</p>
+    <table>
+      <tr><th>UI</th><th>读取对象</th><th>职责</th><th>边界</th></tr>
+      <tr>
+        <td>GameObject Hierarchy</td>
+        <td><code>SceneDocument.scene.gameObjects</code></td>
+        <td>显示 authored object 层级，选择 <code>gameObjectId</code>，驱动 selection 和 projection highlight。</td>
+        <td>不显示 Babylon Scene 内部临时节点、helper mesh 或 runtime generated child。</td>
+      </tr>
+      <tr>
+        <td>Component Inspector / Property Inspector</td>
+        <td>选中 <code>GameObject.components</code></td>
+        <td>显示和编辑 Transform、ModelRenderer、未来 Light、Camera、Decal、Material 等 authored component。</td>
+        <td>修改必须生成 document patch，不直接把 Babylon object 当保存源。</td>
+      </tr>
+      <tr>
+        <td>Babylon Inspector</td>
+        <td>Babylon <code>Scene / Mesh / TransformNode / Material</code></td>
+        <td>开发期调试投影、材质、渲染、相机、性能和 runtime object。</td>
+        <td>不是正式 authoring UI，不负责层级编辑、属性保存或 document commit。</td>
+      </tr>
+    </table>
+    <p>第一轮 EditorWorld MVP 已包含自研层级树和 Component Inspector：左侧列出 GameObject 并支持选择、多选、重命名、创建 Group、删除子树和 inside reparent；右侧编辑 Transform；中间 Babylon canvas 只作为 projection。</p>
+
+    <h2>能力归属边界</h2>
+    <table>
+      <tr><th>编辑器能力</th><th>推荐归属</th><th>说明</th></tr>
+      <tr><td>场景树管理</td><td>公共 UI + project adapter</td><td>当前公共 Hierarchy UI 已落地选择、多选、重命名、Group、删除子树和 inside reparent；项目 adapter 提供节点来源、patch、校验和 reparent transform 计算。</td></tr>
+      <tr><td>资产管理</td><td><code>editor-core</code> + project assetAdapter</td><td>通用包定义接口，项目负责注册规则和路径策略。</td></tr>
+      <tr><td>游戏编辑模式</td><td><code>editor-core</code> + lifecycleAdapter</td><td>core 定义生命周期，项目负责暂停/恢复/隔离运行时系统。</td></tr>
+      <tr><td>gizmos / picking</td><td><code>editor-babylon</code></td><td>绑定 Babylon scene 和 runtime node，但持久化仍走 document adapter。</td></tr>
+      <tr><td>平台通信</td><td><code>editor-forge-play</code> + <code>editor-protocol</code></td><td>平台只识别协议和 capability，不理解项目 schema。</td></tr>
+    </table>
+
+    <h2>编辑器功能更新策略共识</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>设计共识是：游戏项目引入确定版本的编辑器包，由 lockfile 固定。当前 npm alpha 已发布为 <code>0.1.0-alpha.0</code>，并采用多包 lockstep version。平台不能远程强行升级旧项目；项目升级必须显式修改 package.json 和 lockfile。</p>
+    <pre><code>{
+  "dependencies": {
+    "@fps-games/editor": "0.1.0-alpha.0"
+  }
+}</code></pre>
+    <table>
+      <tr><th>更新类型</th><th>版本策略</th><th>兼容要求</th></tr>
+      <tr><td>bugfix</td><td>patch</td><td>不改变 adapter 接口。</td></tr>
+      <tr><td>新增可选能力</td><td>minor</td><td>通过 capability 暴露，旧项目未实现时不启用。</td></tr>
+      <tr><td>adapter 破坏性变化</td><td>major</td><td>项目显式升级并调整 adapter。</td></tr>
+      <tr><td>平台协议变化</td><td><code>editor-protocol</code> semver</td><td>优先保持向后兼容，必要时协议版本协商。</td></tr>
+    </table>
+    <pre><code>editorRuntime.registerCapabilities({
+  sceneTree: true,
+  assetImport: true,
+  assetRegistryWrite: true,
+  transformGizmo: true,
+  materialEditing: true,
+  documentExport: true,
+  documentCommit: true,
+});</code></pre>
+
+    <h2>生产构建边界共识</h2>
+    <p>设计共识是：编辑器能力默认属于开发期/平台编辑期能力，不应进入正式 playable 广告包。游戏项目应通过动态 import、环境变量和 tree-shaking 控制 editor runtime。</p>
+    <pre><code>if (import.meta.env.DEV || window.__FORGE_PLAY_EDIT_MODE__) {
+  const { createBabylonForgePlayEditor } = await import('@fps-games/editor');
+  createBabylonForgePlayEditor(...);
+}</code></pre>
+    <p><span class="status-tag tag-risk">已知风险</span>如果编辑器包被静态引入生产入口，Babylon Inspector、gizmo、UI 面板和调试逻辑可能污染正式包体。</p>
+  </div>
+
+
+
+  <div id="page-authoring" class="page">
+    <h2>Authoring Source 架构</h2>
+    <div class="notice green">
+      <span class="status-tag tag-current">当前设计共识</span>
+      <code>editor-scene.json</code> 只是第一种 Authoring Source：<code>scene.main</code>。未来特效、材质、玩法配置和代码都应作为独立 source 被编辑、保存、编译或 apply，不能继续把所有可持久化数据塞进同一份 scene 文件。
+    </div>
+
+    <h2>核心边界</h2>
+    <table>
+      <tr><th>对象</th><th>定位</th><th>允许写入者</th></tr>
+      <tr>
+        <td><code>Authoring Source</code></td>
+        <td>可长期保存和版本化的源数据，例如 <code>scene.main</code>、effect、material、gameplay config 或 code。</td>
+        <td>EditorSession、AIChange pipeline、Runtime Apply Boundary。</td>
+      </tr>
+      <tr>
+        <td><code>editor-scene.json</code></td>
+        <td><code>scene.main</code> 的当前文件形态，负责场景结构、GameObject、Component、资产引用和 authored transform。</td>
+        <td>Scene authoring source adapter。</td>
+      </tr>
+      <tr>
+        <td><code>scene.json</code></td>
+        <td>由 source compile 出来的 runtime input / compiled artifact；GameWorld 消费它，但它不是 authored source of truth。</td>
+        <td>Compiler；不允许 RuntimeWorld 或 AI 把它当正式编辑入口。</td>
+      </tr>
+      <tr>
+        <td><code>RuntimeWorld</code></td>
+        <td>运行态实例和调参上下文，可产生 runtime patch，但不是 source。</td>
+        <td>只能通过带 source binding 的 Apply Boundary 写回对应 source。</td>
+      </tr>
+      <tr>
+        <td><code>AI</code></td>
+        <td>可以提出场景、特效、材质、配置或代码修改意图。</td>
+        <td>必须输出到 AuthoringSource patch / RuntimePatch / CodePatch，不能绕过 source boundary 直接改 compiled artifact。</td>
+      </tr>
+    </table>
+
+    <h2>Source 类型</h2>
+    <table>
+      <tr><th>Source 类型</th><th>示例</th><th>写回目标</th><th>本轮状态</th></tr>
+      <tr>
+        <td><code>scene</code></td>
+        <td><code>scene.main</code></td>
+        <td><code>src/config/editor-scene.json</code></td>
+        <td><span class="status-tag tag-current">本轮接入</span></td>
+      </tr>
+      <tr>
+        <td><code>effect</code></td>
+        <td><code>effect.explosion.small</code></td>
+        <td>未来的 effect definition 文件。</td>
+        <td>只定义边界，不实现 editor。</td>
+      </tr>
+      <tr>
+        <td><code>material</code></td>
+        <td><code>material.wood</code></td>
+        <td>未来的 material definition 文件。</td>
+        <td>只定义边界，不实现 editor。</td>
+      </tr>
+      <tr>
+        <td><code>gameplay-config</code></td>
+        <td><code>gameplay.economy</code></td>
+        <td>未来的玩法配置文件。</td>
+        <td>只定义边界，不实现 editor。</td>
+      </tr>
+      <tr>
+        <td><code>code</code></td>
+        <td><code>CampBuildSystem.ts</code></td>
+        <td>代码 patch / review / test 流程。</td>
+        <td>只定义边界，不进入 EditorSession 文档保存。</td>
+      </tr>
+    </table>
+
+    <h2>数据流</h2>
+    <pre><code>已落地保存主链路：
+AuthoringSource(scene.main)
+  -> EditorSession
+  -> ProjectAuthoringHost.commitSource(scene.main)
+  -> SourceDriver.validate / save / compile
+  -> scene.json runtime input
+  -> GameWorld runtime objects with source binding
+
+未完整落地的后续链路：
+RuntimeWorld live change / AI suggestion
+  -> RuntimePatch or AIChange
+  -> resolve source binding
+  -> source-specific AuthoringCommand
+  -> EditorSession / source save
+  -> compile again</code></pre>
+
+    <h2>Authoring Command Pipeline</h2>
+    <div class="notice green">
+      <span class="status-tag tag-current">当前设计共识</span>
+      编辑器内部交互命令和项目 source 保存命令必须分层：<code>EditorSession Command</code> 管 working copy、Undo、Dirty、Selection 和 Projection Sync；<code>Authoring Command Pipeline</code> 管 source revision、validate、save、compile 和 runtime apply。
+    </div>
+    <div class="notice yellow">
+      <span class="status-tag tag-temp">当前实现状态</span>
+      当前已落地的是 <code>scene.main</code> 保存主链路：公共框架提供 <code>AuthoringCommand</code>、<code>AuthoringSourceDriver</code>、<code>ProjectAuthoringHost</code>、diagnostics、revision check、runtime patch 类型和 <code>RuntimeAdapter</code> 接口；<code>LocalEditorHarness.saveScene()</code> 已优先调用 <code>ProjectAuthoringHost.commitSource(...)</code>。尚未完整落地的是项目级常驻 host、AI / RuntimeWorld 统一 <code>dispatch(...)</code> 接入、项目侧 <code>compileRuntimePatch</code> 实现，以及实际 <code>RuntimeAdapter</code> 挂载和运行时 apply。
+    </div>
+    <table>
+      <tr><th>命令层</th><th>负责</th><th>不负责</th></tr>
+      <tr>
+        <td><code>EditorSession Command</code></td>
+        <td>Hierarchy / Inspector / Gizmo / Menu 产生的即时编辑，更新 <code>workingDocument</code>，进入 Undo/Dirty/History，并同步 EditorWorld projection。</td>
+        <td>不直接写文件，不递增 source revision，不编译 <code>scene.json</code>。</td>
+      </tr>
+      <tr>
+        <td><code>Authoring Command Pipeline</code></td>
+        <td>把某个 Authoring Source 的文档提交给项目侧 <code>SourceDriver</code>，执行 revision check、validate、save、compile，并可选 apply 到 active runtime。</td>
+        <td>不接管 EditorSession 的 Undo、Selection、Gizmo 拖拽事务。</td>
+      </tr>
+    </table>
+    <pre><code>Save Scene
+  -> EditorSession.getState().workingDocument
+  -> ProjectAuthoringHost.commitSource({
+       source: scene.main,
+       document,
+       expectedRevision: scene.main.revision
+     })
+  -> sceneMainSourceDriver.validate(document)
+  -> sceneMainSourceDriver.save(editor-scene.json)
+  -> sceneMainSourceDriver.compile(scene.json)
+  -> EditorSession.markSaved(savedDocument, savedSource)</code></pre>
+    <table>
+      <tr><th>层</th><th>职责</th><th>边界</th></tr>
+      <tr>
+        <td><code>@fps-games/editor-core</code></td>
+        <td>提供 <code>AuthoringCommand</code>、<code>SourceDriver</code>、<code>ProjectAuthoringHost</code>、diagnostics、runtime patch 和 revision 机制。</td>
+        <td>不硬编码 <code>lumber_order</code>、Babylon、材质结构或具体项目配置 schema。</td>
+      </tr>
+      <tr>
+        <td><code>@fps-games/editor</code></td>
+        <td>在 Local Editor Harness 中把 Save Scene 接到 <code>ProjectAuthoringHost.commitSource(...)</code>，成功后调用 <code>EditorSession.markSaved(...)</code>。</td>
+        <td>不把 host 变成 EditorSession，也不让 host 管 Undo/Redo。</td>
+      </tr>
+      <tr>
+        <td>游戏项目</td>
+        <td>当前在本地编辑器 adapter 层创建 <code>ProjectAuthoringHost</code>，并注册 <code>scene.main</code> source driver。</td>
+        <td>effect、material、gameplay-config、code 仍只是未来 source 边界；项目可以理解自己的 schema，但不重新实现公共 EditorSession / UI / Projection 框架。</td>
+      </tr>
+      <tr>
+        <td><code>forge-play</code></td>
+        <td>承载 iframe、传输 command、保存文件、展示状态。</td>
+        <td>不解释项目 schema，不直接修改 Babylon object，不把 <code>scene.json</code> 当 authoring source。</td>
+      </tr>
+    </table>
+    <p><span class="status-tag tag-risk">冲突策略</span>第一版不做 merge。<code>expectedRevision</code> 与当前 source revision 不一致时，<code>ProjectAuthoringHost</code> 必须拒绝提交：不保存、不编译、不清 Dirty，由 UI 显示 revision mismatch。</p>
+    <p><span class="status-tag tag-temp">Preview / Commit 边界</span>公共 host 已定义 <code>intent="preview"</code> 与 <code>intent="commit"</code> 的分层：preview 不写 source，只能 validate、生成 runtime patch 并尝试 apply active runtime；commit 才能 reduce source、validate、save、compile。当前 <code>scene.main</code> 保存走 commit 主链路，preview / runtime apply 仍缺少项目侧 <code>compileRuntimePatch</code> 和实际 <code>RuntimeAdapter</code> 接入。AI 和 RuntimeWorld 后续也必须走这条边界，不能绕过 source。</p>
+
+    <h2>Scene Graph Authoring</h2>
+    <div class="notice green">
+      <span class="status-tag tag-current">当前设计共识</span>
+      Hierarchy 不是项目侧临时列表 UI，而是 <code>scene.main</code> Authoring Source 的 Scene Graph 编辑入口。第一轮场景管理能力覆盖节点重命名、创建 Empty Group、删除子树、拖拽单个节点到另一个节点下，以及基础合法性校验。
+    </div>
+    <pre><code>Hierarchy UI
+  -> SceneGraph intent
+  -> LocalEditorHarness
+  -> project adapter creates document.patch
+  -> EditorSession.dispatch(document.patch)
+  -> Undo / Dirty / History
+  -> Projection rebuild/sync
+  -> source-aware Save scene.main</code></pre>
+    <table>
+      <tr><th>层</th><th>职责</th><th>不负责</th></tr>
+      <tr>
+        <td><code>@fps-games/editor-core</code></td>
+        <td>定义 Scene Graph intent、tree read model、drop placement 和纯校验 helper。</td>
+        <td>不认识 <code>GameObject</code>、<code>parentId</code>、Transform，也不修改 document。</td>
+      </tr>
+      <tr>
+        <td><code>@fps-games/editor-browser</code></td>
+        <td>实现通用 Hierarchy UI：inline rename、create group、delete、drag/drop 状态和 locked/disabled 表现。</td>
+        <td>不依赖 <code>lumber_order</code> schema，不直接写 document。</td>
+      </tr>
+      <tr>
+        <td><code>@fps-games/editor</code></td>
+        <td>把 UI intent 接到项目 adapter，统一通过 <code>EditorSession.dispatch(document.patch)</code> 进入 Undo/Dirty/History，并同步 projection。</td>
+        <td>不把 selection 操作写进 History，不从 Babylon Scene 反扫保存。</td>
+      </tr>
+      <tr>
+        <td><code>lumber_order</code></td>
+        <td>提供 <code>scene.main</code> schema patch、reducer、parent/descendant 计算和 transform reparent 计算。</td>
+        <td>不实现通用 Hierarchy UI 或公共 Scene Graph 框架。</td>
+      </tr>
+    </table>
+    <p><span class="status-tag tag-current">Reparent 默认语义</span>拖拽节点到另一个节点下时默认 <code>preserveWorldTransform = true</code>：用户看到的世界位置、朝向、缩放应尽量保持不变。项目 adapter 需要根据旧 parent 链计算 old world transform，再根据新 parent 反算 new local transform；无法安全计算时拒绝 drop，只更新状态提示，不产生 dirty。</p>
+    <ul>
+      <li>禁止拖到自己或 descendant 下，避免 parent cycle。</li>
+      <li>locked / readonly 节点不能 rename、delete、reparent。</li>
+      <li><code>canHaveChildren === false</code> 的节点不能作为 <code>inside</code> drop target。</li>
+      <li>第一轮只正式提交 <code>inside</code> reparent；<code>before / after</code> 排序只保留类型和 UI 提示。</li>
+      <li>第一轮 reparent / delete 后允许整体 rebuild projection，正确性优先。</li>
+    </ul>
+
+    <h2>Compile Provenance</h2>
+    <p><span class="status-tag tag-current">设计原则</span>compiled artifact 必须记录自己来自哪个 source 和哪个 revision。GameWorld 只能使用这份信息追溯来源，不能因为持有 runtime object 就反向成为 authoring source。</p>
+    <pre><code>scene.json.meta.generatedFrom = {
+  sourceId: "scene.main",
+  sourceType: "scene",
+  revision: 12,
+  compilerId: "lumber_order.editor-scene",
+  compilerVersion: 1,
+  compiledAt: "..."
+}
+
+scene.nodes[].source = {
+  sourceId: "scene.main",
+  sourceType: "scene",
+  objectId: "mvp_tree_01",
+  component: "GameObject"
+}</code></pre>
+
+    <h2>Apply Boundary</h2>
+    <p>RuntimeWorld 中的可保存修改必须从产生时就携带 source binding。Apply 不是保存 RuntimeWorld，也不是扫描 Babylon Scene，而是把 runtime patch 翻译为目标 Authoring Source 的 command。</p>
+    <table>
+      <tr><th>Runtime 修改</th><th>Apply 目标</th><th>说明</th></tr>
+      <tr>
+        <td>场景对象 transform</td>
+        <td><code>scene.main</code></td>
+        <td>映射到 GameObject Transform component。</td>
+      </tr>
+      <tr>
+        <td>一次性爆炸特效参数</td>
+        <td><code>effect</code> source</td>
+        <td>保存到 effect definition，不塞进 <code>editor-scene.json</code>。</td>
+      </tr>
+      <tr>
+        <td>材质参数</td>
+        <td><code>material</code> source</td>
+        <td>保存到 material definition 或显式 scene override。</td>
+      </tr>
+      <tr>
+        <td>玩法数值</td>
+        <td><code>gameplay-config</code> source</td>
+        <td>保存到配置源，不进入场景层级。</td>
+      </tr>
+      <tr>
+        <td>玩法逻辑</td>
+        <td><code>code</code> source</td>
+        <td>走代码 patch、typecheck、test，不进入 scene document。</td>
+      </tr>
+    </table>
+
+    <h2>Drift Detection</h2>
+    <p>进入 EditorWorld 时必须比较 source revision 与 compiled artifact provenance。如果 <code>scene.json</code> 的 <code>generatedFrom.revision</code> 和 <code>editor-scene.json</code> 的 source revision 不一致，说明 runtime input 已经漂移。MVP 只显示提示并允许继续加载 source；保存时重新 compile 覆盖 runtime input，不做自动 merge。</p>
+
+    <h2>lumber_order 现状审计</h2>
+    <div class="notice yellow">
+      <span class="status-tag tag-temp">当前实现状态</span>
+      <code>lumber_order</code> 联调 worktree 已在 <code>src/debug/local-editor-mode-switcher.ts</code> 中创建 <code>ProjectAuthoringHost</code>，并注册 <code>scene-main-source-driver</code> 作为 <code>scene.main</code> 的项目 source driver。该 driver 已覆盖 <code>load / validate / save / compile</code>，但它当前仍通过 <code>__mock_platform_assets</code> 完成本地加载、保存和资产库读取；因此“彻底解除 dev-only mock platform api”尚未完成。
+    </div>
+    <table>
+      <tr><th>路径</th><th>当前行为</th><th>分类</th><th>后续处理</th></tr>
+      <tr>
+        <td><code>src/debug/local-editor-mode-switcher.ts</code></td>
+        <td>创建 <code>ProjectAuthoringHost</code>，注册 <code>scene-main-source-driver</code>，并把 <code>LocalEditorHarness</code> 的保存接到 <code>commitSource(...)</code>。</td>
+        <td>当前本地 source 接入</td>
+        <td>后续提升为项目 bootstrap 级常驻 host，供 editor UI、AI、RuntimeWorld 和平台命令共用。</td>
+      </tr>
+      <tr>
+        <td><code>src/fps-game-editor-adapter/scene-main-source-driver.ts</code></td>
+        <td>实现 <code>scene.main</code> 的 <code>load / validate / save / compile</code>；保存成功后可返回 compiled runtime scene artifact。</td>
+        <td>当前 source driver</td>
+        <td>尚未实现 <code>compileRuntimePatch</code>；runtime preview/apply 仍待接入。</td>
+      </tr>
+      <tr>
+        <td><code>vite.config.ts /editor-scene</code></td>
+        <td>读取 <code>src/config/editor-scene.json</code>，补齐 authoring source 信息，并返回 drift summary。</td>
+        <td>dev-only mock transport</td>
+        <td>当前仍被 <code>scene-main-source-driver</code> 调用；未来应替换为正式 source storage/transport。</td>
+      </tr>
+      <tr>
+        <td><code>vite.config.ts /save-editor-scene</code></td>
+        <td>接收 editor scene，写 <code>editor-scene.json</code>，递增 source revision，再 compile 覆盖 <code>scene.json</code>。</td>
+        <td>dev-only mock transport</td>
+        <td>当前仍是本地联调保存通道；未来应收敛为正式 AuthoringSource save API。</td>
+      </tr>
+      <tr>
+        <td><code>src/debug/live-panel.ts</code></td>
+        <td>运行时 debug panel 可直接保存到 <code>scene.json</code>：先尝试 <code>window.__bridge.editor.commitSavedDocument(...)</code>，再 fallback 到 <code>/api/live-panel/scene-json</code> 文件写入。</td>
+        <td>legacy/debug path</td>
+        <td>两条保存链都保留为调试路径；未来迁移到 RuntimePatch Apply Boundary。</td>
+      </tr>
+      <tr>
+        <td><code>vite.config.ts /__debug_panel_config</code></td>
+        <td>dev-only debug panel 配置 API 可写 <code>src/config/*</code> 下的项目配置文件。</td>
+        <td>legacy/debug config write path</td>
+        <td>未来迁移为 <code>gameplay-config</code> Authoring Source pipeline。</td>
+      </tr>
+      <tr>
+        <td><code>vite.config.ts /commit</code></td>
+        <td>旧平台 commit 直接写 <code>scene.json</code> 文本。</td>
+        <td>legacy platform path</td>
+        <td>隔离；未来改为提交 AuthoringSource patch 或删除。</td>
+      </tr>
+      <tr>
+        <td><code>vite.config.ts /file</code></td>
+        <td>通用文件写入 mock endpoint。</td>
+        <td>dev transport</td>
+        <td>不能作为正式 source save API 使用。</td>
+      </tr>
+    </table>
+  </div>
+
+
+  <div id="page-worlds" class="page">
+    <h2>三态模型总览</h2>
+    <div class="notice green">
+      <span class="status-tag tag-current">当前设计共识</span>
+      先不讨论多场景编辑，当前优先把 <strong>编辑场景</strong>、<strong>预览首帧</strong>、<strong>运行游戏</strong> 三件事拆清楚。三者都可以消费同一套 authored data，但拥有不同 world、不同生命周期、不同写入权限和不同运行系统。
+    </div>
+
+    <table>
+      <tr><th>模式</th><th>面向谁</th><th>核心目标</th><th>权威数据</th><th>是否写数据</th></tr>
+      <tr>
+        <td>编辑场景</td>
+        <td>美术 / 关卡搭建</td>
+        <td>摆放 prefab instance / scene node，编辑相机、灯光、材质和画面快照。</td>
+        <td>SceneDocument working copy</td>
+        <td>可以。通过 command 写 authored data。</td>
+      </tr>
+      <tr>
+        <td>预览首帧</td>
+        <td>美术 / 制作验收</td>
+        <td>从当前数据快照构建干净的视觉预览，验证截图、关键状态或短视频效果。</td>
+        <td>SceneDocument snapshot + 选择的 preview snapshot</td>
+        <td>不可以。只读验证，不回写文档。</td>
+      </tr>
+      <tr>
+        <td>运行游戏</td>
+        <td>程序 / 玩法验证 / 最终 playable</td>
+        <td>从 authored data 构建真实游戏运行时，由程序逻辑状态驱动玩法。</td>
+        <td>程序 runtime state + authored data</td>
+        <td>运行时状态可以变化，但默认不写回 authored document。</td>
+      </tr>
+    </table>
+
+    <pre><code>SceneDocument / authored data
+  -> EditorWorld            editable projection
+  -> PresentationPreviewWorld read-only visual/time projection
+  -> GameWorld              gameplay runtime projection</code></pre>
+
+    <h2>坐标系约定</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span><code>fps-game-editor</code> 的 Babylon world projection 必须和项目 GameWorld 使用同一套坐标系。当前 <code>lumber_order</code> 基线使用右手坐标系，GameWorld 设置 <code>scene.useRightHandedSystem = true</code>，因此本地 EditorWorld 也必须以右手坐标系创建。</p>
+    <p>选择右手坐标系的原因不是单纯技术偏好，而是为了贴近美术生产流程：美术导出的 GLB 资源默认是右手坐标系，编辑器保持右手系可以让美术在查看原始资源、摆放资产和进入运行时验证时看到一致的方向关系，减少坐标换算和方向误判。</p>
+    <ul>
+      <li><code>SceneDocument.transform.position / rotation</code> 是 authored data，不因进入不同 world 而改写语义。</li>
+      <li><code>EditorWorld</code>、<code>PresentationPreviewWorld</code> 和 <code>GameWorld</code> 的 Babylon Scene 必须显式声明同一坐标系；不得在某个 projection 层临时翻转坐标作为长期方案。</li>
+      <li>如果后续接入其他项目，该项目 adapter 必须声明自己的 world 坐标系；默认应优先保持 authoring data 与 runtime input 坐标系一致。</li>
+    </ul>
+
+    <h2>数据权威原则</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>编辑器需要借鉴帧同步和现代引擎的分层思想：逻辑层和渲染层分离，数据是权威，Babylon runtime object 只是数据在某个 world 中的表现。</p>
+    <table>
+      <tr><th>对象</th><th>定位</th><th>是否权威</th><th>说明</th></tr>
+      <tr>
+        <td>SceneDocument</td>
+        <td>authored source of truth</td>
+        <td>是</td>
+        <td>记录资产引用、prefab、scene node、transform、灯光、相机、材质、画面快照等可编辑数据。</td>
+      </tr>
+      <tr>
+        <td>Babylon Scene</td>
+        <td>world projection</td>
+        <td>否</td>
+        <td>用于显示、拾取、预览和运行。可以销毁、重建、切换，不能成为保存数据的唯一来源。</td>
+      </tr>
+      <tr>
+        <td>EditorWorld</td>
+        <td>可写编辑投影</td>
+        <td>否</td>
+        <td>用户操作先变成 editor command，再写 SceneDocument，随后同步到 Babylon 对象。</td>
+      </tr>
+      <tr>
+        <td>PresentationPreviewWorld</td>
+        <td>只读视觉/时间验证投影</td>
+        <td>否</td>
+        <td>从文档快照冷启动构建，关闭编辑器 helper，不运行完整 gameplay，可输出截图或短视频，不写回文档。</td>
+      </tr>
+      <tr>
+        <td>GameWorld</td>
+        <td>完整游戏运行投影</td>
+        <td>运行时逻辑状态是权威</td>
+        <td>程序逻辑决定真实游戏状态；authored data 提供初始布置和人工参考。</td>
+      </tr>
+    </table>
+
+    <pre><code>用户拖动 gizmo
+  -> editor command: patchNodeTransform(nodeId, transform)
+  -> SceneDocument working copy 更新
+  -> EditorWorld projector 更新 Babylon TransformNode</code></pre>
+
+    <p>反向从 Babylon Scene 临时扫描并推断文档，只能作为显式迁移、修复或调试流程，不能成为主链路。Inspector、gizmo、outline、helper mesh、runtime material override 都必须通过明确映射才能进入 authored data。</p>
+
+    <h2>核心术语小结</h2>
+    <table>
+      <tr><th>术语</th><th>含义</th><th>当前结论</th></tr>
+      <tr>
+        <td>Base Scene</td>
+        <td>默认场景，记录所有快照共享的实例、层级、默认 transform、灯光和相机。</td>
+        <td>第一版状态化编辑的基础层。</td>
+      </tr>
+      <tr>
+        <td>GameObject</td>
+        <td>文档里的 authored object / prefab instance，不是 Babylon <code>TransformNode</code> 本身。</td>
+        <td>长期对外命名优先使用 Unity 风格的 GameObject；旧资料里的 Scene Node 可视为过渡叫法。</td>
+      </tr>
+      <tr>
+        <td>Component</td>
+        <td>GameObject 上的能力和数据块，例如 Transform、ModelRenderer、Decal、Light、Camera、Outline、GameplayBinding。</td>
+        <td>用于替代继续扩张 <code>kind / transformType / overrides</code> 的设计方向。</td>
+      </tr>
+      <tr>
+        <td>PreviewSnapshot</td>
+        <td>美术要验收的某个截图、关键状态或短视频预览配置。</td>
+        <td>第一版状态化编辑的核心概念。</td>
+      </tr>
+      <tr>
+        <td>SnapshotOverride</td>
+        <td>某个快照相对 Base Scene 的差异，例如可见性、材质、pose、局部特效、相机、预览时间。</td>
+        <td>用于避免复制多份完整场景。</td>
+      </tr>
+      <tr>
+        <td>PresentationPreset</td>
+        <td>一组可复用的视觉差异命名集合。</td>
+        <td>不是第一版必需概念；只有当多个快照大量复用同一组 override 时再抽出。</td>
+      </tr>
+    </table>
+
+    <h2>编辑场景</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>编辑场景类似 Unity Edit Mode，但它不是 gameplay runtime 的暂停态。它是对 SceneDocument working copy 的可视化编辑环境。</p>
+    <table>
+      <tr><th>允许</th><th>不应承担</th></tr>
+      <tr>
+        <td>资产拖入、Prefab 创建、实例摆放、层级组织、transform、材质、灯光、相机、描边、阴影、编辑器 selection/gizmo/Component Inspector/undo-redo。</td>
+        <td>不启动完整 AI、战斗、任务、经济、采集、建造等 gameplay 系统；不把 Babylon runtime object 当成文档权威。</td>
+      </tr>
+      <tr>
+        <td>定义画面快照、预览相机、预览时间、验收用视觉组合。必要时未来可抽出可复用表现预设。</td>
+        <td>不把美术画面状态直接等同于程序逻辑状态。</td>
+      </tr>
+    </table>
+
+    <h2>状态化编辑的编辑方式</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>一个场景支持多种画面状态时，不应复制成多份完整场景。第一版推荐模型是 <strong>基础场景 + 画面快照覆盖</strong>。编辑器当前显示的是覆盖层解析后的 Babylon 投影，权威数据仍然是分层 authored data。</p>
+    <pre><code>Base Scene
+  -> PreviewSnapshot / SnapshotOverride
+  -> Editor temporary state
+  -> Babylon projection</code></pre>
+    <table>
+      <tr><th>层</th><th>编辑内容</th><th>例子</th><th>影响范围</th></tr>
+      <tr>
+        <td>Base Scene</td>
+        <td>所有状态共享的资产实例、层级、默认 transform、默认灯光、默认相机。</td>
+        <td><code>camp_01</code> 的位置、基础分组、主相机、太阳光。</td>
+        <td>影响所有画面快照。</td>
+      </tr>
+      <tr>
+        <td>PreviewSnapshot</td>
+        <td>某个验收画面的组合覆盖，例如选择相机、设置可见性、材质、pose、局部特效、预览时间。</td>
+        <td><code>snapshot_camp_start</code>、<code>snapshot_camp_building</code>、<code>snapshot_camp_done</code>。</td>
+        <td>只影响该画面快照。</td>
+      </tr>
+      <tr>
+        <td>Editor Temporary State</td>
+        <td>selection、gizmo、helper、未提交拖拽中间态。</td>
+        <td>当前选中节点、拖拽预览、辅助网格。</td>
+        <td>不进入保存数据。</td>
+      </tr>
+    </table>
+    <p>状态化编辑必须在 UI 和 command 层显式区分编辑作用域。美术修改一个值时，需要知道这是修改基础场景，还是只修改当前画面快照。UI 可以使用下拉框或类似图层的作用域选择，但它不是完整复刻 PS 图层系统。</p>
+    <pre><code>Editing scope:
+  Base Scene
+  Current PreviewSnapshot</code></pre>
+
+    <div class="notice yellow">
+      <span class="status-tag tag-current">普通场景兼容</span>
+      如果项目不启用 Snapshot / Presentation Preview Editing，那么只有 Base Scene 和普通 document 编辑链路生效。状态化编辑是可选扩展，不应影响普通场景编辑项目。
+    </div>
+
+    <h2>PresentationPreset 可选性</h2>
+    <p><span class="status-tag tag-current">当前收敛</span><code>PresentationPreset</code> 暂时不作为第一版核心概念。第一版用 <code>PreviewSnapshot</code> 直接记录相对 Base Scene 的差异即可，避免为了复用过早增加一层抽象。</p>
+    <table>
+      <tr><th>阶段</th><th>模型</th><th>原因</th></tr>
+      <tr>
+        <td>第一版</td>
+        <td><code>Base Scene + PreviewSnapshot overrides</code></td>
+        <td>概念最少，贴近美术制作截图/视频状态的流程。</td>
+      </tr>
+      <tr>
+        <td>未来可选</td>
+        <td><code>PresentationPreset</code></td>
+        <td>当多个 snapshot 反复使用同一组视觉差异，并且需要统一命名、复用和批量修改时，再把一组 override 抽成 preset。</td>
+      </tr>
+    </table>
+
+    <h2>预览首帧 / 表现预览</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>“预览首帧”是 PA 制作流程里的工作叫法，不代表内部固定到某一帧。更准确的工程概念是 <strong>PresentationPreview</strong>：从当前 authored data 快照重建出来的只读视觉验证 world，可用于截图、关键状态画面或短视频预览。</p>
+    <table>
+      <tr><th>预览能力</th><th>边界</th></tr>
+      <tr>
+        <td>可以选择某个画面快照，例如营地未建成、营地建造中、营地建成后、怪物登场、结算画面。</td>
+        <td>这些快照是 authored visual snapshot，不是 gameplay runtime state。</td>
+      </tr>
+      <tr>
+        <td>可以启用接近最终效果的灯光、阴影、描边、后处理、相机、角色 pose、粒子、动画采样和必要 visual warmup。</td>
+        <td>不运行完整 gameplay，不启用玩家输入、AI、经济、战斗、任务推进。</td>
+      </tr>
+      <tr>
+        <td>可以包含时间概念，例如 <code>previewTime</code>、<code>duration</code>、<code>warmupFrames</code>、<code>loopAnimation</code>，用于输出某个状态截图或短视频。</td>
+        <td>时间只服务视觉预览，不代表 gameplay 时间线已经真实推进。</td>
+      </tr>
+      <tr>
+        <td>可以基于未保存的 working copy 生成 dirty preview，方便快速迭代。</td>
+        <td>预览退出后销毁 preview world，不把预览中的 runtime 变化写回文档。</td>
+      </tr>
+    </table>
+    <pre><code>SceneDocument working copy
+  -> freeze as preview snapshot
+  -> build PresentationPreviewWorld
+  -> render selected visual snapshot or preview clip
+  -> destroy preview world
+  -> return to EditorWorld</code></pre>
+
+    <h2>运行游戏</h2>
+    <p><span class="status-tag tag-temp">概念边界，暂不展开实现</span>运行游戏属于完整 GameWorld。当前文档只固定它与编辑/预览的边界：程序逻辑状态是运行时权威，美术 authored data 提供初始摆放和人工参考，运行时变化默认不回写 SceneDocument。</p>
+    <ul>
+      <li>GameWorld 不应复用 EditorWorld 或 PresentationPreviewWorld 的 Babylon 对象。</li>
+      <li>GameWorld 可以消费 SceneDocument 中的资产、初始实例、相机和灯光；快照只作为程序人工参考，不作为自动 runtime 输入。</li>
+      <li>运行游戏按钮用于验证玩法，不用于编辑 authored document。</li>
+    </ul>
+
+    <h2>美术 visualState 与程序逻辑状态</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>美术定义的画面状态不能成为程序逻辑的权威状态。当前第一版推荐以 <code>PreviewSnapshot</code> 和 <code>SnapshotOverride</code> 描述这些画面状态；<code>PresentationPreset</code> 只作为未来可能的复用抽象。</p>
+    <table>
+      <tr><th>概念</th><th>由谁定义</th><th>用途</th><th>不是</th></tr>
+      <tr>
+        <td>PreviewSnapshot / 画面快照</td>
+        <td>美术 / 编辑器</td>
+        <td>定义某个截图或视频预览状态下场景应该如何呈现，例如营地未建成、建造中、建成后。</td>
+        <td>不是程序逻辑状态，不证明游戏里对象已经真实进入该状态。</td>
+      </tr>
+      <tr>
+        <td>SnapshotOverride</td>
+        <td>美术 / 编辑器</td>
+        <td>记录当前快照相对 Base Scene 的差异，例如可见性、材质、pose、特效、相机和预览时间。</td>
+        <td>不是另一份完整场景，也不是 Babylon runtime object。</td>
+      </tr>
+      <tr>
+        <td>Program Logic State</td>
+        <td>程序 / 游戏系统</td>
+        <td>定义真实游戏规则与运行状态，例如建造进度、是否解锁、血量、AI 阶段、任务进度。</td>
+        <td>不应由美术画面快照直接决定。</td>
+      </tr>
+      <tr>
+        <td>Program Reference</td>
+        <td>程序人工参考</td>
+        <td>程序查看快照效果后，手写真实游戏逻辑和表现实现。</td>
+        <td>不是自动绑定系统，也不是文档自动推导的 gameplay 规则。</td>
+      </tr>
+    </table>
+
+    <pre><code>美术定义:
+  snapshot_camp_start
+  snapshot_camp_building
+  snapshot_camp_done
+
+程序定义:
+  CampBuildSystem.progress
+  CampBuildSystem.isUnlocked
+  CampBuildSystem.isBuilt
+
+程序开发:
+  人工参考 snapshot_camp_done 的目标效果
+  自己实现真实建造逻辑和运行时表现</code></pre>
+
+    <div class="notice yellow">
+      <span class="status-tag tag-current">边界结论</span>
+      美术数据负责“目标画面看起来是什么样”，程序逻辑负责“实际上发生了什么”。当前共识是程序人工参考这些快照，不设计自动 presentation binding。
+    </div>
+  </div>
+
+
+  <div id="page-mvp" class="page">
+    <h2>EditorWorld 到 GameWorld MVP 闭环</h2>
+    <div class="notice green">
+      <span class="status-tag tag-current">当前已跑通</span>
+      第一轮 <code>EditorWorld -> SceneDocument -> compile -> GameWorld</code> 最小数据闭环已经成立。当前可以从独立 EditorWorld 读取编辑源数据、显示项目 Asset Library、用真实 GLB projection 查看对象、通过自研 Hierarchy / Component Inspector 修改 <code>position / rotation</code>，并在 <code>Save & Run Game</code> 后让 GameWorld 重新读取编译后的 <code>scene.json</code>。
+    </div>
+    <p>这个页面已经合并 MVP 闭环方案的内容。仓库中只保留这一份 HTML 主文档，避免 MVP 进度和主架构认知在多个 HTML 文件中分叉。</p>
+
+    <h2>最小闭环</h2>
+    <pre><code>lumber_order/src/config/editor-scene.json
+  -> independent EditorWorld projection
+  -> GameObject Hierarchy / Component Inspector
+  -> patch TransformComponent.position / rotation
+  -> save editor-scene.json
+  -> compile scene.assets + scene.nodes
+  -> write lumber_order/src/config/scene.json
+  -> reload GameWorld
+  -> SceneBuilder consumes scene.json</code></pre>
+    <p>compile 层不是复杂构建系统，而是从 authoring data 到 runtime input 的边界。它让新编辑器先使用干净的 Unity 风格数据模型，同时让现有 <code>lumber_order</code> GameWorld 暂时继续消费 <code>scene.json</code>。</p>
+
+    <h2>当前落地状态</h2>
+    <table>
+      <tr><th>环节</th><th>当前实现</th><th>边界说明</th></tr>
+      <tr>
+        <td>编辑源数据</td>
+        <td><code>lumber_order/src/config/editor-scene.json</code></td>
+        <td>包含 MVP GameObject、资产引用和项目 Asset Library 补齐后的资产默认语义；不是旧 <code>scene.json</code> 的全量迁移。</td>
+      </tr>
+      <tr>
+        <td>独立 EditorWorld</td>
+        <td><code>Enter Editor</code> dispose 当前 GameWorld，再创建独立 Babylon world。</td>
+        <td>EditorWorld 使用右手坐标系，并优先用真实 GLB projection 显示 GameObject；primitive cube 只作为加载失败 fallback。</td>
+      </tr>
+      <tr>
+        <td>Asset Library</td>
+        <td>项目 adapter 提供可放置资产列表和资产语义。</td>
+        <td>包括 <code>sourceId</code>、显示名、分类和 <code>asset.defaults</code>；新建 GameObject 时不再只保存裸 <code>sourceId</code>。</td>
+      </tr>
+      <tr>
+        <td>Authoring UI</td>
+        <td>自研最小 <code>GameObject Hierarchy</code> 和 <code>Component Inspector</code>。</td>
+        <td>正式编辑 UI 读取 <code>SceneDocument / GameObject / Component</code>，不复用 Babylon Inspector 作为保存入口。</td>
+      </tr>
+      <tr>
+        <td>保存与编译</td>
+        <td><code>save-editor-scene</code> 写 <code>editor-scene.json</code>，再 compile 到 <code>scene.json</code>。</td>
+        <td>第一轮覆盖 <code>scene.assets</code> 和 <code>scene.nodes</code>，保留 <code>meta/gameplay/render/materials/textures/version/updatedAt</code>。</td>
+      </tr>
+      <tr>
+        <td>GameWorld 验证</td>
+        <td>GameWorld 重新消费 <code>scene.json</code>，由 <code>SceneBuilder</code> 创建真实 GLB。</td>
+        <td>GameWorld 不复用 EditorWorld 的 Babylon 对象；可看到位置/旋转修改结果。</td>
+      </tr>
+    </table>
+
+    <h2>坐标系约定</h2>
+    <div class="notice blue">
+      <span class="status-tag tag-current">右手坐标系</span>
+      <code>SceneDocument</code>、<code>EditorWorld</code>、compile 后的 <code>scene.json</code> 和 <code>GameWorld</code> 必须使用同一套右手坐标系。这样做是为了让美术在制作场景和查看原始美术资源时方向一致：GLB 资产默认使用右手坐标系。不能通过临时翻转某个 projection 的坐标来修正视觉差异。
+    </div>
+
+    <h2>MVP 边界</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>本阶段已经跑通</h3>
+        <ul>
+          <li><code>SceneDocument</code> 作为 authored source of truth。</li>
+          <li><code>Asset / GameObject / TransformComponent / ModelRendererComponent</code> 最小模型。</li>
+          <li>项目 Asset Library 提供可放置资产和 <code>asset.defaults</code>。</li>
+          <li>真实 GLB EditorWorld projection。</li>
+          <li><code>GameObject Hierarchy</code> 支持选择、多选、inline rename、创建 Group、删除子树和拖拽 <code>inside</code> reparent。</li>
+          <li><code>Component Inspector</code> 支持 Transform 属性编辑和多选 Transform 精确编辑。</li>
+          <li>Undo/Redo、Dirty、History 和 Projection sync 已进入 <code>@fps-games/editor-core</code> / <code>@fps-games/editor</code> 主链路。</li>
+          <li>Gizmo / View Plane Move 已接入 EditorWorld transform 提交链路。</li>
+          <li><code>Save Scene</code>、<code>Save & Run Game</code>、<code>Discard & Run Game</code>。</li>
+          <li><code>compile SceneDocument -> scene.json</code>，并由 GameWorld 验证位置/旋转变化。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>仍未完成</h3>
+        <ul>
+          <li>Hierarchy <code>before / after</code> 排序 drop；当前只正式提交 <code>inside</code> reparent。</li>
+          <li>复制 GameObject、Prefab definition / instance 和完整资产导入产品体验。</li>
+          <li>Material、Light、Camera、Decal 组件。</li>
+          <li>Prefab。</li>
+          <li>PreviewSnapshot / PresentationPreviewWorld。</li>
+          <li>Runtime apply、RuntimeTuning、RuntimeSessionState 和 AI 动态调参边界。</li>
+          <li>正式 <code>GameWorldInput</code>，替代长期依赖旧 <code>scene.json</code>。</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>保存链路</h2>
+    <table>
+      <tr><th>按钮</th><th>行为</th><th>当前状态</th></tr>
+      <tr>
+        <td><code>Save Scene</code></td>
+        <td>保存 <code>editor-scene.json</code>，compile 并写入 <code>scene.json</code>，不离开 EditorWorld。</td>
+        <td><span class="status-tag tag-current">已完成</span></td>
+      </tr>
+      <tr>
+        <td><code>Save & Run Game</code></td>
+        <td>保存并 compile，dispose EditorWorld，reload 页面，让 GameWorld 重新读取 <code>scene.json</code>。</td>
+        <td><span class="status-tag tag-current">已完成</span></td>
+      </tr>
+      <tr>
+        <td><code>Discard & Run Game</code></td>
+        <td>不保存 working copy，dispose EditorWorld，reload 页面。</td>
+        <td><span class="status-tag tag-current">已完成</span></td>
+      </tr>
+    </table>
+
+    <h2>验收用例</h2>
+    <table>
+      <tr><th>用例</th><th>步骤</th><th>验收结果</th></tr>
+      <tr>
+        <td>位置修改</td>
+        <td>进入 EditorWorld，在 Hierarchy 选择一个 GameObject，在 Component Inspector 修改 <code>position.x</code>，点击 <code>Save & Run Game</code>。</td>
+        <td>GameWorld 重启后，真实 GLB 出现在新位置。</td>
+      </tr>
+      <tr>
+        <td>旋转修改</td>
+        <td>进入 EditorWorld，在 Component Inspector 修改同一对象的 <code>rotation.y</code>，点击 <code>Save & Run Game</code>。</td>
+        <td>GameWorld 重启后，对象朝向发生变化。</td>
+      </tr>
+      <tr>
+        <td>资产创建</td>
+        <td>从 Asset Browser 添加项目资产，保存并运行。</td>
+        <td><code>editor-scene.json</code> 和编译后的 <code>scene.assets[] / scene.nodes[]</code> 同时包含该对象；GameWorld 用真实资产显示。</td>
+      </tr>
+    </table>
+
+    <h2>已知风险与处理状态</h2>
+    <table>
+      <tr><th>风险 / 问题</th><th>当前处理</th></tr>
+      <tr>
+        <td>真实 GLB projection 失败时用户误以为保存目标是 cube。</td>
+        <td>primitive cube 只作为 fallback，并继续保留 <code>gameObjectId</code> binding；正式保存仍写 SceneDocument。</td>
+      </tr>
+      <tr>
+        <td>EditorWorld 和 GameWorld 坐标系不一致导致视觉关系怪异。</td>
+        <td><span class="status-tag tag-current">已收口</span>统一右手坐标系，贴近 GLB 资产默认坐标系和美术查看习惯。</td>
+      </tr>
+      <tr>
+        <td>保存后 GameWorld 仍看到旧数据。</td>
+        <td><span class="status-tag tag-current">已收口</span>保存接口写文件后显式 invalidate <code>editor-scene.json</code> 和 <code>scene.json</code> 的 Vite module cache。</td>
+      </tr>
+      <tr>
+        <td>新结构和旧 <code>scene.json</code> 长期双写可能产生漂移。</td>
+        <td>第一轮只作为过渡 compile 层。长期目标是 <code>SceneDocument + RuntimeTuning -> GameWorldInput</code>。</td>
+      </tr>
+    </table>
+  </div>
+
+
+  <div id="page-state" class="page">
+    <h2>EditorSession 状态管理初版方案</h2>
+    <div class="notice green">
+      <span class="status-tag tag-current">当前实现状态</span>
+      <code>EditorSession</code>、Undo/Redo、Dirty/History 和 projection sync 主链路已经收口到 <code>@fps-games/editor-core</code> / <code>@fps-games/editor</code>；Hierarchy、Inspector、Asset Browser、Gizmo/View Plane Move 等入口已经进入同一套 document command 体系。后续继续补齐的是 GameObject 复制、Hierarchy before/after 排序、Prefab、PreviewSnapshot、完整 Material/Light/Camera/Decal source、runtime apply、AI 动态调参边界和正式 <code>GameWorldInput</code>。<code>lumber_order</code> 只是第一个接入项目，不是这套框架的归属地。
+    </div>
+
+    <h2>框架归属边界</h2>
+    <table>
+      <tr><th>能力</th><th>长期归属</th><th>说明</th></tr>
+      <tr>
+        <td><code>EditorSession</code> / Command Dispatch</td>
+        <td><code>@fps-games/editor-core</code></td>
+        <td>维护 working document、selection、lifecycle、dispatch 结果和副作用边界。</td>
+      </tr>
+      <tr>
+        <td><code>SerializedObject</code> / <code>SerializedProperty</code></td>
+        <td><code>@fps-games/editor-core</code></td>
+        <td>定义 Inspector、Gizmo 和菜单命令共享的序列化属性访问机制；具体字段描述由项目 adapter 注入。</td>
+      </tr>
+      <tr>
+        <td>Undo / Redo / Dirty</td>
+        <td><code>@fps-games/editor-core</code></td>
+        <td>所有 document command 进入同一套 transaction 和 dirty 计算；项目不各自实现编辑历史。</td>
+      </tr>
+      <tr>
+        <td>EditorWorld / projection / picking / gizmo binding</td>
+        <td><code>@fps-games/editor-babylon</code></td>
+        <td>管理 Babylon projection 和交互输入，但不把 Babylon object 当作保存数据源。</td>
+      </tr>
+      <tr>
+        <td>Hierarchy / Inspector / Asset Browser / toolbar</td>
+        <td><code>@fps-games/editor-browser</code></td>
+        <td>正式 authoring UI 必须由公共浏览器 UI 层提供；项目只提供 descriptors、labels 和 asset items。</td>
+      </tr>
+      <tr>
+        <td>SceneDocument schema / Asset Library / compile / save endpoint</td>
+        <td>项目 adapter，例如 <code>lumber_order</code></td>
+        <td>保留项目语义：资产规则、运行时输入、SceneBuilder 兼容和 dev server 保存。</td>
+      </tr>
+    </table>
+
+    <h2>总原则</h2>
+    <pre><code>Hierarchy / Inspector / Gizmo / Menu Command
+  -> EditorCommand
+  -> Serialized SceneDocument / Serialized Object
+  -> Undo Transaction
+  -> Dirty Mark
+  -> Projection Sync</code></pre>
+    <ul>
+      <li><code>SceneDocument working copy</code> 是编辑态唯一权威数据源。</li>
+      <li>Hierarchy、Inspector、Gizmo、菜单命令只是不同输入源，不能各自直接改 JSON 或 Babylon object。</li>
+      <li>Babylon EditorWorld 只做 projection、拾取、可视化和交互输入；不能成为保存数据的来源。</li>
+      <li>所有会修改 authored data 的操作必须进入 Undo transaction，并标记 dirty。</li>
+      <li>Selection、面板展开、filter、hover、projection loading 等 UI/session 状态不进入 Dirty，也不进入保存文件。</li>
+    </ul>
+
+    <h2>生命周期</h2>
+    <table>
+      <tr><th>阶段</th><th>职责</th><th>允许的命令</th></tr>
+      <tr>
+        <td><code>GameMode</code></td>
+        <td>GameWorld 正在运行，EditorWorld 不存在。</td>
+        <td><code>session.enterEditor</code></td>
+      </tr>
+      <tr>
+        <td><code>EnteringEditor</code></td>
+        <td>dispose GameWorld、清理游戏 debug UI、加载 <code>editor-scene.json</code> 和 Asset Library、创建 EditorWorld。</td>
+        <td>只允许生命周期命令；不允许文档编辑命令。</td>
+      </tr>
+      <tr>
+        <td><code>Editing</code></td>
+        <td>用户编辑 <code>WorkingDocument</code>，projection 根据 document 同步。</td>
+        <td>DocumentCommand、SelectionCommand、SessionCommand。</td>
+      </tr>
+      <tr>
+        <td><code>ProjectionLoading</code></td>
+        <td>真实 GLB 或 helper projection 异步加载中。</td>
+        <td>不影响 document 权威；加载失败只影响 projection fallback。</td>
+      </tr>
+      <tr>
+        <td><code>Saving</code></td>
+        <td>写 <code>editor-scene.json</code>、compile 到 <code>scene.json</code>、invalidate dev server cache。</td>
+        <td>冻结或排队 document editing，避免保存时 working copy 继续变化。</td>
+      </tr>
+      <tr>
+        <td><code>ExitingEditor</code></td>
+        <td>dispose EditorWorld，按保存/丢弃结果回到 GameWorld。</td>
+        <td>只允许生命周期命令。</td>
+      </tr>
+      <tr>
+        <td><code>Error</code></td>
+        <td>保存、加载、projection 或 compile 失败。</td>
+        <td>允许 retry、discard、exit；错误不应自动污染 document。</td>
+      </tr>
+    </table>
+
+    <h2>状态分层</h2>
+    <table>
+      <tr><th>状态</th><th>归属</th><th>是否保存</th><th>说明</th></tr>
+      <tr>
+        <td><code>PersistedDocument</code></td>
+        <td>文件系统 / 平台保存结果</td>
+        <td>是</td>
+        <td>已保存的 <code>editor-scene.json</code>。</td>
+      </tr>
+      <tr>
+        <td><code>WorkingDocument</code></td>
+        <td><code>EditorSession</code></td>
+        <td>是</td>
+        <td>当前编辑中的 <code>SceneDocument</code>，是编辑态权威数据。</td>
+      </tr>
+      <tr>
+        <td><code>SerializedObject</code></td>
+        <td><code>EditorSession</code> / UI adapter</td>
+        <td>派生自 document</td>
+        <td>面向 Inspector 和 Undo 的序列化对象视图，类似 Unity SerializedObject / SerializedProperty 的概念。</td>
+      </tr>
+      <tr>
+        <td><code>SelectionState</code></td>
+        <td>编辑器 session</td>
+        <td>否</td>
+        <td><code>{ selectedIds, activeId }</code>。支持单选、多选、追加/切换选择、框选和 active object；不进入 undo/history，也不保存到文件。</td>
+      </tr>
+      <tr>
+        <td><code>ProjectionState</code></td>
+        <td>EditorWorld projector</td>
+        <td>否</td>
+        <td>Babylon root、mesh、load status、fallback 信息；只服务显示和拾取。</td>
+      </tr>
+      <tr>
+        <td><code>UIState</code></td>
+        <td>编辑器 UI</td>
+        <td>否</td>
+        <td>Asset filter、面板展开、输入框 focus、滚动位置等。</td>
+      </tr>
+      <tr>
+        <td><code>SaveState</code></td>
+        <td><code>EditorSession</code></td>
+        <td>否</td>
+        <td><code>dirty</code>、<code>saving</code>、<code>lastSavedAt</code>、<code>lastError</code>。</td>
+      </tr>
+      <tr>
+        <td><code>UndoStack</code></td>
+        <td><code>EditorSession</code></td>
+        <td>否，除非未来做编辑历史持久化</td>
+        <td>记录 document transaction，用于 undo/redo。</td>
+      </tr>
+    </table>
+
+    <h2>Redux 可借鉴但不照搬</h2>
+    <table>
+      <tr><th>Redux 思想</th><th>对编辑器的映射</th><th>采用方式</th></tr>
+      <tr>
+        <td>Single Source of Truth</td>
+        <td><code>WorkingDocument</code></td>
+        <td>采用。Babylon Scene、UI 面板和 Inspector 都不是权威数据源。</td>
+      </tr>
+      <tr>
+        <td>Action 描述发生了什么</td>
+        <td><code>EditorCommand</code></td>
+        <td>采用。记录用户意图，例如 transform patch、create/delete/duplicate、selection set。</td>
+      </tr>
+      <tr>
+        <td>Reducer 纯函数更新状态</td>
+        <td><code>reduceDocument(previous, command) -> next</code></td>
+        <td>部分采用。文档更新应尽量纯函数；projection、保存和加载是副作用。</td>
+      </tr>
+      <tr>
+        <td>Middleware 分离副作用</td>
+        <td>projection sync、GLB loading、save、compile、reload</td>
+        <td>采用思想，不必引入 Redux middleware API。</td>
+      </tr>
+      <tr>
+        <td>可追踪 / 可回放</td>
+        <td>Undo/redo、编辑操作调试、未来 replay</td>
+        <td>采用方向。先用 transaction stack，暂不追求完整 event sourcing。</td>
+      </tr>
+    </table>
+    <div class="notice yellow">
+      <span class="status-tag tag-temp">设计边界</span>
+      不建议直接引入 Redux 作为核心状态库。Redux 更偏 UI app state，而编辑器还需要大型序列化文档、Babylon projection、异步资产加载、Undo transaction 合并、保存/compile 和项目 adapter 语义。当前推荐实现轻量 <code>EditorSession + Transaction</code>。
+    </div>
+
+    <h2>Command 分类</h2>
+    <table>
+      <tr><th>Command 类型</th><th>是否修改 document</th><th>是否进入 undo/dirty</th><th>例子</th></tr>
+      <tr>
+        <td><code>DocumentCommand</code></td>
+        <td>是</td>
+        <td>是</td>
+        <td><code>transform.patch</code>、<code>gameObject.createFromAsset</code>、<code>gameObject.delete</code>、<code>gameObject.duplicate</code>、<code>gameObject.rename</code>、<code>gameObject.setParent</code></td>
+      </tr>
+      <tr>
+        <td><code>SelectionCommand</code></td>
+        <td>否</td>
+        <td>否</td>
+        <td><code>selection.replace</code>、<code>selection.add</code>、<code>selection.remove</code>、<code>selection.toggle</code>、<code>selection.clear</code></td>
+      </tr>
+      <tr>
+        <td><code>SessionCommand</code></td>
+        <td>可能，但不作为编辑 transaction</td>
+        <td>否</td>
+        <td><code>session.enter</code>、<code>session.save</code>、<code>session.saveAndRun</code>、<code>session.discardAndRun</code>、<code>session.exit</code></td>
+      </tr>
+      <tr>
+        <td><code>ProjectionCommand</code></td>
+        <td>否</td>
+        <td>否</td>
+        <td>GLB load success/failure、fallback cube attach、outline highlight、focus selected。</td>
+      </tr>
+    </table>
+
+    <h2>Dispatch 流程</h2>
+    <pre><code>editorSession.dispatch(command)
+  -> validate lifecycle allows command
+  -> begin or join transaction if DocumentCommand
+  -> reduce WorkingDocument / SerializedObject
+  -> reconcile SelectionState
+  -> mark dirty if document changed
+  -> push or update UndoStack transaction
+  -> notify projector to sync Babylon objects
+  -> notify UI to render derived state</code></pre>
+    <p>保存和 projection loading 属于副作用，应在 document 更新之后执行。副作用失败不能悄悄修改 document；必须通过明确 error state 或 rollback transaction 处理。</p>
+
+    <h2>Selection 系统边界</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>Selection 是编辑器 session 状态，不是 Babylon Scene 状态，也不是项目 schema。第一版统一使用 <code>EditorSelectionState { selectedIds, activeId }</code>，不保留旧 <code>selectedId</code> 心智；所有选择入口最终都 dispatch <code>SelectionCommand</code>。</p>
+    <table>
+      <tr><th>入口</th><th>行为</th><th>边界</th></tr>
+      <tr>
+        <td>Scene View click</td>
+        <td>点击可选 projection object 执行 replace；Shift 点击 add；Cmd/Ctrl 点击 toggle；点击空白清空；点击 gizmo/helper/grid 不反选背后对象。</td>
+        <td>Babylon 只负责 pick 和 child mesh 到 projection node id 的解析。</td>
+      </tr>
+      <tr>
+        <td>Hierarchy click</td>
+        <td>普通点击 replace；Shift 点击 add 并更新 <code>activeId</code>；Cmd/Ctrl 点击 toggle，已选对象会移除。</td>
+        <td>Hierarchy 只渲染 selection read model，不自己维护选择日志。</td>
+      </tr>
+      <tr>
+        <td>Box select</td>
+        <td>Select 工具下框选屏幕矩形，按 projection bounds 得出候选 GameObject；无 modifier 替换，Shift 追加，Cmd/Ctrl 切换。</td>
+        <td>框选结果仍然只是 <code>SelectionCommand</code>，不写 document。</td>
+      </tr>
+      <tr>
+        <td>Locked object</td>
+        <td>locked 对象不可 click select、不可框选、不可追加；已选对象变 locked 后由 harness 清理出 selection。</td>
+        <td>locked 字段是项目 adapter 语义，公共 core 不定义项目 schema。</td>
+      </tr>
+      <tr>
+        <td>Double click focus</td>
+        <td>双击可选对象先选中再 focus；双击已选对象只 focus；locked / helper / empty no-op。Focus 只由 <code>dblclick</code> 处理，避免 pointerup 与 dblclick 重复触发。</td>
+        <td>Focus 是 projection/camera side effect，不进入 undo/history。</td>
+      </tr>
+    </table>
+    <pre><code>Scene click / Hierarchy click / Box select
+  -> SelectionCommand
+  -> EditorSession.selection { selectedIds, activeId }
+  -> projection highlight selectedIds
+  -> gizmo attach activeId or selection-center pivot
+  -> Inspector single object or multi-object transform editor</code></pre>
+    <p><span class="status-tag tag-current">Legacy 隔离</span>旧 runtime path 的 <code>selection-controller.ts</code> 不再从 <code>@fps-games/editor-babylon</code> 根入口导出。旧 Forge Play runtime 如仍需使用，必须通过明确的 <code>@fps-games/editor-babylon/legacy-runtime</code> 子路径接入，避免新 EditorWorld 误用旧 selection 模型。</p>
+
+    <h2>Gizmo 系统边界</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>新 Gizmo 系统属于独立 EditorWorld 主链路，不复用旧 runtime path 的 <code>tool-controller.ts</code>。Babylon <code>GizmoManager</code> 只作为 3D 控件渲染、拾取和拖拽输入后端；权威数据仍然是 <code>SceneDocument</code> working copy。</p>
+    <table>
+      <tr><th>层</th><th>职责</th><th>禁止事项</th></tr>
+      <tr>
+        <td><code>@fps-games/editor-core</code></td>
+        <td>定义 transform tool、space、snapshot、批量 transform commit、pivot 和 constraint 等无引擎类型；事务仍通过 <code>EditorSession.dispatch(document.patch)</code> 进入 undo/dirty。</td>
+        <td>不依赖 Babylon，不包含项目 schema，不实现项目 GameObject/Prefab 规则。</td>
+      </tr>
+      <tr>
+        <td><code>@fps-games/editor-babylon</code></td>
+        <td>适配 Babylon <code>GizmoManager</code>，单选 attach 到 projection root，多选 attach 到非持久化 selection-center pivot proxy；读取 projection transform，拖动中更新 projection preview，drag end 输出单选或批量 before/after。</td>
+        <td>不 dispatch document，不保存，不维护 undo/dirty，不认识 <code>lumber_order</code>。</td>
+      </tr>
+      <tr>
+        <td><code>@fps-games/editor</code></td>
+        <td>Local harness 连接 selection、projection、gizmo event、View Plane Move 和 <code>EditorSession</code>，一次 drag end 提交一条 document patch。</td>
+        <td>不从 Babylon scene 反扫生成 document。</td>
+      </tr>
+      <tr>
+        <td>project adapter</td>
+        <td>把单个或批量 transform input 转成项目 schema patch；例如 <code>lumber_order</code> 更新 GameObject Transform component 并 compile 到 <code>scene.json</code>。</td>
+        <td>不实现通用 gizmo 状态、多选 pivot、View Plane 算法，不直接操作 Babylon <code>GizmoManager</code>。</td>
+      </tr>
+    </table>
+
+    <h2>多选 Transform 与 View Plane Move</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>多选后的移动、旋转、缩放不是项目侧特例，而是 <code>fps-game-editor</code> 的基础框架能力。<code>EditorSession.selection.selectedIds</code> 是 transform operation 的目标集合，<code>activeId</code> 只表示 Inspector 主对象和层级强高亮；多选 Gizmo 第一版固定使用选中对象 bounds center 作为 <code>selection-center</code> pivot。</p>
+    <pre><code>selectedIds[]
+  -> projection.readNodeTransforms()
+  -> projection.computeSelectionBounds()
+  -> selection-center pivot proxy
+  -> Babylon GizmoManager preview
+  -> EditorTransformBatchCommit
+  -> project adapter creates batch document.patch
+  -> EditorSession undo/dirty
+  -> projection sync from WorkingDocument</code></pre>
+    <p>View Plane Move 是 Move 工具的一种显式 constraint。它以当前 editor camera 方向构造穿过 pivot 的拖拽平面，鼠标 ray 与该平面求交得到位移 delta。该能力只影响 preview 和最终 commit，不改变保存链路，也不允许从 Babylon Scene 反扫 authored data。</p>
+
+    <h2>Multi Inspector 精确编辑</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>多选 Inspector 必须消费序列化 read model，而不是读取 Babylon object。多选 Transform 字段支持 mixed value：全部对象一致时显示数值，不一致时显示 <code>--</code>。用户输入数值后，对所有 selected objects 设置同一个绝对值，并通过项目 adapter 生成批量 transform patch。</p>
+    <p>Rotation 在 UI 中使用 degrees，方便美术按 Unity 心智输入；document 与 Babylon projection 仍使用 radians。degrees/radians 转换属于项目 adapter 和 serialized descriptor 的边界，不应污染 <code>editor-core</code> 的通用数据模型。</p>
+
+    <h2>SceneView 鼠标输入与 Unity-like 导航</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>SceneView 鼠标输入是公共编辑器框架能力，不属于项目侧。第一版目标是对齐 Unity 的核心交互心智：左键服务选择、框选和 Gizmo；中键/Alt 组合服务视口导航；右键进入 Flythrough；所有会修改 authored data 的操作仍必须通过 <code>EditorSession</code> 和 undo/dirty 体系。</p>
+    <p>输入优先级固定为：</p>
+    <pre><code>UI input / dock panel
+  -> Gizmo drag
+  -> View Plane Move
+  -> Camera Navigation
+  -> Selection / Box Select</code></pre>
+    <table>
+      <tr><th>操作</th><th>行为</th><th>边界</th></tr>
+      <tr>
+        <td>Left click object</td>
+        <td>选择对象；Shift 追加；Cmd/Ctrl 切换；双击对象先选中再 focus。</td>
+        <td>只 dispatch <code>SelectionCommand</code>；不进入 undo/history。</td>
+      </tr>
+      <tr>
+        <td>Left drag empty</td>
+        <td>Select 工具下框选；无 modifier 替换，Shift 追加，Cmd/Ctrl 切换。</td>
+        <td>框选只基于 projection bounds 计算候选 id，不从 Babylon Scene 保存数据。</td>
+      </tr>
+      <tr>
+        <td>Left drag Gizmo</td>
+        <td>Move / Rotate / Scale 预览；松手后提交一次 transform command。</td>
+        <td>Gizmo 优先级高于选择和相机导航。</td>
+      </tr>
+      <tr>
+        <td>Wheel</td>
+        <td>Dolly / zoom 当前 editor camera；右键 Flythrough 中滚轮调整 fly speed。</td>
+        <td>相机状态是 editor-only state，不写 document。</td>
+      </tr>
+      <tr>
+        <td>Middle drag</td>
+        <td>Pan SceneView。</td>
+        <td>不改变 selection。</td>
+      </tr>
+      <tr>
+        <td>Alt + Left / Middle / Right drag</td>
+        <td>Orbit / Pan / Dolly，按 Unity SceneView 导航心智处理。</td>
+        <td>Alt 导航优先级高于选择和框选。</td>
+      </tr>
+      <tr>
+        <td>Right drag</td>
+        <td>进入 Unity-like Flythrough look mode；按住右键时 WASD/QE 移动相机。</td>
+        <td>右键不选择对象，不触发 context menu。</td>
+      </tr>
+    </table>
+    <p>Camera navigation 需要区分两类旋转：<code>Alt + Left</code> 是围绕 target 的 Orbit，<code>Right drag</code> 是改变看向方向的 Flythrough look。二者在 Babylon <code>ArcRotateCamera</code> 的 <code>alpha</code> 上不能共用同一符号；在当前右手坐标系下，camera forward fallback 统一使用 <code>-Z</code>，避免 View Plane Move、Dolly、Flythrough movement 产生方向分叉。</p>
+    <p><code>@fps-games/editor-babylon</code> 负责实现统一的 SceneView 输入 controller 和 Babylon camera/projection 适配；<code>@fps-games/editor</code> harness 只把输入 intent 接到 selection、focus、gizmo commit、cancel active operation 等公共链路；项目 adapter 不实现鼠标策略。</p>
+
+    <h2>Gizmo 事务模型</h2>
+    <p>第一版使用 preview-then-commit 模型：拖动中只移动 projection 作为视觉预览，松手时提交一次 <code>DocumentCommand</code>。这样当前 <code>EditorSession</code> 的 snapshot undo 模型不需要为每帧 patch 增加 transaction merge。</p>
+    <pre><code>gizmo.dragStart
+  -> capture before transform from selected projection root
+
+gizmo.dragMove
+  -> Babylon GizmoManager moves projection root
+  -> no document mutation
+  -> no undo transaction
+
+gizmo.dragEnd
+  -> read after transform from projection root
+  -> create project transform patch
+  -> editorSession.dispatch(document.patch)
+  -> push one undo transaction
+  -> sync projection from WorkingDocument
+
+gizmo.dragCancel
+  -> restore projection root to before transform
+  -> no document mutation
+  -> no dirty change</code></pre>
+    <p><span class="status-tag tag-history">Legacy path</span><code>packages/editor-babylon/src/tool-controller.ts</code> 仍服务旧 Forge Play runtime-scene editing path。新 EditorWorld gizmo 不扩展该文件，不从旧 GameWorld selected entity 读取或保存数据。</p>
+
+    <h2>初版实现目标</h2>
+    <ol>
+      <li><span class="status-tag tag-current">已完成</span>先在 <code>@fps-games/editor-core</code> 内实现最小 <code>EditorSession</code>、<code>SerializedObject</code>、<code>UndoTransaction</code>、Dirty 和 Command Dispatch。</li>
+      <li><span class="status-tag tag-current">已完成</span><code>lumber_order</code> dev-only harness 已作为第一个消费者接入 <code>EditorSession</code>，document、selection、dirty 和 command 入口不再由项目侧自维护。</li>
+      <li>保持公共包不理解项目 schema；项目 adapter 继续负责 Asset Library、compiler 和保存 endpoint。</li>
+      <li><span class="status-tag tag-current">已完成</span>先实现 <code>DocumentCommand</code>、<code>SelectionCommand</code>、<code>SessionCommand</code> 的最小类型和 dispatch，以及本地 Local EditorWorld harness。</li>
+      <li><span class="status-tag tag-current">已完成</span>Gizmo / View Plane Move 已复用同一套 dispatch/transaction：拖动只更新 projection 预览，松手后提交一次 document patch，不让 Babylon TransformNode 成为保存事实来源。</li>
+    </ol>
+
+    <h2>当前项目侧残留审计</h2>
+    <p><span class="status-tag tag-current">当前迁移事实</span><code>lumber_order/src/debug/local-editor-mode-switcher.ts</code> 已收薄为 dev-only 接线层：它调用公共 <code>createLocalEditorHarness(...)</code>，只注入项目 schema、Asset Library、compile/save、GameWorld reload 和 Babylon 资产 import adapter。通用 UI、EditorSession、dirty/undo、projection registry 和生命周期 shell 已迁回 <code>fps-game-editor</code>。</p>
+    <table>
+      <tr><th>能力</th><th>当前归属</th><th>边界说明</th></tr>
+      <tr>
+        <td>Local EditorWorld lifecycle shell</td>
+        <td><code>@fps-games/editor</code> 的 <code>createLocalEditorHarness(...)</code></td>
+        <td>项目只提供 <code>loadDocument</code>、<code>loadAssets</code>、<code>saveDocument</code>、<code>runGame</code>、<code>disposeGameWorld</code> 等 callbacks。</td>
+      </tr>
+      <tr>
+        <td>Toolbar、Hierarchy、Component Inspector、Asset Browser</td>
+        <td><code>@fps-games/editor-browser</code></td>
+        <td>UI 只消费 session state、serialized descriptors、hierarchy items 和 asset items，不判断 <code>lumber_order</code> 类型；快捷键和按钮统一回调到 <code>@fps-games/editor</code> harness。</td>
+      </tr>
+      <tr>
+        <td>selection、dirty、undo/redo、document command</td>
+        <td><code>@fps-games/editor-core</code> + <code>@fps-games/editor</code> harness</td>
+        <td>项目 reducer 只解释项目 patch；不再直接维护通用 session 状态。</td>
+      </tr>
+      <tr>
+        <td>projection registry、GLB projection、fallback mesh、selection highlight</td>
+        <td><code>@fps-games/editor-babylon</code></td>
+        <td>项目只实现 asset URL/import adapter；Babylon Scene 仍然只是 projection，不参与保存反扫。</td>
+      </tr>
+      <tr>
+        <td><code>src/fps-game-editor-adapter/document.ts</code></td>
+        <td>旧链路 history、dirty、undo/redo。</td>
+        <td>作为旧 Forge Play bridge adapter 兼容先保留；新 EditorWorld MVP 不应继续扩展这套项目侧历史系统。</td>
+      </tr>
+    </table>
+
+    <h2>EditorWorld Workbench UI 架构</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>EditorWorld UI 需要从 MVP 单文件面板升级为公共 Workbench 框架，而不是继续在 <code>local-editor-ui.ts</code> 中堆叠布局、事件、样式和面板逻辑。第一版采用固定 Dock + Tab、Vanilla DOM 模块化、Babylon / Unity 风格的密集型深色编辑器 UI。视觉上必须优先使用不透明 editor chrome、明确的 dock 分区和贴合 Scene View 的工具标题栏，避免半透明浮层覆盖场景导致 debug overlay 感。</p>
+    <table>
+      <tr><th>层级</th><th>职责</th><th>边界</th></tr>
+      <tr>
+        <td><code>WorkbenchShell</code></td>
+        <td>管理 Top App Bar、左侧 Dock、中心 Scene View frame/header、右侧 Inspector Dock、底部 Dock 的固定工作区结构。</td>
+        <td>只处理编辑器 chrome，不理解项目 schema。</td>
+      </tr>
+      <tr>
+        <td><code>DockLayout / PanelRegistry</code></td>
+        <td>通过 panel descriptor 注册 Hierarchy、Assets、History、Inspector 等面板；Dock tab active state 只属于 UI。</td>
+        <td>不进入 document、不产生 undo、不影响 dirty。</td>
+      </tr>
+      <tr>
+        <td><code>WorkbenchInputRouter</code></td>
+        <td>区分 Scene View、Hierarchy、Inspector、Asset Dock、History Dock、Top Bar、Modal 的鼠标、滚轮、右键和快捷键归属。</td>
+        <td>只路由交互事件，不直接修改 document 或 Babylon object。</td>
+      </tr>
+      <tr>
+        <td><code>Panel Primitives</code></td>
+        <td>提供 PanelHeader、DockTabs、TreeView、PropertyGrid、AssetList、ContextMenu、ToolbarButton 等基础 UI primitives。</td>
+        <td>只消费 read model 和 callbacks，不包含 <code>lumber_order</code> 类型判断。</td>
+      </tr>
+      <tr>
+        <td><code>Theme</code></td>
+        <td>统一颜色、间距、字号、边框、hover、selected、disabled、focus、drag-over 等视觉 token。</td>
+        <td>不引入 React/WebComponent 等额外 UI 框架依赖。</td>
+      </tr>
+    </table>
+    <p><span class="status-tag tag-current">当前实现状态</span><code>@fps-games/editor-browser</code> 已开始从 MVP 聚合文件拆分：UI 类型、共享 DOM helpers、快捷键帮助、面板渲染和 Workbench layout 已进入独立模块；<code>local-editor-ui.ts</code> 继续保留公开入口、事件接线和 render 协调。当前默认布局采用左侧 Graph、中央 Preview、右侧 Inspector、底部 Assets / History 的经典 editor 分区，并把主题 token 收口为不透明、低装饰、紧凑的专业编辑器风格。后续 UI 迭代应继续把 Dock/Panel/Input/Theme 抽象收紧，再扩展右键菜单、资产网格、Console、Diagnostics 和更复杂的布局能力。</p>
+
+    <h2>EditorWorld UI 工作台边界</h2>
+    <p><span class="status-tag tag-current">当前设计共识</span>EditorWorld UI 不是项目 debug 面板，而是公共编辑器工作台。顶部 app bar、左侧 Hierarchy、底部 Assets / History dock、右侧 Component Inspector、Scene View header 工具条和 Unity-like 快捷键都归属 <code>@fps-games/editor-browser</code>；工具动作、保存、撤销、聚焦和取消操作通过 <code>@fps-games/editor</code> harness 进入 <code>EditorSession</code>、Gizmo controller、Undo/Dirty 和 projection sync。</p>
+    <pre><code>Toolbar / Hotkey / Inspector / Hierarchy
+  -> @fps-games/editor-browser callback
+  -> @fps-games/editor LocalEditorHarness
+  -> EditorSession / GizmoController
+  -> SerializedObject / DocumentPatch / Undo / Dirty
+  -> Babylon projection sync</code></pre>
+    <p><span class="status-tag tag-current">项目边界</span><code>lumber_order</code> 只提供 schema adapter、Asset Library、compile/save、GameWorld reload 和 Babylon asset import adapter；不实现通用 UI layout、快捷键、工具栏、Inspector 渲染或 Gizmo 操作模型。Babylon Inspector 仍只用于 runtime debug，不作为正式 authoring UI。</p>
+
+    <h2>Dock Tab 与 History 边界</h2>
+    <p><span class="status-tag tag-current">当前实现原则</span>EditorWorld 的面板可以像 Unity 一样粗略地组织为 dock tab，但第一版只做固定区域内的 tab 切换，不做拖拽、关闭、拆分或窗口停靠系统。当前固定 Workbench 区域为 Top App Bar、Left Dock、Scene View、Scene Header、Right Dock 和 Bottom Dock；<code>Assets</code> 与 <code>History</code> 已迁入底部 dock tab。tab active state 只属于 UI，不进入 document，不产生 undo transaction，也不影响 dirty。</p>
+    <p><span class="status-tag tag-current">History 数据权威</span><code>History</code> 只读消费 <code>EditorSession</code> 暴露的 history read model。UI 展示为线性操作列表，不拆分 Undo / Redo 分组；每条记录显示 <code>createdAt</code> 时间戳、<code>label</code> 和 <code>commandType</code>。<code>EditorSession</code> 从内部 transaction stack 映射 <code>id / label / commandType / createdAt</code>，不会把 <code>beforeDocument / afterDocument</code> snapshot 暴露给 UI。selection、tool switch、asset filter、focus 和 save success 不进入 History；它们属于 interaction/activity，不是可撤销 document mutation。</p>
+
+    <h2>项目侧保留清单</h2>
+    <p><span class="status-tag tag-current">必须保留在项目侧</span>以下内容包含 <code>lumber_order</code> 业务 schema、资产规则、运行时输入或 dev server 写文件策略，不应迁入公共编辑器框架。</p>
+    <table>
+      <tr><th>当前位置</th><th>保留内容</th><th>原因</th></tr>
+      <tr>
+        <td><code>fps-game-editor-adapter/editor-scene-document.ts</code></td>
+        <td><code>EditorSceneDocument</code>、GameObject、Transform、ModelRenderer 等当前项目 MVP schema。</td>
+        <td>仍引用项目配置类型和当前 GameWorld 输入约束；未来是否上升为公共 SceneDocument 需要单独设计。</td>
+      </tr>
+      <tr>
+        <td><code>fps-game-editor-adapter/editor-scene-session.ts</code></td>
+        <td>项目 schema 的 reducer、serialized property descriptors 和 create-from-asset patch。</td>
+        <td>这是项目 schema adapter；公共 core 只提供 <code>EditorSession</code> / <code>SerializedObject</code> 机制。</td>
+      </tr>
+      <tr>
+        <td><code>fps-game-editor-adapter/editor-asset-library.ts</code></td>
+        <td>项目可放置资产、显示名、分类、<code>asset.defaults</code> 和 sourceId 映射。</td>
+        <td>资产语义来自项目和美术资源库；公共编辑器只消费规范化 asset item。</td>
+      </tr>
+      <tr>
+        <td><code>fps-game-editor-adapter/editor-scene-compiler.ts</code></td>
+        <td><code>EditorSceneDocument -> scene.json V2</code> 的项目 compile。</td>
+        <td>GameWorld 当前消费 <code>scene.assets[]</code> / <code>scene.nodes[]</code>，这是项目运行时输入适配。</td>
+      </tr>
+      <tr>
+        <td><code>vite.config.ts</code></td>
+        <td>dev-only editor scene load/save endpoint、compile 后写文件和 Vite module cache invalidation。</td>
+        <td>本地开发写入策略属于项目 dev server；公共编辑器只调用 load/save callbacks。</td>
+      </tr>
+    </table>
+
+    <h2>编辑器逻辑剥离迁移计划</h2>
+    <p><span class="status-tag tag-current">当前执行方向</span>迁移不是把 <code>lumber_order</code> 代码机械复制到公共包，而是把通用编辑器框架抽象出来。项目侧最终只保留 schema、Asset Library、compile/save 和运行游戏策略。</p>
+    <table>
+      <tr><th>阶段</th><th>迁移内容</th><th>目标边界</th><th>当前状态</th></tr>
+      <tr>
+        <td>Projection</td>
+        <td>GameObject projection registry、GLB projection、fallback mesh、selection outline、transform sync、dispose/rebuild。</td>
+        <td><code>@fps-games/editor-babylon</code> 通过 adapter 读取 id、transform、renderable asset 和 asset URL；不认识项目 schema。</td>
+        <td><span class="status-tag tag-current">已完成</span></td>
+      </tr>
+      <tr>
+        <td>Browser UI</td>
+        <td>Toolbar、Hierarchy、Asset Browser、Component Inspector、Undo/Redo/Dirty button state。</td>
+        <td><code>@fps-games/editor-browser</code> 通过 <code>SerializedObject</code>、tree adapter 和 asset items 渲染；不复用 Babylon Inspector 作为正式 authoring UI。</td>
+        <td><span class="status-tag tag-current">已完成</span></td>
+      </tr>
+      <tr>
+        <td>Lifecycle shell</td>
+        <td>load document、create session、create EditorWorld、mount UI、project document、dispatch command、save、discard/run、dispose。</td>
+        <td>公共 Local EditorWorld harness；项目只提供 load/save/compile/run callbacks 和 reducer/descriptors。</td>
+        <td><span class="status-tag tag-current">已完成</span></td>
+      </tr>
+      <tr>
+        <td>Thin project harness</td>
+        <td><code>lumber_order</code> 本地入口改为接线层。</td>
+        <td>不再包含通用 UI、projection registry、selection highlight、dirty/undo 状态实现。</td>
+        <td><span class="status-tag tag-current">已完成</span></td>
+      </tr>
+      <tr>
+        <td>Legacy bridge</td>
+        <td>旧 Forge Play bridge document/history/dirty/runtime-scene editing 路径。</td>
+        <td>短期隔离为 legacy platform path；中期接入新 EditorSession/EditorWorld；长期删除 runtime-scene editing fallback。</td>
+        <td><span class="status-tag tag-current">已隔离标记</span></td>
+      </tr>
+    </table>
+
+    <h2>旧 Forge Play Bridge 路径收口策略</h2>
+    <p><span class="status-tag tag-current">当前平台按钮事实</span>当前沙盒联调中，Forge Play 平台编辑按钮通过 <code>forge-play-game-bridge</code> 发送 <code>mode:change</code>，<code>lumber_order</code> 的 <code>installForgePlayModeBridge(...)</code> 会调用 <code>LocalEditorHarness.enterEditor()</code>，进入独立 EditorWorld。回到运行态时发送 <code>mode:change play</code>，项目侧调用 <code>discardAndRunGame()</code> 并 reload GameWorld。</p>
+    <p><span class="status-tag tag-history">Legacy platform path</span><code>lumber_order/src/fps-game-editor-adapter/runtime.ts</code>、<code>document.ts</code>、<code>plugin.ts</code> 和 <code>asset-adapter.ts</code> 仍然代表旧的 runtime-scene editing 路径：它绑定当前 GameWorld runtime node，观测 Transform/Material/Outline 变化，维护自己的 working copy、history、dirty、undo/redo，并通过 <code>document.export</code> / <code>document.commit</code> 和旧 Forge Play bridge 保存。该路径不再是当前平台编辑按钮进入独立 EditorWorld 的主链路。</p>
+    <div class="notice yellow">
+      <span class="status-tag tag-temp">平台边界现状</span>
+      Forge Play 当前在新联调链路里主要负责 iframe/HostKernel 承载、模式切换命令和事件传输；它还没有成为 Authoring Command Pipeline 的正式 command transport。平台仍不能解释项目 schema、不能直接修改 Babylon object、不能拥有 <code>editor-scene.json</code> 或 <code>scene.main</code> 的权威语义。
+    </div>
+    <table>
+      <tr><th>文件</th><th>legacy 职责</th><th>收口判断</th></tr>
+      <tr>
+        <td><code>runtime.ts</code></td>
+        <td>组装 <code>createBabylonForgePlayEditor(...)</code>，把 GameWorld、persistent binding、document adapter、asset adapter 暴露给 Forge Play bridge。</td>
+        <td>短期保留为平台兼容入口；不得作为新的本地 EditorWorld 主链路。</td>
+      </tr>
+      <tr>
+        <td><code>document.ts</code></td>
+        <td>维护旧 <code>scene.json</code> working copy、dirty、history stack、transform/material/outline/duplicate/add/remove 变更。</td>
+        <td>只服务旧 bridge runtime-scene editing；新链路的 session/history 已归 <code>@fps-games/editor-core</code>。</td>
+      </tr>
+      <tr>
+        <td><code>plugin.ts</code></td>
+        <td>从 GameWorld runtime node 解析 persistent binding，并把 Inspector/gizmo runtime change 映射回旧 document 变更。</td>
+        <td>只作为旧 runtime-scene editing 兼容路径保留；后续应删除，或改为调用新的 EditorSession/EditorWorld command 体系。</td>
+      </tr>
+      <tr>
+        <td><code>asset-adapter.ts</code></td>
+        <td>处理平台 <code>asset.import</code>、资产注册、runtime 实例创建和旧 document scene node 写入。</td>
+        <td>平台接入新 EditorWorld 后，资产创建应走 SceneDocument command + projection sync + compile。</td>
+      </tr>
+    </table>
+    <ul>
+      <li>短期：这条路径只标记为 legacy platform path，继续保证沙盒兼容，不再追加新的通用编辑器能力。</li>
+      <li>当前联调：Forge Play 编辑按钮已经可以通过 <code>mode:change</code> 进入独立 EditorWorld，并复用 <code>createLocalEditorHarness(...)</code>。</li>
+      <li>中期：Forge Play command transport 应从模式切换扩展到正式 Authoring Command Pipeline，但仍只传输意图和结果，不拥有项目编辑语义。</li>
+      <li>长期：删除 runtime-scene editing fallback，让 <code>lumber_order</code> 项目侧只保留 SceneDocument schema、Asset Library、compile/save/run adapter。</li>
+    </ul>
+  </div>
+
+
+  <div id="page-baseline" class="page">
+    <h2>Round 0 历史迁移基线</h2>
+    <p><span class="status-tag tag-history">历史基线事实</span>Round 0 当时冻结 <code>lumber_order/src/editor-package</code> 作为迁移对照源。本节只保留迁移历史，不代表当前沙盒联调事实；当前联调事实以 <code>/Users/admin/work/UGIT-Branch/lumber_order-forge-play</code> 为准。</p>
+    <table>
+      <tr><th>项目</th><th>当前值</th></tr>
+      <tr><td>Historical source project</td><td><code>/Users/admin/work/UGIT/lumber_order</code>，不是当前联调 worktree。</td></tr>
+      <tr><td>Source path</td><td><code>src/editor-package</code></td></tr>
+      <tr><td>Source branch / commit</td><td><code>feat/editor-asset-manager / 6f4d8b2</code></td></tr>
+      <tr><td>Source files</td><td>19 TypeScript files</td></tr>
+      <tr><td>Source size</td><td>8509 lines</td></tr>
+      <tr><td>Baseline document</td><td><code>docs/editor-package-migration-baseline.md</code></td></tr>
+    </table>
+
+    <h2>Round 1 当前状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span>Round 1 已新增 <code>@fps-games/editor-protocol</code>，用于承载协议类型、基础 <code>Vec3</code>/<code>ColorRGB</code> 类型、命令/事件常量和 capability 名称。本轮没有修改 <code>lumber_order</code> 运行路径。</p>
+    <table>
+      <tr><th>项目</th><th>当前值</th></tr>
+      <tr><td>Package</td><td><code>packages/editor-protocol</code></td></tr>
+      <tr><td>Package name</td><td><code>@fps-games/editor-protocol</code></td></tr>
+      <tr><td>Source comparison</td><td><code>lumber_order/src/editor-package/types.ts</code></td></tr>
+      <tr><td>Round 1 record</td><td><code>docs/editor-protocol-round-1.md</code></td></tr>
+      <tr><td>Boundary check</td><td><code>npm run check:boundaries</code></td></tr>
+    </table>
+
+
+    <h2>Round 2 当前状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span>Round 2 已新增 <code>@fps-games/editor-browser</code> 和 <code>@fps-games/editor-forge-play</code>。本轮只抽取浏览器 host 和 Forge Play bridge 注册/消息能力，没有修改 <code>lumber_order</code> 运行路径。</p>
+    <table>
+      <tr><th>Package</th><th>当前职责</th></tr>
+      <tr><td><code>@fps-games/editor-browser</code></td><td>提供 <code>createBrowserHost</code>、canvas 解析、iframe 检测、focus、window/document event、timer/RAF 封装。</td></tr>
+      <tr><td><code>@fps-games/editor-forge-play</code></td><td>提供 <code>window.__bridge</code> 获取、plugin/runtime 注册、pending 兜底、messenger event/send、显式 legacy command bypass。</td></tr>
+      <tr><td>Round 2 record</td><td><code>docs/editor-bridge-browser-round-2.md</code></td></tr>
+    </table>
+
+
+    <h2>Round 3 当前状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span>Round 3 已新增 <code>@fps-games/editor-core</code>，提供 runtime shell、命令分发、document/lifecycle/selection adapter 接口、capability registry 和默认通用命令处理。本轮没有迁移 Scene JSON V2 具体 document 逻辑，也没有修改 <code>lumber_order</code> 运行路径。</p>
+    <table>
+      <tr><th>Package</th><th>当前职责</th></tr>
+      <tr><td><code>@fps-games/editor-core</code></td><td>通过 <code>createEditorRuntimeShell</code> 组合 adapter，覆盖 <code>mode.change</code>、undo/redo、export/commit、inspector flush、duplicate 的通用调度。</td></tr>
+      <tr><td>Round 3 record</td><td><code>docs/editor-core-round-3.md</code></td></tr>
+    </table>
+
+    <h2>Round 4 当前状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span>Round 4 已新增 <code>@fps-games/editor-babylon</code>，只迁移无 schema 的 Babylon 基础编辑运行时能力：camera controller、event guard、input/tool controller、selection controller、edit session。本轮没有迁移 Inspector host、monitor、material/outline adapter，也没有修改 <code>lumber_order</code> 运行路径。</p>
+    <table>
+      <tr><th>Package</th><th>当前职责</th></tr>
+      <tr><td><code>@fps-games/editor-babylon</code></td><td>通过 <code>createEditorEditSession</code>、<code>createEditorViewportCamera</code>、<code>createEditorSelectionController</code> 等 API 管理 Babylon 编辑模式基础能力；项目语义、持久化和 Inspector 连接均由外部 adapter/callback 注入。</td></tr>
+      <tr><td>Round 4 record</td><td><code>docs/editor-babylon-round-4.md</code></td></tr>
+    </table>
+
+    <h2>Round 5 当前状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span>Round 5 已在 <code>@fps-games/editor-babylon</code> 内新增 Inspector host、Inspector DOM adapter、runtime monitor、material property adapter、outline adapter。本轮只观测 Babylon runtime object 并产出 canonical change，持久化通过 callback 交给外部 document adapter。</p>
+    <table>
+      <tr><th>Package</th><th>当前职责</th></tr>
+      <tr><td><code>@fps-games/editor-babylon</code></td><td>通过 <code>createEditorInspectorHost</code>、<code>createEditorRuntimeMonitor</code>、<code>adaptMaterialPropertyChange</code>、<code>adaptOutlinePropertyChange</code> 等 API 连接 Inspector 与 runtime object；不直接写项目 <code>scene.json</code>。</td></tr>
+      <tr><td>Round 5 record</td><td><code>docs/editor-babylon-round-5.md</code></td></tr>
+    </table>
+
+    <h2>Round 6 当前状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span>Round 6 已新增 <code>@fps-games/editor</code> 聚合入口包，提供 <code>createBabylonForgePlayEditor(...)</code>。该入口组合 core、browser、Babylon runtime 和 Forge Play bridge，并通过项目 adapters 访问 document、asset、scene、lifecycle 与 persistent binding。</p>
+    <table>
+      <tr><th>Package</th><th>当前职责</th></tr>
+      <tr><td><code>@fps-games/editor</code></td><td>组合 <code>createEditorRuntimeShell</code>、<code>createEditorEditSession</code>、<code>createEditorInspectorHost</code>、<code>createEditorRuntimeMonitor</code>、Forge Play runtime 注册和 bridge event/message。</td></tr>
+      <tr><td>Round 6 record</td><td><code>docs/editor-aggregate-round-6.md</code></td></tr>
+    </table>
+
+    <h2>Round 7 当前状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span><code>lumber_order</code> 已从项目内旧 <code>editor-package</code> 切换到 npm 发布的 <code>@fps-games/editor</code> 路径。项目 adapter 保留在 <code>src/fps-game-editor-adapter</code>，负责把公共 editor runtime 映射回 <code>lumber_order</code> 的 authored config、asset registry 和 runtime binding。</p>
+    <table>
+      <tr><th>位置</th><th>当前职责</th></tr>
+      <tr><td><code>lumber_order/src/fps-game-editor-adapter/runtime.ts</code></td><td>组装 <code>@fps-games/editor</code>，把 <code>lumber_order</code> document、scene、binding 能力注入通用 editor runtime。</td></tr>
+      <tr><td><code>lumber_order/src/fps-game-editor-adapter/asset-adapter.ts</code></td><td>复用现有 <code>AssetManager</code>、<code>SceneAssetPlacement</code>、<code>SceneAssetUsage</code> 和 document scene node API，处理资产注册、导入、删除和 scene node create/patch/remove。</td></tr>
+      <tr><td><code>lumber_order/package.json</code></td><td>通过 npm 精确版本安装 <code>@fps-games/editor</code>、<code>@fps-games/editor-babylon</code>、<code>@fps-games/editor-protocol</code>；当前联调脚本还保留 <code>dev:editor-local</code>，可通过 <code>FPS_GAME_EDITOR_ROOT</code> 指向本地 <code>fps-game-editor</code> 源码。</td></tr>
+      <tr><td><code>lumber_order/scripts/platform-sim/scenarios/helpers.mjs</code></td><td>Mock Platform dry-run 通过显式 iframe reload 模拟平台刷新，不依赖 Vite HMR 侦测 generated registry 变更。</td></tr>
+      <tr><td>Round 7 record</td><td><code>docs/editor-lumber-order-adapter-round-7.md</code></td></tr>
+      <tr><td>Review</td><td>独立 Re-Review 通过，未发现新的 P0/P1，允许进入下一轮。</td></tr>
+      <tr><td>Validation</td><td><code>lumber_order npm run typecheck</code> 和 <code>npm run build</code> 已验证 npm 包路径可解析并能进入 Vite 打包。</td></tr>
+    </table>
+    <p><span class="status-tag tag-current">当前迁移事实</span><code>lumber_order</code> 的普通依赖路径已经可以走 npm 包，旧 <code>src/editor-package</code> fallback 已删除，项目 adapter 保留在 <code>src/fps-game-editor-adapter</code>。但当前沙盒联调 worktree 仍保留 <code>dev:editor-local</code>：它通过 <code>FPS_GAME_EDITOR_ROOT</code> 和 Vite alias 将 <code>@fps-games/editor*</code> 指向本地 <code>fps-game-editor</code> 源码，方便同时验证编辑器源码变更。</p>
+
+    <h2>Round 8 收口状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span>本轮把三个迁移期断点继续收口：asset import 的成功语义改为 document 与 runtime 同时成功；Forge Play bridge 的 Inspector loader patch 下沉到公共包；项目文档只保留职责与排障入口，不再把旧 <code>editor-package</code> 当作实现入口。</p>
+    <table>
+      <tr><th>收口项</th><th>当前职责</th><th>说明</th></tr>
+      <tr><td>Asset import 原子性</td><td><code>lumber_order/src/fps-game-editor-adapter/document.ts</code> + <code>SceneBuilder.ts</code></td><td>runtime node 创建失败时回滚 working copy，不再返回半成功导入结果。</td></tr>
+      <tr><td>Inspector bridge patch</td><td><code>@fps-games/editor-forge-play</code></td><td>公共包在 runtime 注册前安装 <code>showInspector/loadV2</code> loader patch，项目入口不再手写 monkey patch。</td></tr>
+      <tr><td>职责与排障说明</td><td><code>lumber_order</code> README + 本架构文档</td><td>游戏项目看 adapter，公共编辑器行为看 <code>fps-game-editor</code>，沙盒依赖/重启问题看 <code>forge-play</code>。</td></tr>
+    </table>
+
+    <h2>EditorWorld MVP 当前状态</h2>
+    <p><span class="status-tag tag-current">当前事实</span><code>lumber_order</code> 已跑通 <code>EditorWorld -> SceneDocument -> compile -> GameWorld</code> 第一轮 MVP，并且 Forge Play 平台编辑按钮已经能通过 <code>mode:change</code> 进入独立 EditorWorld。该链路当前仍使用 dev-only <code>__mock_platform_assets</code> 作为本地 source transport，尚未接入正式 Authoring Command transport，也不做 Prefab、PreviewSnapshot、完整 Material/Light/Camera/Decal source 或 runtime apply。当前可判断：<strong>编辑器到游戏运行时的最小数据闭环和平台按钮切换链路已经成立</strong>。</p>
+    <table>
+      <tr><th>环节</th><th>当前实现</th><th>边界说明</th></tr>
+      <tr><td>编辑源数据</td><td><code>lumber_order/src/config/editor-scene.json</code></td><td>包含 MVP GameObject、资产引用和项目 Asset Library 补齐后的资产默认语义；不是旧 <code>scene.json</code> 的全量迁移。</td></tr>
+      <tr><td>EditorWorld</td><td><code>local-editor-mode-switcher.ts</code> dispose GameWorld 后创建独立 Babylon world，使用右手坐标系，并优先用真实 GLB 投影 GameObject。</td><td>Babylon 对象只用于编辑投影；保存后 GameWorld 重新消费编译后的 <code>scene.json</code>。primitive cube 只作为 GLB projection 失败时的 fallback。</td></tr>
+      <tr><td>Asset Library</td><td>项目 adapter 提供可放置资产列表和资产语义，包括 <code>sourceId</code>、显示名、分类和 <code>asset.defaults</code>。</td><td>公共编辑器不理解项目资产规则；项目侧负责把美术资产元数据转换成编辑器可消费的资产库。</td></tr>
+      <tr><td>Authoring UI</td><td>自研最小 <code>GameObject Hierarchy</code> 和 <code>Component Inspector</code>。</td><td>不复用 Babylon Inspector 作为正式编辑 UI。</td></tr>
+      <tr><td>保存与编译</td><td><code>save-editor-scene</code> 写 <code>editor-scene.json</code>，再 compile 覆盖 <code>scene.json</code> 的 <code>scene.assets / scene.nodes</code>。</td><td>保留 <code>meta/gameplay/render/materials/textures/version/updatedAt</code>；这是过渡 compile 层，不是长期最终数据模型。</td></tr>
+      <tr><td>Dev server cache</td><td>保存后显式 invalidate <code>editor-scene.json</code> 和 <code>scene.json</code> 的 Vite module cache。</td><td>继续避免保存事务中途由 HMR 抢先 reload，但在 <code>Save & Run Game</code> 的受控边界刷新运行时输入。</td></tr>
+    </table>
+
+    <h2>MVP 之后的进度判断</h2>
+    <ul>
+      <li><span class="status-tag tag-current">已完成</span>三态设计里的第一步：从 GameWorld 暂停/冻结式编辑，转向独立 EditorWorld。</li>
+      <li><span class="status-tag tag-current">已完成</span>数据权威链路：<code>SceneDocument working copy -> EditorWorld projection -> compile -> GameWorld runtime input</code>。</li>
+      <li><span class="status-tag tag-current">已完成</span>项目资产语义链路：Asset Library 由项目 adapter 提供，<code>asset.defaults</code> 能从编辑源数据编译到运行时 <code>scene.assets[]</code>。</li>
+      <li><span class="status-tag tag-current">已完成</span>右手坐标系基线：美术 GLB 原始资源、EditorWorld 和 GameWorld 的空间方向保持一致。</li>
+      <li><span class="status-tag tag-current">已完成</span>EditorWorld 交互主链路：Hierarchy 选择/多选/重命名/Group/删除子树/inside reparent、Inspector Transform 编辑、Undo/Redo、Projection sync 和 Gizmo/View Plane Move transform 提交。</li>
+      <li><span class="status-tag tag-temp">未完成</span>完整编辑器能力：Hierarchy before/after 排序、复制 GameObject、Prefab、PreviewSnapshot、完整 Material/Light/Camera/Decal source、runtime apply、AI 动态调参边界和正式 <code>GameWorldInput</code>。</li>
+    </ul>
+
+    <h2>当前基线结论</h2>
+    <ul>
+      <li><code>runtime-core</code> 中存在可抽取的 browser/Babylon/editor runtime 能力。</li>
+      <li>项目 adapter 仍包含项目 schema、AssetManager、SceneBuilder 等耦合点，这些不应上移到公共包。</li>
+      <li>通用包不得直接依赖 <code>SceneJsonV2Validator</code>、<code>scene-json-v2-rules.json</code>、<code>configService</code>、<code>AssetManager</code> 或具体 <code>SceneBuilder</code>。</li>
+      <li><code>lumber_order</code> 旧 <code>editor-package</code> 已作为迁移对照源完成阅读，当前实现入口是 <code>src/fps-game-editor-adapter</code>。</li>
+    </ul>
+  </div>
+
+
+  <div id="page-projects" class="page">
+    <h2>项目职责现状</h2>
+    <table>
+      <tr><th>项目</th><th>当前职责</th><th>不应承担</th><th>当前源码位置</th></tr>
+      <tr>
+        <td><code>forge-play</code></td>
+        <td>平台宿主、沙盒、bridge、terminal、preview、dev supervisor、通用保存/文件传输、HostKernel、Service Worker proxy、资源传输、性能观测，以及当前通过 <code>mode:change</code> 触发独立 EditorWorld / GameWorld 切换。</td>
+        <td>不应理解具体项目的 <code>scene.json</code> schema，不应直接生成项目 scene 节点语义，不应直接修改 Babylon object，不应通过平台 scene store 或 MCP scene tools 绕过编辑器 command 修改权威数据。</td>
+        <td><code>/Users/admin/work/UGIT/forge-play</code></td>
+      </tr>
+      <tr>
+        <td><code>vite-plugins</code></td>
+        <td>Vite 插件集合；当前包含 <code>babylonInspectorPlugin()</code>，负责 dev-only Inspector loader 注入。</td>
+        <td>不负责 editor document、项目 schema、selection 语义或保存语义。</td>
+        <td><code>/Users/admin/work/UGIT/vite-plugins</code></td>
+      </tr>
+      <tr>
+        <td><code>fps-game-editor</code></td>
+        <td>公共编辑器 runtime shell：命令、事件、document lifecycle、selection、history、Inspector host、monitor。</td>
+        <td>不应硬编码某个具体游戏的业务规则；项目语义由 adapter 注入。</td>
+        <td><code>/Users/admin/work/UGIT/fps-game-editor/packages</code></td>
+      </tr>
+      <tr>
+        <td><code>lumber_order</code></td>
+        <td>真实项目侧落地。当前承载 Scene JSON V2、项目 adapter、AssetManager、Mock Platform Assets。</td>
+        <td>不应把平台 legacy 格式作为正式 authored scene 模型。</td>
+        <td><code>/Users/admin/work/UGIT-Branch/lumber_order-forge-play</code></td>
+      </tr>
+      <tr>
+        <td><code>pa_maker</code></td>
+        <td>scaffold / 标准项目参考。包含新项目接入公共编辑器包的结构、标准文档和参考实现。</td>
+        <td>不代表最终通用包本身；它是标准项目样例和模板来源。</td>
+        <td><code>/Users/admin/work/UGIT/pa_maker/scaffold</code></td>
+      </tr>
+    </table>
+
+    <h2>当前职责标签</h2>
+    <div class="grid-2">
+      <div class="card"><h3>平台侧</h3><p><span class="status-tag tag-current">当前正式链路</span>识别用户操作、发送命令、接收事件、写入文件。平台只保存项目导出的文本，不解释项目字段。</p></div>
+      <div class="card"><h3>编辑器侧</h3><p><span class="status-tag tag-current">当前正式链路</span>把平台命令解释为项目编辑语义，维护 working copy、undo/redo、选择与保存状态。</p></div>
+      <div class="card"><h3>项目适配侧</h3><p><span class="status-tag tag-current">当前正式链路</span>把编辑器抽象命令落到项目 authored config，例如 Scene JSON V2。</p></div>
+      <div class="card"><h3>游戏运行侧</h3><p><span class="status-tag tag-current">当前正式链路</span>从项目 config 构建 Babylon 场景。<code>SceneBuilder</code> 属于这一侧。</p></div>
+    </div>
+  </div>
+
+  <div id="page-boundaries" class="page">
+    <h2>当前确认边界</h2>
+    <div class="notice yellow">
+      <span class="status-tag tag-current">forge-play 联调边界</span>
+      平台优化应围绕“承载、传输、调度、观测”展开。编辑器可以对平台暴露稳定接口，但平台不得直接修改 <code>SceneDocument / EditorSession / AuthoringSource</code>、不得把 Babylon runtime scene 当成 authored source of truth、不得用平台侧 scene store 或浏览器 IndexedDB restore 覆盖项目 adapter / source driver 的保存链路。<code>forge-play/docs/editor-game-api.md</code> 当前只能作为临时平台宿主协议草案；其中与 <code>fps-game-editor</code> 数据权威冲突的部分必须调整。
+    </div>
+    <table>
+      <tr><th>边界</th><th>当前状态</th><th>原因</th></tr>
+      <tr>
+        <td>平台宿主能力与编辑器数据权威</td>
+        <td>平台可优化 HostKernel、sandbox 生命周期、Service Worker proxy、资源传输、缓存、capture、性能观测和错误恢复；编辑器保留全部场景语义修改权。</td>
+        <td>这些平台能力提升运行和联调体验，但不应该改变 <code>SceneDocument / EditorSession / project adapter</code> 的权威位置。</td>
+      </tr>
+      <tr>
+        <td>平台与项目 schema</td>
+        <td>平台侧不应理解项目 <code>scene.json</code> 结构。</td>
+        <td>不同项目可能拥有不同 authored schema；平台理解 schema 会形成跨项目耦合。</td>
+      </tr>
+      <tr>
+        <td>平台与用户操作</td>
+        <td>平台侧负责识别用户操作并发送意图消息。</td>
+        <td>平台知道拖拽、点击、文件路径、保存请求，但不应知道这些动作如何变成项目节点。</td>
+      </tr>
+      <tr>
+        <td>编辑器与项目语义</td>
+        <td>编辑器侧负责把平台意图解释为项目编辑语义。</td>
+        <td>编辑器 runtime 维护工作副本、history、selection、Inspector 交互。</td>
+      </tr>
+      <tr>
+        <td>项目 adapter 与 authored config</td>
+        <td>项目 adapter 负责更新 authored config。</td>
+        <td><code>scene.assets[]</code>、<code>scene.nodes[]</code>、材质、outline、transform 等字段属于项目规则。</td>
+      </tr>
+      <tr>
+        <td>平台 scene store / MCP tools 与编辑器命令</td>
+        <td>平台侧 scene store、headless scene blob、MCP scene tools 不能直接写 fps 项目场景；如果需要自动化编辑，必须调用编辑器暴露的 command API。</td>
+        <td>自动化工具可以是调用方，但不能成为数据所有者；否则会绕过 undo/redo、dirty、selection、schema 校验和项目 adapter。</td>
+      </tr>
+      <tr>
+        <td><code>editor-game-api.md</code> 与 fps editor 数据协议</td>
+        <td>该文档中的 <code>lifecycle:*</code>、<code>mode:*</code>、<code>capture:*</code>、<code>assets:*</code>、<code>system:*</code> 可作为 Host Transport Contract 候选；<code>document:changed</code>、<code>document:restore</code>、<code>window.__sandbox.host.scene</code> 这类 opaque scene snapshot/restore 机制不能作为 fps editor 的权威数据协议。</td>
+        <td>前者属于宿主承载与传输，后者会让平台缓存或运行时 snapshot 绕过 <code>AuthoringSource(scene.main)</code>、revision check、validate/save/compile 和项目 source driver。</td>
+      </tr>
+      <tr>
+        <td>IndexedDB / sandbox restore 与正式保存</td>
+        <td>平台缓存只能作为宿主级性能优化或非权威恢复辅助；对 fps 项目不得自动把 IndexedDB 中的 scene blob restore 到 <code>SceneDocument</code> 或运行时并视为保存事实。</td>
+        <td>缓存 blob 可能来自运行时投影、旧协议或过期页面状态；正式保存必须来自 <code>ProjectAuthoringHost.commitSource(...)</code>，并通过项目 source driver 校验、保存和编译。</td>
+      </tr>
+      <tr>
+        <td>游戏 runtime 与配置消费</td>
+        <td>游戏 runtime 只消费最终配置。</td>
+        <td>游戏运行态不应该依赖平台保存过程；刷新后由配置回放。</td>
+      </tr>
+      <tr>
+        <td><code>SceneBuilder</code> 归属</td>
+        <td><code>SceneBuilder</code> 是项目/游戏侧能力，不是平台侧能力。</td>
+        <td>它读取项目 config 并创建 Babylon runtime node，天然绑定项目 schema 和游戏服务。</td>
+      </tr>
+    </table>
+
+    <div class="notice green">
+      <span class="status-tag tag-current">当前正式链路</span>
+      平台发送的是 <code>asset.import</code>、<code>mode.change</code>、<code>document.export</code>、<code>document.commit</code> 这类命令或保存动作；项目侧决定如何修改 <code>scene.json</code>。
+    </div>
+
+    <h2>平台 API 接受标准</h2>
+    <table>
+      <tr><th>类别</th><th>判断</th><th>对接要求</th></tr>
+      <tr>
+        <td>生命周期 / capture / error / perf</td>
+        <td><span class="status-tag tag-current">可接受</span></td>
+        <td>属于平台宿主能力，可由 <code>editor-forge-play</code> 适配到编辑器生命周期与观测接口。</td>
+      </tr>
+      <tr>
+        <td>asset drop / asset loaded</td>
+        <td><span class="status-tag tag-temp">需要适配</span></td>
+        <td>平台只传资源 bytes、URL、metadata 和 drop intent；资产注册、节点创建和回滚必须由项目 adapter 执行。</td>
+      </tr>
+      <tr>
+        <td>document restore / document changed</td>
+        <td><span class="status-tag tag-temp">需要收口</span></td>
+        <td>可作为编辑器会话恢复请求或状态通知，但不能把 sandbox runtime scene blob 当作保存事实。</td>
+      </tr>
+      <tr>
+        <td>platform scene store / direct scene mutation</td>
+        <td><span class="status-tag tag-risk">不可接受</span></td>
+        <td>不得绕过 editor command、history、schema 校验和 project adapter 直接修改 fps 项目场景。</td>
+      </tr>
+    </table>
+  </div>
+
+  <div id="page-flows" class="page">
+    <div class="notice yellow">
+      <span class="status-tag tag-temp">当前实现，不是三态目标</span>
+      本页记录的是 <code>lumber_order</code> 当前已经落地的公共包接入链路。它仍然会在导入资产后通过项目 <code>SceneBuilder</code> 创建当前 runtime node。三态目标设计中，这一步应逐步收敛为“先写 SceneDocument，再投影到 EditorWorld / PresentationPreviewWorld / GameWorld”，避免把 Babylon runtime object 当作权威数据。
+    </div>
+
+    <h2>资产拖入场景链路</h2>
+    <div class="diagram">
+      <div class="flow">
+        <div class="flow-box"><div class="title blue">用户拖入资产</div><div class="sub">forge-play 识别资产与屏幕落点</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><div class="title blue">发送意图</div><div class="sub"><code>asset.import</code> / drop intent，只传资源和落点</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><div class="title purple">编辑器解释</div><div class="sub">@fps-games/editor 调项目 adapter</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><div class="title green">写 workingCopy</div><div class="sub"><code>scene.assets[]</code> + <code>scene.nodes[]</code></div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><div class="title green">即时显示</div><div class="sub">SceneBuilder 创建 runtime node，失败则回滚 document</div></div>
+      </div>
+    </div>
+
+    <h2>资产注册链路</h2>
+    <p><span class="status-tag tag-current">当前正式链路</span>资产管理系统管理的是资产注册和引用，不管理场景 instance 或场景树。</p>
+    <p><span class="status-tag tag-current">平台边界</span>即使 <code>forge-play</code> 提供 <code>assets:drop</code>、<code>assets:loaded</code>、资源预热或 sandbox 文件写入能力，也只能作为资源传输层。是否注册资产、是否创建 scene node、如何生成 transform、如何保存和回滚，都必须由 <code>fps-game-editor</code> 和项目 adapter 决定。</p>
+    <table>
+      <tr><th>对象</th><th>归属</th><th>说明</th></tr>
+      <tr><td>资产文件</td><td>平台传输 / 项目工具侧落盘</td><td>平台可提供文件写入能力；项目规则决定注册结果。</td></tr>
+      <tr><td>资产注册</td><td>项目侧 AssetManager / registry 规则</td><td>维护 sourceId、assetId、URL、注册代码或注册数据。</td></tr>
+      <tr><td>场景实例</td><td>editor document / scene document</td><td>由 <code>scene.nodes[]</code> 表示，不属于 AssetManager 管理范围。</td></tr>
+      <tr><td>运行时实体</td><td>SceneBuilder / Game runtime</td><td>从 scene node 创建 Babylon TransformNode/Mesh。</td></tr>
+    </table>
+
+    <h2>instance 创建链路</h2>
+    <pre><code>asset reference
+  -> project adapter creates SceneAssetConfig when needed
+  -> project adapter creates SceneInstanceNode / transform node
+  -> editor document workingCopy is updated
+  -> SceneBuilder.addSceneNodeFromConfig() creates runtime node
+  -> runtime node registers persistent binding</code></pre>
+
+    <h2>保存链路</h2>
+    <table>
+      <tr><th>步骤</th><th>当前状态</th></tr>
+      <tr><td><code>document.export</code></td><td>项目 editor runtime 导出完整 <code>sceneJsonText</code>。</td></tr>
+      <tr><td>平台写入文件</td><td>forge-play 使用通用传输/保存能力写盘，不解析 scene schema。</td></tr>
+      <tr><td><code>document.commit</code></td><td>项目 editor runtime 收到保存确认，同步 original / workingCopy / dirty 状态。</td></tr>
+      <tr><td>刷新后回放</td><td>游戏 runtime 从 <code>src/config/scene.json</code> 读取 V2，由 <code>SceneBuilder</code> 重建场景。</td></tr>
+    </table>
+
+    <div class="notice green">
+      <span class="status-tag tag-current">当前正式链路</span>
+      对 <code>lumber_order</code> 来说，正式 authored scene 结构是 Scene JSON V2：<code>scene.assets[] + scene.nodes[]</code>。
+    </div>
+  </div>
+
+  <div id="page-inspector" class="page">
+    <h2>Babylon Inspector 当前归属</h2>
+    <p><span class="status-tag tag-current">当前正式认知</span>Babylon Inspector loader 已从 forge-play 平台职责中拆出，当前归属 <code>vite-plugins</code>。</p>
+
+    <table>
+      <tr><th>能力</th><th>当前归属</th><th>说明</th></tr>
+      <tr>
+        <td>Inspector loader 注入</td>
+        <td><code>vite-plugins</code></td>
+        <td><code>babylonInspectorPlugin()</code> 在 dev server 注入脚本。</td>
+      </tr>
+      <tr>
+        <td><code>ensureInspectorReady()</code></td>
+        <td><code>vite-plugins</code> 注入到项目页面</td>
+        <td>lazy import <code>@babylonjs/inspector</code> 以及 EffectLayer / DepthRenderer 相关组件。</td>
+      </tr>
+      <tr>
+        <td>Inspector host</td>
+        <td><code>@fps-games/editor-babylon</code></td>
+        <td>负责 show/hide、绑定当前 Babylon scene、flush 变更，并优先使用页面已有 <code>ensureInspectorReady()</code>。</td>
+      </tr>
+      <tr>
+        <td>Forge Play bridge Inspector patch</td>
+        <td><code>@fps-games/editor-forge-play</code></td>
+        <td>在 runtime 注册前 patch bridge 的 <code>showInspector/loadV2</code>，确保平台 bridge 也优先走本地 Inspector loader。</td>
+      </tr>
+      <tr>
+        <td>selection / gizmo / monitor</td>
+        <td><code>editor-babylon</code> + 项目 adapter</td>
+        <td>通用运行时观测已在 <code>editor-babylon</code>；持久化仍依赖项目 runtime node、persistent binding、document history。</td>
+      </tr>
+      <tr>
+        <td>bridge 宿主</td>
+        <td>forge-play</td>
+        <td>平台只提供 iframe、bridge、消息通道和工具入口。</td>
+      </tr>
+    </table>
+
+    <h2>当前插件事实</h2>
+    <pre><code>@fps-games/vite-plugins/babylon
+  -> babylonInspectorPlugin()
+  -> inject /@fps-games/babylon-inspector-init.js
+  -> globalThis.ensureInspectorReady()
+  -> import(@babylonjs/inspector)
+  -> import(@babylonjs/core/Layers/effectLayerSceneComponent)
+  -> import(@babylonjs/core/Rendering/depthRendererSceneComponent)</code></pre>
+
+    <div class="notice yellow">
+      <span class="status-tag tag-risk">已知风险</span>
+      Inspector loader 的动态依赖需要与项目 Vite <code>optimizeDeps.include</code> 保持一致。否则 dev server 可能出现 <code>.vite/deps/chunk-*.js</code> 缺失，表现为黑屏、HMR 异常或页面连接失败。
+    </div>
+  </div>
+
+  <div id="page-legacy" class="page">
+    <h2>Legacy 状态</h2>
+    <p><span class="status-tag tag-history">历史背景</span><code>sceneInstances</code> 属于旧格式。它曾用于平台 legacy persistence 或旧项目导入链路，但不是 <code>lumber_order</code> 当前正式 authored scene 结构。</p>
+
+    <table>
+      <tr><th>legacy 项</th><th>当前状态</th><th>对当前编辑器的影响</th></tr>
+      <tr>
+        <td><code>sceneInstances</code></td>
+        <td>旧格式。</td>
+        <td>只能作为历史/兼容输入讨论，不能作为新链路写入目标。</td>
+      </tr>
+      <tr>
+        <td>legacy runtime</td>
+        <td>旧 Forge Play bridge 路径仍保留为 platform compatibility。</td>
+        <td>只能服务旧“编辑运行态”入口；新 EditorWorld 主链路不应继续扩展这套 runtime-scene editing。</td>
+      </tr>
+      <tr>
+        <td>legacy persistence</td>
+        <td>可能按旧格式 merge imported assets。</td>
+        <td>会与 <code>SceneBuilder</code> 只读 V2 的行为错配。</td>
+      </tr>
+      <tr>
+        <td>legacy bypass</td>
+        <td>旧项目内 <code>editor-package</code> fallback 已删除；剩余 legacy 是 <code>fps-game-editor-adapter</code> 的 Forge Play bridge runtime-scene editing。</td>
+        <td>只记录为兼容状态，不作为推荐架构。</td>
+      </tr>
+    </table>
+
+    <div class="notice green">
+      <span class="status-tag tag-current">当前正式链路</span>
+      <code>lumber_order</code> 的刷新回放以 Scene JSON V2 为准：<code>scene.assets[]</code> 声明资产，<code>scene.nodes[]</code> 声明场景节点。
+    </div>
+
+    <h2>Legacy Bridge 与新 EditorWorld 的关系</h2>
+    <p><span class="status-tag tag-current">当前结论</span>旧 Forge Play bridge adapter 和新独立 EditorWorld 不能长期并列成两套正式编辑模型。旧路径绑定当前 GameWorld，新的主链路则是 <code>SceneDocument working copy -> EditorSession -> EditorWorld projection -> compile -> GameWorld</code>。</p>
+    <table>
+      <tr><th>链路</th><th>数据权威</th><th>状态</th></tr>
+      <tr>
+        <td>旧 Forge Play bridge runtime-scene editing</td>
+        <td><code>scene.json</code> working copy + GameWorld runtime binding</td>
+        <td><span class="status-tag tag-history">Legacy platform path</span>短期保留兼容，不能继续承载新通用框架能力。</td>
+      </tr>
+      <tr>
+        <td>新独立 EditorWorld</td>
+        <td><code>SceneDocument / EditorSession</code></td>
+        <td><span class="status-tag tag-current">主方向</span>本地 MVP 与 Forge Play 平台按钮切换均已通过 <code>mode:change</code> 跑通；后续重点是把正式 command transport 接入 Authoring Command Pipeline，并收口 legacy runtime-scene editing。</td>
+      </tr>
+    </table>
+  </div>
+
+  <div id="page-risks" class="page">
+    <h2>已知问题</h2>
+    <table>
+      <tr><th>问题</th><th>当前判断</th><th>影响</th></tr>
+      <tr>
+        <td>Vite deps chunk 缺失</td>
+        <td><code>.vite/deps/chunk-*.js</code> 缺失通常与依赖预构建缓存或动态依赖 include 不一致有关。</td>
+        <td>可能导致黑屏、页面反复 reload、HMR websocket 异常、工具显示 <code>NO_GAME_CONNECTED</code>。</td>
+      </tr>
+      <tr>
+        <td>Inspector 动态依赖</td>
+        <td><code>vite-plugins</code> 的 Inspector loader 会 lazy import Inspector、EffectLayer、DepthRenderer。</td>
+        <td>项目 Vite 配置需要与这些动态依赖保持一致，否则 dev server 可能请求不存在的 optimized chunk。</td>
+      </tr>
+      <tr>
+        <td>legacy 写入旧格式</td>
+        <td>平台 legacy 链路如果写 <code>sceneInstances</code>，而项目只读 V2，会出现保存和刷新不一致。</td>
+        <td>资产可能在运行时出现，但保存后或刷新后丢失，或者写到项目不消费的字段。</td>
+      </tr>
+      <tr>
+        <td>npm 包依赖未安装或未重启</td>
+        <td><code>lumber_order</code> 已默认走 <code>@fps-games/editor*</code>；已有 sandbox 如果只更新源码但未安装依赖，会出现 Vite import resolve 失败。</td>
+        <td>源码已引用公共包，但 sandbox <code>node_modules</code> 仍是旧状态，需触发 install + restart。</td>
+      </tr>
+      <tr>
+        <td>平台 scene store 侵入编辑器数据权威</td>
+        <td><code>forge-play</code> 的 HostKernel、Service Worker、IndexedDB restore、MCP scene tools 等优化必须保持在宿主和传输层。</td>
+        <td>如果平台把 runtime scene blob 或平台 scene store 当成 fps 项目的保存事实，会绕过 <code>SceneDocument</code>、history、schema 校验和 project adapter，导致保存、撤销、刷新回放不一致。</td>
+      </tr>
+      <tr>
+        <td>公共包缺少行为级 parity tests</td>
+        <td>当前已通过 package boundary 检查，但缺少 fake Babylon / 旧新 runtime 等价行为测试。</td>
+        <td>selection、monitor、undo/redo、export/commit 的新旧等价性仍需后续验证。</td>
+      </tr>
+      <tr>
+        <td>完整 <code>editor-ui</code> 产品层尚未落地</td>
+        <td><code>editor-browser</code> 已提供最小 Local Editor UI shell，但还没有独立完整 UI 包。</td>
+        <td>基础 Scene View transform 工具浮层已落地；产品级 Gizmo toolbar、复杂布局、菜单命令、资产缩略图和多面板工作区仍需后续设计。</td>
+      </tr>
+    </table>
+
+    <h2>非当前状态内容</h2>
+    <p>本文档不记录行动安排。相关历史讨论只作为背景存在，不作为当前状态主线。</p>
+  </div>
+
+  <div id="page-sources" class="page">
+    <h2>源码依据</h2>
+    <table>
+      <tr><th>状态判断</th><th>源码或文档依据</th><th>当前观察到的事实</th></tr>
+      <tr>
+        <td><code>vite-plugins</code> 承担 Inspector loader</td>
+        <td><code>/Users/admin/work/UGIT/vite-plugins/src/babylon/inspector.ts</code></td>
+        <td>定义 <code>babylonInspectorPlugin()</code>，注入 <code>ensureInspectorReady()</code>，lazy import Inspector 相关模块。</td>
+      </tr>
+      <tr>
+        <td><code>vite-plugins</code> 包导出 Babylon 子路径</td>
+        <td><code>/Users/admin/work/UGIT/vite-plugins/package.json</code><br><code>/Users/admin/work/UGIT/vite-plugins/README.md</code></td>
+        <td>包名为 <code>@fps-games/vite-plugins</code>，文档中包含 <code>@fps-games/vite-plugins/babylon</code>。</td>
+      </tr>
+      <tr>
+        <td><code>forge-play</code> 是宿主与 dev supervisor</td>
+        <td><code>/Users/admin/work/UGIT/forge-play/templates/sandbox/agent/runtime/dev-supervisor/vite-runner.mjs</code></td>
+        <td>平台加载项目 Vite config，处理 iframe base path 和 dev server 运行。</td>
+      </tr>
+      <tr>
+        <td><code>forge-play</code> bridge 注入</td>
+        <td><code>/Users/admin/work/UGIT/forge-play/templates/sandbox/agent/runtime/dev-supervisor/vite-plugin.mjs</code></td>
+        <td>平台侧注入 bridge 和服务 worker，承担 transport 和外层连接。</td>
+      </tr>
+      <tr>
+        <td><code>lumber_order</code> 承载项目侧 adapter</td>
+        <td><code>/Users/admin/work/UGIT-Branch/lumber_order-forge-play/src/fps-game-editor-adapter</code></td>
+        <td>包含 document、asset、scene、binding adapter，把公共编辑器命令映射到项目 authored config。</td>
+      </tr>
+      <tr>
+        <td><code>lumber_order</code> 正式 scene schema 是 V2</td>
+        <td><code>/Users/admin/work/UGIT-Branch/lumber_order-forge-play/docs/SCENE_JSON_V2_DESIGN.md</code></td>
+        <td>规范以 <code>scene.assets[]</code>、<code>scene.nodes[]</code> 等结构为主线。</td>
+      </tr>
+      <tr>
+        <td><code>pa_maker</code> 是 scaffold 参考</td>
+        <td><code>/Users/admin/work/UGIT/pa_maker/docs/standards/EDITOR_PACKAGE_INTEGRATION.md</code><br><code>/Users/admin/work/UGIT/pa_maker/scaffold/vite.config.ts</code><br><code>/Users/admin/work/UGIT/pa_maker/scaffold/src/services/SceneBuilder.ts</code><br><code>/Users/admin/work/UGIT/pa_maker/scaffold/src/config</code></td>
+        <td>作为标准/脚手架参考；本轮明确跳过 <code>pa_maker/scaffold/src/editor-package</code>，不把它作为旧 editor-package 对照证据。</td>
+      </tr>
+    </table>
+  </div>
+
+  <div id="page-history" class="page">
+    <h2>历史背景与临时绕行</h2>
+    <p><span class="status-tag tag-history">历史背景</span>本页只保留此前讨论中仍有解释价值的背景。它们不构成当前正式架构主线。</p>
+
+    <details open>
+      <summary>资产拖拽与 legacy 格式错配</summary>
+      <p>此前观察到平台 bridge 可能把导入资产写入 <code>sceneInstances</code> 或旧 persistence payload，而 <code>lumber_order</code> 的 <code>SceneBuilder</code> 只读取 Scene JSON V2 的 <code>scene.assets[] + scene.nodes[]</code>。这会导致“运行时看到资产，但保存或刷新后不稳定”的问题。</p>
+      <p><span class="status-tag tag-current">当前正式链路</span>平台只发意图，项目 editor runtime 写 V2。</p>
+    </details>
+
+    <details>
+      <summary>Mock Platform Assets</summary>
+      <p>Mock Platform Assets 是项目侧模拟平台流程的调试面板。它用于验证“平台意图消息 -> 项目 editor runtime -> Scene JSON V2 -> 保存 -> 刷新回放”的闭环，不代表 forge-play 必须实现同一套 UI。</p>
+    </details>
+
+    <details>
+      <summary>AssetManager 职责收敛</summary>
+      <p>当前共识是：AssetManager 管资产注册和资产引用，不管理场景 instance 或场景树。场景 instance 属于 editor document / scene document，运行时实体由 SceneBuilder 创建。</p>
+      <p><span class="status-tag tag-current">当前收口</span><code>asset.import</code> 返回成功必须同时代表 Scene JSON V2 working copy 已写入、runtime node 已创建。runtime 创建失败时项目 adapter 回滚本次 document 变更并返回失败。</p>
+    </details>
+
+    <details>
+      <summary>通用传输策略</summary>
+      <p>此前讨论中曾出现专门平台 API 与通用文件传输两类方案。当前状态记录里只保留事实：平台可作为通用传输层，项目侧仍负责生成要写入的注册产物和 scene document。</p>
+    </details>
+
+    <details>
+      <summary>黑屏与连接失败排查背景</summary>
+      <p>曾观察到 dev server 状态健康，但页面工具返回 <code>NO_GAME_CONNECTED</code>，同时日志出现 <code>.vite/deps/chunk-*.js</code> 缺失。这类问题更接近 Vite 依赖预构建或页面连接层异常，不应直接归因于游戏业务逻辑。</p>
+    </details>
+  </div>
+
+  <div class="footer">
+    2026-05-19 · fps-game-editor 架构文档 · 记录当前事实、边界、数据链路、legacy 状态、已知问题、迁移基线、Round 1/2/3/4/5/6/7/8 包状态、EditorWorld MVP 跑通状态、快速迭代原则、三态 world 设计、数据权威原则、平台对接边界、Unity 风格命名原则，以及已确认的独立编辑器包设计共识。
+  </div>
+</div>
+
+<script>
+function switchPage(id, btn) {
+  document.querySelectorAll('.page').forEach(function(page) { page.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(button) { button.classList.remove('active'); });
+  var page = document.getElementById('page-' + id);
+  if (page) page.classList.add('active');
+  if (btn) btn.classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+</script>
+</body>
+</html>

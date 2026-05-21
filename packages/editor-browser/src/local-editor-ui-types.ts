@@ -1,0 +1,219 @@
+export type LocalEditorBrowserSerializedValueType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'enum'
+  | 'asset'
+  | 'object'
+  | 'unknown';
+
+export interface LocalEditorBrowserSerializedProperty<TDocument = unknown> {
+  path: string;
+  label: string;
+  valueType: LocalEditorBrowserSerializedValueType;
+  value: unknown;
+  mixed?: boolean;
+  readOnly?: boolean;
+  document?: TDocument;
+}
+
+export interface LocalEditorBrowserSerializedObject<TDocument = unknown> {
+  targetId: string;
+  label?: string;
+  properties: LocalEditorBrowserSerializedProperty<TDocument>[];
+  document?: TDocument;
+}
+
+export interface LocalEditorBrowserSerializedMultiObject<TDocument = unknown> {
+  targetIds: string[];
+  activeId: string | null;
+  label?: string;
+  properties: LocalEditorBrowserSerializedProperty<TDocument>[];
+  document?: TDocument;
+}
+
+export interface LocalEditorBrowserUiHierarchyItem {
+  id: string;
+  label: string;
+  parentId?: string | null;
+  depth?: number;
+  selectable?: boolean;
+  locked?: boolean;
+  canHaveChildren?: boolean;
+  renamable?: boolean;
+  deletable?: boolean;
+  draggable?: boolean;
+}
+
+export interface LocalEditorBrowserUiAssetItem {
+  id: string;
+  label: string;
+  meta?: string;
+  disabled?: boolean;
+}
+
+export type LocalEditorBrowserTransformTool = 'select' | 'move' | 'rotate' | 'scale';
+
+export type LocalEditorBrowserTransformSpace = 'world' | 'local';
+
+export type LocalEditorBrowserTransformConstraint = 'axis' | 'plane' | 'view-plane';
+
+export interface LocalEditorBrowserTransformToolState {
+  activeTool: LocalEditorBrowserTransformTool;
+  activeSpace: LocalEditorBrowserTransformSpace;
+  activeConstraint?: LocalEditorBrowserTransformConstraint;
+  dragPhase: 'idle' | 'dragging';
+  draggingNodeId?: string | null;
+}
+
+export interface LocalEditorBrowserHistoryEntry {
+  id: string;
+  label: string;
+  commandType: string;
+  createdAt: number;
+}
+
+export interface LocalEditorBrowserHistoryView {
+  entries: LocalEditorBrowserHistoryEntry[];
+}
+
+export interface LocalEditorBrowserAuthoringSource {
+  ref: {
+    sourceId: string;
+    sourceType: string;
+    revision?: number;
+  };
+}
+
+export interface LocalEditorBrowserUiState<TDocument = unknown> {
+  mode: 'game' | 'editor';
+  busy: boolean;
+  label?: string;
+  status: string;
+  summary?: string;
+  assetFilter: string;
+  assets: LocalEditorBrowserUiAssetItem[];
+  assetCountLabel?: string;
+  hierarchy: LocalEditorBrowserUiHierarchyItem[];
+  selectedIds: string[];
+  activeId: string | null;
+  selectionSummary?: {
+    count: number;
+    activeId: string | null;
+  } | null;
+  serializedObject: LocalEditorBrowserSerializedObject<TDocument> | null;
+  serializedMultiObject?: LocalEditorBrowserSerializedMultiObject<TDocument> | null;
+  boxSelection?: {
+    active: boolean;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null;
+  transformTool?: LocalEditorBrowserTransformToolState | null;
+  session?: {
+    source?: LocalEditorBrowserAuthoringSource | null;
+    dirty: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+    history?: LocalEditorBrowserHistoryView;
+  } | null;
+}
+
+export interface LocalEditorBrowserUiPropertyInput {
+  targetId: string;
+  targetIds?: string[];
+  path: string;
+  value: number | string | boolean;
+}
+
+export interface LocalEditorBrowserHierarchySelectionInput {
+  id: string;
+  additive: boolean;
+  toggle: boolean;
+}
+
+export type LocalEditorBrowserSceneGraphDropPlacement = 'inside' | 'before' | 'after';
+
+export interface LocalEditorBrowserSceneGraphRenameIntent {
+  id: string;
+  name: string;
+}
+
+export interface LocalEditorBrowserSceneGraphCreateGroupIntent {
+  parentId?: string | null;
+  activeId?: string | null;
+  name?: string;
+}
+
+export interface LocalEditorBrowserSceneGraphDeleteIntent {
+  ids: string[];
+  activeId?: string | null;
+}
+
+export interface LocalEditorBrowserSceneGraphDropIntent {
+  draggedId: string;
+  targetId: string;
+  placement: LocalEditorBrowserSceneGraphDropPlacement;
+  preserveWorldTransform?: boolean;
+}
+
+export interface LocalEditorBrowserUiCallbacks {
+  onEnterEditor?: () => void;
+  onSaveScene?: () => void;
+  onSaveAndRunGame?: () => void;
+  onDiscardAndRunGame?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onSelectHierarchyItem?: (input: LocalEditorBrowserHierarchySelectionInput) => void;
+  onCreateFromAsset?: (assetId: string) => void;
+  onAssetFilterChange?: (value: string) => void;
+  onPropertyInput?: (input: LocalEditorBrowserUiPropertyInput) => void;
+  onTransformToolChange?: (tool: LocalEditorBrowserTransformTool) => void;
+  onTransformSpaceChange?: (space: LocalEditorBrowserTransformSpace) => void;
+  onTransformConstraintChange?: (constraint: LocalEditorBrowserTransformConstraint) => void;
+  onFocusSelection?: () => void;
+  onCancelActiveOperation?: () => void;
+  onSceneGraphRename?: (intent: LocalEditorBrowserSceneGraphRenameIntent) => void;
+  onSceneGraphCreateGroup?: (intent: LocalEditorBrowserSceneGraphCreateGroupIntent) => void;
+  onSceneGraphDelete?: (intent: LocalEditorBrowserSceneGraphDeleteIntent) => void;
+  onSceneGraphDrop?: (intent: LocalEditorBrowserSceneGraphDropIntent) => void;
+}
+
+export interface LocalEditorBrowserUiOptions {
+  root?: HTMLElement;
+  document?: Document;
+  callbacks?: LocalEditorBrowserUiCallbacks;
+}
+
+export interface LocalEditorBrowserUi<TDocument = unknown> {
+  update(state: LocalEditorBrowserUiState<TDocument>): void;
+  dispose(): void;
+}
+
+export type LocalEditorBottomDockTab = 'assets' | 'history';
+
+export type LocalEditorWorkbenchDockArea = 'left' | 'right' | 'bottom';
+
+export type LocalEditorWorkbenchPanelId = 'hierarchy' | 'inspector' | LocalEditorBottomDockTab;
+
+export type LocalEditorWorkbenchRegionId = 'top-app-bar' | 'left-dock' | 'scene-view' | 'scene-header' | 'right-dock' | 'bottom-dock';
+
+export interface LocalEditorWorkbenchRegionDescriptor {
+  id: LocalEditorWorkbenchRegionId;
+  label: string;
+}
+
+export interface LocalEditorWorkbenchPanelDescriptor {
+  id: LocalEditorWorkbenchPanelId;
+  title: string;
+  area: LocalEditorWorkbenchDockArea;
+  contextMenu?: string;
+  toolbar?: string;
+}
+
+export interface LocalEditorWorkbenchLayout {
+  regions: LocalEditorWorkbenchRegionDescriptor[];
+  panels: LocalEditorWorkbenchPanelDescriptor[];
+  activeTabs: Record<LocalEditorWorkbenchDockArea, LocalEditorWorkbenchPanelId | null>;
+}

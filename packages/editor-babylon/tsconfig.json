@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "../../.tsbuildinfo/editor-babylon.tsbuildinfo"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../editor-browser"
+    },
+    {
+      "path": "../editor-core"
+    },
+    {
+      "path": "../editor-protocol"
+    }
+  ]
+}

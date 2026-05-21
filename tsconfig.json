@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/editor-protocol"
+    },
+    {
+      "path": "./packages/editor-browser"
+    },
+    {
+      "path": "./packages/editor-forge-play"
+    },
+    {
+      "path": "./packages/editor-core"
+    },
+    {
+      "path": "./packages/editor-babylon"
+    },
+    {
+      "path": "./packages/editor"
+    }
+  ]
+}

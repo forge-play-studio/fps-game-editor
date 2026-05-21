@@ -1,0 +1,25 @@
+{
+  "name": "fps-game-editor",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "build:editor-world": "vite build --config examples/babylon-editor-world/vite.config.ts",
+    "clean": "tsc -b --clean",
+    "dev:editor-world": "vite --config examples/babylon-editor-world/vite.config.ts --host 0.0.0.0",
+    "typecheck": "tsc -p packages/editor-protocol/tsconfig.json --noEmit && tsc -p packages/editor-browser/tsconfig.json --noEmit && tsc -p packages/editor-forge-play/tsconfig.json --noEmit && tsc -p packages/editor-core/tsconfig.json --noEmit && tsc -p packages/editor-babylon/tsconfig.json --noEmit && tsc -p packages/editor/tsconfig.json --noEmit && tsc -p examples/babylon-editor-world/tsconfig.json --noEmit",
+    "check:boundaries": "node scripts/check-package-boundaries.mjs",
+    "check": "npm run check:boundaries && npm run typecheck",
+    "pack:dry-run": "npm run build && npm pack --workspaces --dry-run",
+    "publish:next": "npm run check && npm run build && npm publish --workspaces --access public --tag next"
+  },
+  "devDependencies": {
+    "@babylonjs/core": "^8.0.0",
+    "vite": "^5.4.21",
+    "typescript": "^5.9.3"
+  }
+}

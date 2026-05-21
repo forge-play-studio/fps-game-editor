@@ -1,0 +1,25 @@
+{
+  "name": "@fps-games/editor-protocol",
+  "version": "0.1.0-alpha.0",
+  "type": "module",
+  "description": "Shared protocol types for fps-game-editor runtimes, adapters, and Forge Play bridges.",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

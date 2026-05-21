@@ -1,0 +1,34 @@
+{
+  "name": "@fps-games/editor-babylon",
+  "version": "0.1.0-alpha.0",
+  "type": "module",
+  "description": "BabylonJS runtime integrations for fps-game-editor.",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./legacy-runtime": {
+      "types": "./dist/legacy-runtime.d.ts",
+      "import": "./dist/legacy-runtime.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fps-games/editor-browser": "0.1.0-alpha.0",
+    "@fps-games/editor-core": "0.1.0-alpha.0",
+    "@fps-games/editor-protocol": "0.1.0-alpha.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
