@@ -14,3 +14,13 @@
 - 不把项目 schema、AssetManager 规则、SceneBuilder 逻辑或具体游戏语义搬进通用编辑器包。
 - handoff 或 push 前，以现有检查通过作为最低质量线。
 - 文档记录当前事实和决策，但不把文档过早写成固定路线图。
+
+## GitHub Issue 创建规则
+
+- Issue 标题使用“前缀 + 中文描述”，例如 `feat: 添加 mini-game-lab 方便编辑器调试`。
+- Issue 正文需要写清楚：类型、背景、目标、范围、非目标、验收标准。正文里的“类型 / 优先级 / 工作量”只是说明文字，不等于 GitHub 右侧面板里的结构化字段。
+- 创建 issue 时必须设置 assignee 和 label；如果仓库没有合适 label，先查看现有 label 再选择最贴近的，不随意创建新 label。
+- 创建后必须单独设置 GitHub 右侧的结构化 `Type`，不能只写在正文里。当前仓库常用类型为 `Feature`、`Task`、`Bug`。
+- 创建后必须单独设置 GitHub 右侧 `Fields`。当前仓库至少需要设置 `Priority`；如任务规模明确，也设置 `Effort`。
+- 对开发工具、框架能力补齐、非紧急基础设施任务，默认使用 `Priority: Medium`、`Effort: Medium`；如果用户明确指定，以用户指定为准。
+- 使用 `gh issue create` 后，要用 GitHub GraphQL 或页面确认右侧面板里的 `Type` 和 `Fields` 已真实生效。不要把正文中的字段描述误认为已经完成设置。

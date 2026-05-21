@@ -2,5 +2,9 @@ node_modules/
 dist/
 packages/*/dist/
 examples/*/dist/
+examples/mini-game-lab/package-lock.json
+examples/mini-game-lab/pnpm-lock.yaml
+playwright-report/
+test-results/
 *.tsbuildinfo
 .DS_Store

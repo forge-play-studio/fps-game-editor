@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Forge Play Target Mock Platform</title>
+  <style>
+    html, body, iframe { width: 100%; height: 100%; margin: 0; border: 0; }
+    body { background: #0d1117; }
+  </style>
+</head>
+<body>
+  <iframe id="game-frame" title="Project iframe"></iframe>
+  <script>
+    (() => {
+      const BRIDGE_SOURCE = 'forge-play-game-bridge';
+      const POST_MSG = {
+        COMMAND: 'command',
+        EVENT: 'event',
+      };
+      const params = new URLSearchParams(location.search);
+      const target = params.get('target');
+      const frame = document.getElementById('game-frame');
+      const events = [];
+      const messages = [];
+      const commands = [];
+      const ready = {
+        bridgeInstalled: false,
+        runtimeRegistered: false,
+        sceneReady: false,
+        runtimeInitialized: false,
+        runtimeInitializedCount: 0,
+      };
+
+      if (!target) {
+        throw new Error('missing target query param');
+      }
+
+      frame.src = target;
+
+      function clone(value) {
+        return JSON.parse(JSON.stringify(value));
+      }
+
+      function compact(value) {
+        if (typeof value === 'string') {
+          return value.length > 512 ? `[string ${value.length} chars]` : value;
+        }
+        if (Array.isArray(value)) return value.map(compact);
+        if (!value || typeof value !== 'object') return value;
+        const out = {};
+        for (const [key, child] of Object.entries(value)) {
+          out[key] = compact(child);
+        }
+        return out;
+      }
+
+      function matches(item, name, requestId) {
+        const payload = item && item.payload;
+        if (!payload || payload.name !== name) return false;
+        if (requestId == null) return true;
+        return payload.requestId === requestId;
+      }
+
+      window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (!msg || msg.source !== BRIDGE_SOURCE) return;
+        const item = {
+          source: msg.source,
+          type: msg.type,
+          payload: msg.payload || {},
+          timestamp: msg.timestamp || Date.now(),
+        };
+        messages.push(item);
+        if (msg.type === POST_MSG.EVENT) {
+          events.push(item);
+          const name = item.payload && item.payload.name;
+          if (name === 'mock.bridge.installed') ready.bridgeInstalled = true;
+          if (name === 'mock.runtime.registered') ready.runtimeRegistered = true;
+          if (name === 'mock.scene.ready') ready.sceneReady = true;
+          if (name === 'mock.runtime.initialized') {
+            ready.runtimeInitialized = true;
+            ready.runtimeInitializedCount += 1;
+          }
+        }
+      });
+
+      window.__sim = {
+        events,
+        messages,
+        commands,
+        command(name, params = {}) {
+          const payload = { ...params, name };
+          commands.push({ payload, timestamp: Date.now() });
+          frame.contentWindow.postMessage({
+            source: BRIDGE_SOURCE,
+            type: POST_MSG.COMMAND,
+            payload,
+            timestamp: Date.now(),
+          }, '*');
+        },
+        takeEvent(name, requestId = null) {
+          const index = events.findIndex((item) => matches(item, name, requestId));
+          if (index < 0) return null;
+          return clone(events.splice(index, 1)[0].payload);
+        },
+        takeMessage(type, predicateSource = '') {
+          const predicate = predicateSource
+            ? new Function('payload', `return (${predicateSource})(payload);`)
+            : () => true;
+          const index = messages.findIndex((item) => item.type === type && predicate(item.payload || {}));
+          if (index < 0) return null;
+          return clone(messages.splice(index, 1)[0]);
+        },
+        trace() {
+          return clone({
+            ready,
+            commands: commands.slice(-20).map(compact),
+            events: events.slice(-50).map(compact),
+            messages: messages.slice(-50).map(compact),
+          });
+        },
+        state() {
+          return clone({ ready });
+        },
+      };
+    })();
+  </script>
+</body>
+</html>

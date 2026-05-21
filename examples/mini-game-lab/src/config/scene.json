@@ -1,0 +1,2142 @@
+{
+  "schemaVersion": 2,
+  "meta": {
+    "playableAdInfo": {
+      "ctaUrl": "",
+      "notes": "Lumber Order Scene V2 test scene"
+    },
+    "generatedFrom": {
+      "sourceId": "scene.main",
+      "sourceType": "scene",
+      "revision": 17,
+      "compilerId": "lumber_order.editor-scene.compiler",
+      "compilerVersion": "1",
+      "compiledAt": "2026-05-21T09:20:17.111Z"
+    }
+  },
+  "gameplay": {
+    "worldBounds": {
+      "minX": -22,
+      "maxX": 22,
+      "minZ": -22,
+      "maxZ": 22
+    },
+    "tuning": {
+      "sceneVfx": {
+        "effects": {}
+      },
+      "conveyorGroundDecals": {
+        "enabled": false
+      }
+    },
+    "layoutPlaceholderSurfaces": [
+      {
+        "id": "tile_unlock",
+        "position": {
+          "x": 4.7,
+          "z": -6.9
+        },
+        "size": {
+          "width": 3.2,
+          "depth": 1.5
+        },
+        "color": {
+          "r": 0.78,
+          "g": 0.78,
+          "b": 0.8
+        }
+      },
+      {
+        "id": "tile_rest",
+        "position": {
+          "x": 8.4,
+          "z": -6.9
+        },
+        "size": {
+          "width": 3.2,
+          "depth": 1.5
+        },
+        "color": {
+          "r": 0.78,
+          "g": 0.78,
+          "b": 0.8
+        }
+      },
+      {
+        "id": "tile_inner",
+        "position": {
+          "x": 0.3,
+          "z": -1.2
+        },
+        "size": {
+          "width": 1.8,
+          "depth": 2.2
+        },
+        "color": {
+          "r": 0.78,
+          "g": 0.78,
+          "b": 0.8
+        }
+      }
+    ],
+    "groundOverlayPlanes": [
+      {
+        "id": "overlay_truck_lane_area",
+        "position": {
+          "x": -0.8537864685058594,
+          "y": -0.25,
+          "z": -1.3107835054397583
+        },
+        "size": {
+          "width": 2.2,
+          "depth": 10.2
+        },
+        "scaling": {
+          "x": 18.624629974365234,
+          "y": 1,
+          "z": 4.444009304046631
+        },
+        "color": {
+          "r": 0.38,
+          "g": 1,
+          "b": 0.4109999999999999
+        }
+      },
+      {
+        "id": "overlay_truck_rear_red_square",
+        "position": {
+          "x": 0.4086920410394669,
+          "y": 1,
+          "z": -12.981225967407227
+        },
+        "size": {
+          "width": 1.34,
+          "depth": 0.99
+        },
+        "color": {
+          "r": 0.9,
+          "g": 0.15,
+          "b": 0.15
+        }
+      }
+    ],
+    "regions": [
+      {
+        "id": "region_1_lumberyard",
+        "name": "区域1_伐木场",
+        "bounds": {
+          "minX": -5.2,
+          "maxX": 6.2,
+          "minZ": -3.68,
+          "maxZ": 20.5
+        }
+      },
+      {
+        "id": "region_2_sell_yard",
+        "name": "区域2_售卖场景",
+        "bounds": {
+          "minX": -5.2,
+          "maxX": 6.2,
+          "minZ": -10.8,
+          "maxZ": -3.68
+        }
+      },
+      {
+        "id": "region_3_expansion_yard",
+        "name": "区域3_扩建后场景",
+        "bounds": {
+          "minX": -12.8,
+          "maxX": -5.2,
+          "minZ": -10.8,
+          "maxZ": -3.68
+        }
+      },
+      {
+        "id": "region_4_giant_log_yard",
+        "name": "区域4_巨木场景",
+        "bounds": {
+          "minX": -12.8,
+          "maxX": -5.2,
+          "minZ": 6,
+          "maxZ": 10.8
+        }
+      }
+    ],
+    "playerAnimation": {
+      "pickupArcHeight": 5,
+      "pickupScale": 1,
+      "pickupScaleCycles": 0,
+      "pickupSpinTurns": 0.83,
+      "deliveryArcHeight": 1.2,
+      "deliveryScale": 1,
+      "deliveryScaleCycles": 0,
+      "deliverySpinTurns": 1.08,
+      "deliveryDuration": 0.22,
+      "machineAnimationSpeedRatio": 1,
+      "machineTransferArcHeight": 0.6,
+      "machineTransferScale": 1,
+      "machineTransferScaleCycles": 0,
+      "machineTransferSpinTurns": 0,
+      "machineTransferDuration": 0.16
+    }
+  },
+  "scene": {
+    "rootId": "root",
+    "assets": [
+      {
+        "id": "asset_tree_lv1",
+        "type": "glb",
+        "sourceId": "tree_lv1",
+        "displayName": "一级树",
+        "category": "Nature",
+        "defaults": {
+          "transform": {
+            "scale": 0.5
+          }
+        }
+      },
+      {
+        "id": "asset_tree_lv2",
+        "type": "glb",
+        "sourceId": "tree_lv2",
+        "displayName": "二级树",
+        "category": "Nature",
+        "defaults": {
+          "transform": {
+            "scale": 0.5
+          }
+        }
+      },
+      {
+        "id": "asset_fence",
+        "type": "glb",
+        "sourceId": "fence",
+        "displayName": "围栏",
+        "category": "Building",
+        "defaults": {
+          "transform": {
+            "scale": 0.5
+          },
+          "outline": {
+            "renderOutline": true,
+            "outlineWidth": 0.04,
+            "outlineColor": {
+              "r": 0.03,
+              "g": 0.03,
+              "b": 0.03
+            }
+          }
+        }
+      },
+      {
+        "id": "asset_compressor",
+        "type": "glb",
+        "sourceId": "board_compressor_lv1",
+        "displayName": "木板压缩机",
+        "category": "Building",
+        "defaults": {
+          "transform": {
+            "scale": 0.5
+          }
+        }
+      },
+      {
+        "id": "asset_peeler",
+        "type": "glb",
+        "sourceId": "peeler",
+        "displayName": "削皮器",
+        "category": "Building",
+        "defaults": {
+          "transform": {
+            "scale": 0.5
+          },
+          "childOutlines": {
+            "__root__/model/Build_Xuepiqi01": {
+              "renderOutline": true,
+              "outlineWidth": 0.04,
+              "outlineColor": {
+                "r": 0.03,
+                "g": 0.03,
+                "b": 0.03
+              }
+            }
+          }
+        }
+      }
+    ],
+    "nodes": [
+      {
+        "id": "mvp_root",
+        "name": "MVP Root",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 17,
+          "objectId": "mvp_root",
+          "component": "GameObject"
+        },
+        "transform": {
+          "position": {
+            "x": 2.124809514554565,
+            "y": 8.766771397716866e-8,
+            "z": -0.2635931425681526
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "group"
+      },
+      {
+        "id": "mvp_tree_01",
+        "name": "MVP Tree 01",
+        "parentId": "mvp_root",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 17,
+          "objectId": "mvp_tree_01",
+          "component": "ModelRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": 4.581266153780396,
+            "y": -4.480542270590077,
+            "z": -4.76977639860006
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1.9348942041397095,
+            "z": 1.1658565998077393
+          }
+        },
+        "kind": "instance",
+        "instance": {
+          "assetId": "asset_tree_lv1"
+        }
+      },
+      {
+        "id": "mvp_tree_02",
+        "name": "MVP Tree 02",
+        "parentId": "mvp_root",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 17,
+          "objectId": "mvp_tree_02",
+          "component": "ModelRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": 7.36131833883899,
+            "y": 0.1307464557397262,
+            "z": 2.4171075277915413
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1.9143853187561035,
+            "z": 1
+          }
+        },
+        "kind": "instance",
+        "instance": {
+          "assetId": "asset_tree_lv2"
+        }
+      },
+      {
+        "id": "tree_lv1",
+        "name": "Tree Lv1",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 17,
+          "objectId": "tree_lv1",
+          "component": "ModelRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": -2.002983570098877,
+            "y": 8.766771486534708e-8,
+            "z": 8.917222023010254
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "instance",
+        "instance": {
+          "assetId": "asset_tree_lv1"
+        }
+      },
+      {
+        "id": "fence",
+        "name": "Fence",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 17,
+          "objectId": "fence",
+          "component": "ModelRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": 7.183664269001214,
+            "y": 8.766771397716866e-8,
+            "z": 12.058139923904239
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "instance",
+        "instance": {
+          "assetId": "asset_fence"
+        }
+      },
+      {
+        "id": "board_compressor_lv1",
+        "name": "木板压缩机",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 17,
+          "objectId": "board_compressor_lv1",
+          "component": "ModelRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": -3.496782064437866,
+            "y": -0.40842053294181824,
+            "z": 8.736801147460938
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "instance",
+        "instance": {
+          "assetId": "asset_compressor"
+        }
+      },
+      {
+        "id": "fence_2",
+        "name": "围栏",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 17,
+          "objectId": "fence_2",
+          "component": "ModelRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": -12.590632438659668,
+            "y": 8.766771486534708e-8,
+            "z": -4.553765296936035
+          },
+          "rotation": {
+            "x": 0,
+            "y": -1.5674126408514428,
+            "z": 0
+          },
+          "scale": {
+            "x": 0.9999998834125985,
+            "y": 1,
+            "z": 0.9999998834125985
+          }
+        },
+        "kind": "instance",
+        "instance": {
+          "assetId": "asset_fence"
+        }
+      },
+      {
+        "id": "peeler",
+        "name": "削皮器",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 17,
+          "objectId": "peeler",
+          "component": "ModelRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": 6.328696250915527,
+            "y": 0,
+            "z": 14.931673049926758
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "instance",
+        "instance": {
+          "assetId": "asset_peeler"
+        }
+      }
+    ],
+    "materials": [
+      {
+        "id": "sharedmat_asset_tree_lv3_fir_standardSurface3",
+        "scope": "sharedAsset",
+        "assetId": "asset_tree_lv3_fir",
+        "materialName": "standardSurface3",
+        "type": "PBRMaterial",
+        "properties": {
+          "albedoColor": {
+            "r": 0.16,
+            "g": 0.3,
+            "b": 0.22
+          },
+          "emissiveColor": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_door_main",
+        "scope": "sharedAsset",
+        "assetId": "asset_door",
+        "materialName": "SSD_S_T_Door_C_Mat_卡通风格木质栅栏门_SSD_S_M_Door1",
+        "type": "PBRMaterial",
+        "properties": {
+          "metallic": 0,
+          "roughness": 0.64,
+          "pbr": {
+            "albedoColor": {
+              "r": 1,
+              "g": 0.8163333333333334,
+              "b": 0.71
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "emissiveColor": {
+              "r": 0.07,
+              "g": 0.03945666666666667,
+              "b": 0.016100000000000003
+            },
+            "baseWeight": 1,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "nodemat_road_curb_outer_preview_MI_TileStack_DarkGray_Square_SM_Sidewalk_Curved3_root___node0_node0_primitive0",
+        "scope": "nodeMaterial",
+        "nodeId": "road_curb_outer_preview",
+        "materialName": "MI_TileStack_DarkGray_Square_SM_Sidewalk_Curved3",
+        "ownerNodePath": "__root__/node0/node0_primitive0",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "reflectivityColor": {
+              "r": 1,
+              "g": 0.98,
+              "b": 0.98
+            },
+            "emissiveColor": {
+              "r": 0.23,
+              "g": 0.23,
+              "b": 0.23
+            },
+            "ambientColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_road_curb_outer_preview_MI_StreetTrim_root___node0_node0_primitive1",
+        "scope": "nodeMaterial",
+        "nodeId": "road_curb_outer_preview",
+        "materialName": "MI_StreetTrim",
+        "ownerNodePath": "__root__/node0/node0_primitive1",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "emissiveColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "ambientColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_left_juse_Inst_root___node0_node0_primitive1",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_left",
+        "materialName": "juse_Inst",
+        "ownerNodePath": "conveyor_inst_0:__root__/conveyor_inst_0:node0/conveyor_inst_0:node0_primitive1",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.76,
+              "g": 0.15199999999999997,
+              "b": 0
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_road_curb_outer_preview_2_MI_TileStack_DarkGray_Square_SM_Sidewalk_Curved3_root___node0_node0_primitive0",
+        "scope": "nodeMaterial",
+        "nodeId": "road_curb_outer_preview_2",
+        "materialName": "MI_TileStack_DarkGray_Square_SM_Sidewalk_Curved3",
+        "ownerNodePath": "__root__/node0/node0_primitive0",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "emissiveColor": {
+              "r": 0.28,
+              "g": 0.28,
+              "b": 0.28
+            },
+            "ambientColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_road_curb_outer_preview_2_MI_StreetTrim_root___node0_node0_primitive1",
+        "scope": "nodeMaterial",
+        "nodeId": "road_curb_outer_preview_2",
+        "materialName": "MI_StreetTrim",
+        "ownerNodePath": "__root__/node0/node0_primitive1",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "emissiveColor": {
+              "r": 0.97,
+              "g": 0.97,
+              "b": 0.97
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_road_curb_inner_preview_2_MI_StreetTrim_root___node0_node0_primitive1",
+        "scope": "nodeMaterial",
+        "nodeId": "road_curb_inner_preview_2",
+        "materialName": "MI_StreetTrim",
+        "ownerNodePath": "__root__/node0/node0_primitive1",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "emissiveColor": {
+              "r": 0.92,
+              "g": 0.8276933333333337,
+              "b": 0.7912
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_road_curb_inner_preview_2_MI_TileStack_DarkGray_Square_SM_Sidewalk_Curved3_root___node0_node0_primitive0",
+        "scope": "nodeMaterial",
+        "nodeId": "road_curb_inner_preview_2",
+        "materialName": "MI_TileStack_DarkGray_Square_SM_Sidewalk_Curved3",
+        "ownerNodePath": "__root__/node0/node0_primitive0",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "emissiveColor": {
+              "r": 0.2,
+              "g": 0.18799999999999994,
+              "b": 0.18
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_road_curb_inner_preview_MI_TileStack_DarkGray_Square_SM_Sidewalk_Curved3_root___node0_node0_primitive0",
+        "scope": "nodeMaterial",
+        "nodeId": "road_curb_inner_preview",
+        "materialName": "MI_TileStack_DarkGray_Square_SM_Sidewalk_Curved3",
+        "ownerNodePath": "__root__/node0/node0_primitive0",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "emissiveColor": {
+              "r": 0.24,
+              "g": 0.24,
+              "b": 0.24
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_road_curb_inner_preview_MI_StreetTrim_root___node0_node0_primitive1",
+        "scope": "nodeMaterial",
+        "nodeId": "road_curb_inner_preview",
+        "materialName": "MI_StreetTrim",
+        "ownerNodePath": "__root__/node0/node0_primitive1",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "emissiveColor": {
+              "r": 0.94,
+              "g": 0.8463133333333337,
+              "b": 0.8178
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_sidewalk_curved4_1_MI_TileStack_DarkGray_Square_BaseColor_0_Mat_override_sm_sidewalk_curved4_1_tile_2___root___node0",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_sidewalk_curved4_1",
+        "materialName": "MI_TileStack_DarkGray_Square_BaseColor_0_Mat_override_sm_sidewalk_curved4_1_tile_2___root___node0",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.09240000000000033,
+              "g": 0.35,
+              "b": 0.014000000000000012
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "emissiveColor": {
+              "r": 0.25133333333333324,
+              "g": 0.65,
+              "b": 0.051999999999999935
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_truck_lv2_bai_SM_MERGED_StaticMeshActor_28",
+        "scope": "sharedAsset",
+        "assetId": "asset_truck_lv2",
+        "materialName": "铲车_bai_SM_MERGED_StaticMeshActor_28",
+        "type": "PBRMaterial",
+        "properties": {
+          "metallic": 1,
+          "roughness": 0,
+          "pbr": {
+            "albedoColor": {
+              "r": 0.87,
+              "g": 0.87,
+              "b": 0.87
+            },
+            "emissiveColor": {
+              "r": 0.53,
+              "g": 0.53,
+              "b": 0.53
+            },
+            "baseWeight": 1,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_3_hui_Inst_override_sm_diban1_3_tile___root___sm_diban1_3_root",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_3",
+        "materialName": "hui_Inst_override_sm_diban1_3_tile___root___sm_diban1_3_root",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.35,
+              "g": 0.3390465326367197,
+              "b": 0.3045
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_3_hui_Inst",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_3",
+        "materialName": "hui_Inst",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.1,
+              "g": 0.03850000000000002,
+              "b": 0.009999999999999995
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "emissiveColor": {
+              "r": 0.43,
+              "g": 0.18604666666666664,
+              "b": 0.034399999999999986
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_peeler_01_-_Default_Inst",
+        "scope": "sharedAsset",
+        "assetId": "asset_peeler",
+        "materialName": "01_-_Default_Inst",
+        "type": "PBRMaterial",
+        "properties": {
+          "metallic": 1,
+          "roughness": 0.22,
+          "pbr": {
+            "albedoColor": {
+              "r": 0.69,
+              "g": 0.69,
+              "b": 0.69
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "emissiveColor": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "ambientColor": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "baseWeight": 1,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_arrow_1_conveyor_arrow_1_mat_conveyor_arrow_1_mesh",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_arrow_1",
+        "materialName": "conveyor_arrow_1_mat",
+        "ownerNodePath": "conveyor_arrow_1_mesh",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "specularColor": {
+              "r": 0.99,
+              "g": 0.99,
+              "b": 0.99
+            },
+            "emissiveColor": {
+              "r": 0.07,
+              "g": 0.07,
+              "b": 0.07
+            },
+            "ambientColor": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "specularPower": 66.2
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_1_M_huang_Inst",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_1",
+        "materialName": "M_huang_Inst",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.56,
+              "g": 0.35335999999999973,
+              "b": 0.10080000000000006
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_2_M_lv_Inst",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_2",
+        "materialName": "M_lv_Inst",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.11795453676511551,
+              "g": 0.45,
+              "b": 0.009000000000000008
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "emissiveColor": {
+              "r": 0.0032999999999999974,
+              "g": 0.11,
+              "b": 0.026418333333333485
+            },
+            "baseWeight": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_sidewalk_curved4_1_MI_TileStack_DarkGray_Square_BaseColor_0_Mat_override_sm_sidewalk_curved4_1_tile___root___node0",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_sidewalk_curved4_1",
+        "materialName": "MI_TileStack_DarkGray_Square_BaseColor_0_Mat_override_sm_sidewalk_curved4_1_tile___root___node0",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.12093333333333367,
+              "g": 0.4,
+              "b": 0.035999999999999976
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "emissiveColor": {
+              "r": 0.2556666666666666,
+              "g": 0.65,
+              "b": 0.058499999999999996
+            },
+            "baseWeight": 0
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_4_jiedao",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_4",
+        "materialName": "jiedao",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.44179999999999997,
+              "g": 0.4615399999999999,
+              "b": 0.47
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_peeler_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_peeler",
+        "materialName": "削皮器_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "baseWeight": 0.81,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_compressor_material",
+        "scope": "sharedAsset",
+        "assetId": "asset_compressor",
+        "materialName": "新建材质",
+        "type": "PBRMaterial",
+        "properties": {
+          "metallic": 0.43,
+          "roughness": 0.52,
+          "pbr": {
+            "albedoColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "baseWeight": 0.8200000000000001,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "nodemat_collect_table_sell_decal_base_collect_table_sell_decal_base_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "collect_table_sell_decal_base",
+        "materialName": "collect_table_sell_decal_base_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.17,
+              "g": 0.17,
+              "b": 0.17
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_base_conveyor_decal_base_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_base",
+        "materialName": "conveyor_decal_base_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.34,
+              "g": 0.34,
+              "b": 0.34
+            },
+            "specularColor": {
+              "r": 0.06,
+              "g": 0.06,
+              "b": 0.06
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_left_icon_conveyor_decal_left_icon_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_left_icon",
+        "materialName": "conveyor_decal_left_icon_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.34,
+              "g": 0.34,
+              "b": 0.34
+            },
+            "specularColor": {
+              "r": 0.84,
+              "g": 0.84,
+              "b": 0.84
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_left_dash_conveyor_decal_left_dash_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_left_dash",
+        "materialName": "conveyor_decal_left_dash_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.22,
+              "g": 0.22,
+              "b": 0.22
+            },
+            "specularColor": {
+              "r": 0.45,
+              "g": 0.45,
+              "b": 0.45
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_left_20_conveyor_decal_left_20_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_left_20",
+        "materialName": "conveyor_decal_left_20_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.38220000000000004,
+              "g": 0.42,
+              "b": 0.378
+            },
+            "specularColor": {
+              "r": 0.04,
+              "g": 0.04,
+              "b": 0.04
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_icon_conveyor_decal_icon_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_icon",
+        "materialName": "conveyor_decal_icon_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.48,
+              "g": 0.48,
+              "b": 0.48
+            },
+            "specularColor": {
+              "r": 0.51,
+              "g": 0.51,
+              "b": 0.51
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_20_label_conveyor_decal_20_label_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_20_label",
+        "materialName": "conveyor_decal_20_label_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.4266,
+              "g": 0.45,
+              "b": 0.423
+            },
+            "specularColor": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_dash_conveyor_decal_dash_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_dash",
+        "materialName": "conveyor_decal_dash_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.61,
+              "g": 0.61,
+              "b": 0.61
+            },
+            "specularColor": {
+              "r": 0.27,
+              "g": 0.27,
+              "b": 0.27
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_collect_table_sell_decal_frame_collect_table_sell_decal_frame_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "collect_table_sell_decal_frame",
+        "materialName": "collect_table_sell_decal_frame_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.41,
+              "g": 0.41,
+              "b": 0.41
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_collect_table_sell_decal_label_collect_table_sell_decal_label_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "collect_table_sell_decal_label",
+        "materialName": "collect_table_sell_decal_label_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.48,
+              "g": 0.48,
+              "b": 0.48
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_20_restore_conveyor_decal_20_restore_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_20_restore",
+        "materialName": "conveyor_decal_20_restore_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.57,
+              "g": 0.57,
+              "b": 0.57
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_left_20_restore_conveyor_decal_left_20_restore_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_left_20_restore",
+        "materialName": "conveyor_decal_left_20_restore_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.83,
+              "g": 0.83,
+              "b": 0.83
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_collect_table_expand_decal_base_2_collect_table_expand_decal_base_2_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "collect_table_expand_decal_base_2",
+        "materialName": "collect_table_expand_decal_base_2_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.8,
+              "g": 1,
+              "b": 0.8400000000000001
+            },
+            "specularColor": {
+              "r": 0.039250000000000035,
+              "g": 0.5,
+              "b": 0.015000000000000013
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_expand_decal_expand_icon_player_expand_decal_expand_icon_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_expand_decal_expand_icon",
+        "materialName": "player_expand_decal_expand_icon_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.63,
+              "g": 0.63,
+              "b": 0.63
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_expand_decal_money_player_expand_decal_money_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_expand_decal_money",
+        "materialName": "player_expand_decal_money_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.28,
+              "g": 0.28,
+              "b": 0.28
+            },
+            "specularPower": 66.10000000000001
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_expand_decal_dash_player_expand_decal_dash_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_expand_decal_dash",
+        "materialName": "player_expand_decal_dash_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.44,
+              "g": 0.44,
+              "b": 0.44
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_expand_decal_20_player_expand_decal_20_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_expand_decal_20",
+        "materialName": "player_expand_decal_20_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.58,
+              "g": 0.58,
+              "b": 0.58
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_conveyor_decal_left_base_conveyor_decal_left_base_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "conveyor_decal_left_base",
+        "materialName": "conveyor_decal_left_base_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.04,
+              "g": 0.04,
+              "b": 0.04
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_machine_cutter_operation_decal_base_machine_cutter_operation_decal_base_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "machine_cutter_operation_decal_base",
+        "materialName": "machine_cutter_operation_decal_base_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.1,
+              "g": 0.099,
+              "b": 0.099
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_collect_table_expand_decal_price_collect_table_expand_decal_price_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "collect_table_expand_decal_price",
+        "materialName": "collect_table_expand_decal_price_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.16,
+              "g": 0.16,
+              "b": 0.16
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_collect_table_expand_decal_frame_collect_table_expand_decal_frame_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "collect_table_expand_decal_frame",
+        "materialName": "collect_table_expand_decal_frame_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.21,
+              "g": 0.21,
+              "b": 0.21
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_machine_cutter_operation_decal_plus_machine_cutter_operation_decal_plus_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "machine_cutter_operation_decal_plus",
+        "materialName": "machine_cutter_operation_decal_plus_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.49,
+              "g": 0.49,
+              "b": 0.49
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_machine_cutter_operation_decal_green_frame_machine_cutter_operation_decal_green_frame_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "machine_cutter_operation_decal_green_frame",
+        "materialName": "machine_cutter_operation_decal_green_frame_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0,
+              "g": 0.34,
+              "b": 0.060444444444444384
+            },
+            "specularColor": {
+              "r": 0.009599999999999997,
+              "g": 0.12,
+              "b": 0.04640000000000001
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_machine_cutter_operation_decal_frame_machine_cutter_operation_decal_frame_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "machine_cutter_operation_decal_frame",
+        "materialName": "machine_cutter_operation_decal_frame_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.36,
+              "g": 0.36,
+              "b": 0.36
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_machine_peeler_operation_decal_green_frame_machine_peeler_operation_decal_green_frame_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "machine_peeler_operation_decal_green_frame",
+        "materialName": "machine_peeler_operation_decal_green_frame_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.004900000000000085,
+              "g": 0.06,
+              "b": 0.0030000000000000027
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_machine_peeler_operation_decal_plus_machine_peeler_operation_decal_plus_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "machine_peeler_operation_decal_plus",
+        "materialName": "machine_peeler_operation_decal_plus_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.61,
+              "g": 0.61,
+              "b": 0.61
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_machine_peeler_operation_decal_frame_machine_peeler_operation_decal_frame_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "machine_peeler_operation_decal_frame",
+        "materialName": "machine_peeler_operation_decal_frame_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.3,
+              "g": 0.3,
+              "b": 0.3
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_truck_upgrade_decal_dash_player_truck_upgrade_decal_dash_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_truck_upgrade_decal_dash",
+        "materialName": "player_truck_upgrade_decal_dash_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.28,
+              "g": 0.28,
+              "b": 0.28
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_truck_upgrade_decal_lock_player_truck_upgrade_decal_lock_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_truck_upgrade_decal_lock",
+        "materialName": "player_truck_upgrade_decal_lock_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.61,
+              "g": 0.61,
+              "b": 0.61
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_truck_upgrade_decal_price_player_truck_upgrade_decal_price_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_truck_upgrade_decal_price",
+        "materialName": "player_truck_upgrade_decal_price_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.2,
+              "g": 0.2,
+              "b": 0.2
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_conveyor_decal_20_player_conveyor_decal_20_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_conveyor_decal_20",
+        "materialName": "player_conveyor_decal_20_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.21,
+              "g": 0.21,
+              "b": 0.21
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_conveyor_decal_icon_player_conveyor_decal_icon_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_conveyor_decal_icon",
+        "materialName": "player_conveyor_decal_icon_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.29,
+              "g": 0.29,
+              "b": 0.29
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "nodemat_player_conveyor_decal_base_player_conveyor_decal_base_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "player_conveyor_decal_base",
+        "materialName": "player_conveyor_decal_base_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "specularColor": {
+              "r": 0.17,
+              "g": 0.17,
+              "b": 0.17
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_giant_log_cartoon_lambert2_Base_color_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_giant_log_cartoon",
+        "materialName": "lambert2_Base_color_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.99,
+              "g": 0.7771500000000009,
+              "b": 0.6930000000000001
+            },
+            "baseWeight": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_3_graywhite_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_3_graywhite",
+        "materialName": "灰地面_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.61,
+              "g": 0.61,
+              "b": 0.61
+            },
+            "reflectivityColor": {
+              "r": 0.76,
+              "g": 0.76,
+              "b": 0.76
+            },
+            "emissiveColor": {
+              "r": 0.49,
+              "g": 0.49,
+              "b": 0.49
+            },
+            "baseWeight": 0.33,
+            "microSurface": 0
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_1_huang_2_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_1_huang",
+        "materialName": "黄地面2_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.96,
+              "g": 0.7411199999999998,
+              "b": 0.41280000000000006
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "emissiveColor": {
+              "r": 0.11,
+              "g": 0.11,
+              "b": 0.11
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_4_malu_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_4_malu",
+        "materialName": "马路_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.15,
+              "g": 0.15,
+              "b": 0.15
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "emissiveColor": {
+              "r": 0.13,
+              "g": 0.13,
+              "b": 0.13
+            },
+            "baseWeight": 0.67,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_truck_lv2_lv_SM_MERGED_StaticMeshActor_28",
+        "scope": "sharedAsset",
+        "assetId": "asset_truck_lv2",
+        "materialName": "铲车_lv_SM_MERGED_StaticMeshActor_28",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.08999999999999997,
+              "g": 0.3314311637508053,
+              "b": 0.6
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_truck_lv2_hei_SM_MERGED_StaticMeshActor_28",
+        "scope": "sharedAsset",
+        "assetId": "asset_truck_lv2",
+        "materialName": "铲车_hei_SM_MERGED_StaticMeshActor_28",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.03,
+              "g": 0.03,
+              "b": 0.03
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_truck_lv2_bai1_SM_MERGED_StaticMeshActor_28",
+        "scope": "sharedAsset",
+        "assetId": "asset_truck_lv2",
+        "materialName": "铲车_bai1_SM_MERGED_StaticMeshActor_28",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.77,
+              "g": 0.77,
+              "b": 0.77
+            },
+            "baseWeight": 1,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_1_huang_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_1_huang",
+        "materialName": "黄地面_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.73,
+              "g": 0.37960000000000005,
+              "b": 0.07299999999999995
+            },
+            "emissiveColor": {
+              "r": 0.35,
+              "g": 0.15050000000000005,
+              "b": 0.017500000000000016
+            },
+            "baseWeight": 1,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_sm_diban1_2_cao_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_sm_diban1_2_cao",
+        "materialName": "草_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "metallic": 0,
+          "roughness": 1,
+          "pbr": {
+            "albedoColor": {
+              "r": 0.49199999999999894,
+              "g": 0.82,
+              "b": 0.20499999999999996
+            },
+            "emissiveColor": {
+              "r": 0.18992000000000003,
+              "g": 0.48,
+              "b": 0.12480000000000002
+            },
+            "ambientColor": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "baseWeight": 1,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_plane_33_2_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_plane_33",
+        "materialName": "砖2_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.83,
+              "g": 0.83,
+              "b": 0.83
+            },
+            "emissiveColor": {
+              "r": 0.27,
+              "g": 0.27,
+              "b": 0.27
+            }
+          }
+        }
+      },
+      {
+        "id": "nodemat_truck_lv2_forest_front_lv28_blue",
+        "scope": "nodeMaterial",
+        "nodeId": "truck_lv2_forest_front",
+        "materialName": "铲车_lv_SM_MERGED_StaticMeshActor_28",
+        "ownerNodePath": "truck_lv2_inst_0:__root__/truck_lv2_inst_0:node0/truck_lv2_inst_0:node0_primitive1",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.08999999999999997,
+              "g": 0.3314311637508053,
+              "b": 0.6
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_tree_lv1_20260420-113458_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_tree_lv1",
+        "materialName": "20260420-113458_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.8570000000000009,
+              "g": 1,
+              "b": 0.78
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_tree_lv2_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_tree_lv2",
+        "materialName": "树__Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 0.15675000000000003,
+              "g": 0.38,
+              "b": 0.022800000000000042
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_fence_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_fence",
+        "materialName": "围栏__Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 1,
+              "g": 0.9149999999999998,
+              "b": 0.85
+            },
+            "emissiveColor": {
+              "r": 0.07,
+              "g": 0.03365833333333324,
+              "b": 0.0076999999999999985
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_collect_table_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_collect_table",
+        "materialName": "收银桌子__Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 1,
+              "g": 0.8799999999999994,
+              "b": 0.64
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_door_lock_hung_Inst",
+        "scope": "sharedAsset",
+        "assetId": "asset_door_lock",
+        "materialName": "hung_Inst",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 1,
+              "g": 0.5893617625240543,
+              "b": 0
+            },
+            "emissiveColor": {
+              "r": 0.48,
+              "g": 0.25424,
+              "b": 0.0816
+            }
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_circular_saw_material0",
+        "scope": "sharedAsset",
+        "assetId": "asset_circular_saw",
+        "materialName": "material0",
+        "type": "PBRMaterial",
+        "properties": {
+          "metallic": 0,
+          "roughness": 1,
+          "pbr": {
+            "emissiveColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            },
+            "ambientColor": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "baseWeight": 1,
+            "microSurface": 1
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_white_plane_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_white_plane",
+        "materialName": "白砖_Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "metallic": 0,
+          "roughness": 0.45,
+          "pbr": {
+            "albedoColor": {
+              "r": 0.57,
+              "g": 0.5365600000000001,
+              "b": 0.5073
+            },
+            "baseWeight": 1
+          }
+        }
+      },
+      {
+        "id": "nodemat_collect_table_sell_decal_green_frame_collect_table_sell_decal_green_frame_mat",
+        "scope": "nodeMaterial",
+        "nodeId": "collect_table_sell_decal_green_frame",
+        "materialName": "collect_table_sell_decal_green_frame_mat",
+        "type": "StandardMaterial",
+        "properties": {
+          "standard": {
+            "diffuseColor": {
+              "r": 0.12,
+              "g": 0.04079999999999999,
+              "b": 0.04079999999999999
+            },
+            "specularColor": {
+              "r": 0.0016000000000000042,
+              "g": 0.04,
+              "b": 0.003519999999999997
+            },
+            "emissiveColor": {
+              "r": 0.96,
+              "g": 0.13439999999999996,
+              "b": 0.13439999999999996
+            },
+            "ambientColor": {
+              "r": 0,
+              "g": 0,
+              "b": 0
+            },
+            "specularPower": 0
+          }
+        }
+      },
+      {
+        "id": "sharedmat_asset_truck_Mat",
+        "scope": "sharedAsset",
+        "assetId": "asset_truck",
+        "materialName": "红色卡车__Mat",
+        "type": "PBRMaterial",
+        "properties": {
+          "pbr": {
+            "albedoColor": {
+              "r": 1,
+              "g": 0.74,
+              "b": 0.74
+            },
+            "reflectivityColor": {
+              "r": 1,
+              "g": 1,
+              "b": 1
+            }
+          }
+        }
+      }
+    ],
+    "textures": []
+  },
+  "render": {
+    "treeBlobShadows": {
+      "enabled": true,
+      "targetPatterns": [
+        "^forest_lv1_\\d+$",
+        "^forest_lv2_\\d+$",
+        "^grass_tree_\\d+$"
+      ],
+      "opacity": 0.38,
+      "yOffset": 0.045,
+      "sizeMultiplier": 1.18,
+      "minSize": 0.3
+    },
+    "planarProjectionShadows": {
+      "enabled": true,
+      "color": {
+        "r": 0,
+        "g": 0,
+        "b": 0
+      },
+      "renderingGroupId": 0,
+      "alphaIndex": 0,
+      "groups": [
+        {
+          "id": "forest",
+          "targetPatterns": [
+            "^forest_lv1_\\d+$",
+            "^forest_lv2_\\d+$",
+            "^giant_log_forest_\\d+$",
+            "^grass_tree_\\d+$"
+          ],
+          "groundHeight": 0,
+          "depthBias": 0.035,
+          "alpha": 0.21,
+          "footprintScale": 0.68,
+          "enabled": true
+        },
+        {
+          "id": "giant_logs",
+          "targetPatterns": [
+            "^giant_log_lv3_[123]$"
+          ],
+          "groundHeight": -0.05,
+          "depthBias": 0.105,
+          "alpha": 0.3,
+          "footprintScale": 0.92,
+          "enabled": true
+        },
+        {
+          "id": "trucks",
+          "targetPatterns": [
+            "^truck_lane_\\d+$",
+            "^truck_bottom_1$",
+            "^truck_lv2_forest_front$",
+            "^truck_lv3_new_near_lv2$"
+          ],
+          "groundHeight": 0,
+          "depthBias": 0.03,
+          "alpha": 0.36,
+          "footprintScale": 0.86,
+          "enabled": true
+        },
+        {
+          "id": "wood_boxes",
+          "targetPatterns": [
+            "^door_side_wood_box_group$"
+          ],
+          "groundHeight": 0,
+          "depthBias": 0.028,
+          "alpha": 0.38,
+          "footprintScale": 0.92,
+          "enabled": true
+        }
+      ]
+    }
+  },
+  "version": 373,
+  "updatedAt": "2026-05-21T09:20:17.112Z",
+  "groundDecals": []
+}

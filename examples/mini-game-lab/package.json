@@ -1,0 +1,42 @@
+{
+  "name": "fps-game-editor-mini-game-lab",
+  "version": "0.1.0",
+  "description": "Copied Lumber Order baseline used as fps-game-editor mini game lab.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "dev:editor-local": "vite --host 0.0.0.0 --port 5184",
+    "asset:register": "node scripts/register-asset.mjs",
+    "asset:unregister": "node scripts/register-asset.mjs --unregister",
+    "sim:platform": "node scripts/platform-sim/runner.mjs",
+    "test:asset-manager-boundaries": "node scripts/check-asset-manager-boundaries.mjs",
+    "test:asset-registry-unregister": "node scripts/check-asset-registry-unregister-guard.mjs",
+    "test:panel-dsl-loader": "node scripts/check-panel-dsl-loader.mjs",
+    "test:debug-panels": "node scripts/check-project-debug-panels.mjs",
+    "test:debug-panel-lifecycle": "node scripts/check-debug-panel-lifecycle.mjs",
+    "test:debug-panel-boundaries": "node scripts/check-debug-panel-framework-boundaries.mjs",
+    "test:debug-panel-persistence": "node scripts/check-debug-panel-persistence.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "playable",
+    "babylonjs",
+    "game",
+    "scaffold",
+    "lumber_order",
+    "architecture"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^5.0.10"
+  },
+  "dependencies": {
+    "@babylonjs/core": "8.52.1",
+    "@babylonjs/loaders": "8.52.1",
+    "@fps-games/editor": "0.1.0",
+    "@sentry/browser": "^10.49.0"
+  }
+}

@@ -20,7 +20,7 @@ function walk(dir) {
   const files = [];
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...walk(full));
+    if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== 'dist') files.push(...walk(full));
     else if (entry.isFile() && checkedExtensions.has(path.extname(entry.name))) files.push(full);
   }
   return files;

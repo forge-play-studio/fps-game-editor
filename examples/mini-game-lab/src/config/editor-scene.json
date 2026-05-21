@@ -1,0 +1,327 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Lumber Order Editor Scene MVP",
+    "authoringSource": {
+      "sourceId": "scene.main",
+      "sourceType": "scene",
+      "revision": 17
+    }
+  },
+  "assets": [
+    {
+      "id": "asset_tree_lv1",
+      "type": "glb",
+      "sourceId": "tree_lv1",
+      "displayName": "一级树",
+      "category": "Nature",
+      "defaults": {
+        "transform": {
+          "scale": 0.5
+        }
+      }
+    },
+    {
+      "id": "asset_tree_lv2",
+      "type": "glb",
+      "sourceId": "tree_lv2",
+      "displayName": "二级树",
+      "category": "Nature",
+      "defaults": {
+        "transform": {
+          "scale": 0.5
+        }
+      }
+    },
+    {
+      "id": "asset_fence",
+      "type": "glb",
+      "sourceId": "fence",
+      "displayName": "围栏",
+      "category": "Building",
+      "defaults": {
+        "transform": {
+          "scale": 0.5
+        },
+        "outline": {
+          "renderOutline": true,
+          "outlineWidth": 0.04,
+          "outlineColor": {
+            "r": 0.03,
+            "g": 0.03,
+            "b": 0.03
+          }
+        }
+      }
+    },
+    {
+      "id": "asset_compressor",
+      "type": "glb",
+      "sourceId": "board_compressor_lv1",
+      "displayName": "木板压缩机",
+      "category": "Building",
+      "defaults": {
+        "transform": {
+          "scale": 0.5
+        }
+      }
+    },
+    {
+      "id": "asset_peeler",
+      "type": "glb",
+      "sourceId": "peeler",
+      "displayName": "削皮器",
+      "category": "Building",
+      "defaults": {
+        "transform": {
+          "scale": 0.5
+        },
+        "childOutlines": {
+          "__root__/model/Build_Xuepiqi01": {
+            "renderOutline": true,
+            "outlineWidth": 0.04,
+            "outlineColor": {
+              "r": 0.03,
+              "g": 0.03,
+              "b": 0.03
+            }
+          }
+        }
+      }
+    }
+  ],
+  "scene": {
+    "gameObjects": [
+      {
+        "id": "mvp_root",
+        "name": "MVP Root",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 2.124809514554565,
+              "y": 8.766771397716866e-8,
+              "z": -0.2635931425681526
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "mvp_tree_01",
+        "name": "MVP Tree 01",
+        "parentId": "mvp_root",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 4.581266153780396,
+              "y": -4.480542270590077,
+              "z": -4.76977639860006
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1.9348942041397095,
+              "z": 1.1658565998077393
+            }
+          },
+          {
+            "type": "ModelRenderer",
+            "assetId": "asset_tree_lv1"
+          }
+        ]
+      },
+      {
+        "id": "mvp_tree_02",
+        "name": "MVP Tree 02",
+        "parentId": "mvp_root",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 7.36131833883899,
+              "y": 0.1307464557397262,
+              "z": 2.4171075277915413
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1.9143853187561035,
+              "z": 1
+            }
+          },
+          {
+            "type": "ModelRenderer",
+            "assetId": "asset_tree_lv2"
+          }
+        ]
+      },
+      {
+        "id": "tree_lv1",
+        "name": "Tree Lv1",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": -2.002983570098877,
+              "y": 8.766771486534708e-8,
+              "z": 8.917222023010254
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          {
+            "type": "ModelRenderer",
+            "assetId": "asset_tree_lv1"
+          }
+        ]
+      },
+      {
+        "id": "fence",
+        "name": "Fence",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 7.183664269001214,
+              "y": 8.766771397716866e-8,
+              "z": 12.058139923904239
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          {
+            "type": "ModelRenderer",
+            "assetId": "asset_fence"
+          }
+        ]
+      },
+      {
+        "id": "board_compressor_lv1",
+        "name": "木板压缩机",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": -3.496782064437866,
+              "y": -0.40842053294181824,
+              "z": 8.736801147460938
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          {
+            "type": "ModelRenderer",
+            "assetId": "asset_compressor"
+          }
+        ]
+      },
+      {
+        "id": "fence_2",
+        "name": "围栏",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": -12.590632438659668,
+              "y": 8.766771486534708e-8,
+              "z": -4.553765296936035
+            },
+            "rotation": {
+              "x": 0,
+              "y": -1.5674126408514428,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.9999998834125985,
+              "y": 1,
+              "z": 0.9999998834125985
+            }
+          },
+          {
+            "type": "ModelRenderer",
+            "assetId": "asset_fence"
+          }
+        ]
+      },
+      {
+        "id": "peeler",
+        "name": "削皮器",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 6.328696250915527,
+              "y": 0,
+              "z": 14.931673049926758
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          {
+            "type": "ModelRenderer",
+            "assetId": "asset_peeler"
+          }
+        ]
+      }
+    ]
+  }
+}

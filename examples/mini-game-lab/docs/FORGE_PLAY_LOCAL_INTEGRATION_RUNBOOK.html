@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>forge-play / lumber_order / fps-game-editor 本地联调方案</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --ink: #1f2937;
+      --muted: #667085;
+      --line: #d8dee8;
+      --blue: #2563eb;
+      --green: #0f8a5f;
+      --yellow: #a16207;
+      --red: #b42318;
+      --code: #111827;
+      --code-bg: #eef2f7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.62;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 22px 64px;
+    }
+    h1, h2, h3 { line-height: 1.25; margin: 0 0 12px; }
+    h1 { font-size: 32px; letter-spacing: 0; }
+    h2 { font-size: 22px; margin-top: 34px; padding-top: 8px; border-top: 1px solid var(--line); }
+    h3 { font-size: 17px; margin-top: 22px; }
+    p { margin: 8px 0; }
+    a { color: var(--blue); }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .92em;
+      color: var(--code);
+      background: var(--code-bg);
+      border: 1px solid #d9e0ea;
+      border-radius: 5px;
+      padding: 1px 5px;
+    }
+    pre {
+      overflow-x: auto;
+      background: #111827;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    pre code {
+      color: inherit;
+      background: transparent;
+      border: 0;
+      padding: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 12px 0 18px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eef2f7; font-weight: 700; }
+    tr:last-child td { border-bottom: 0; }
+    ul { margin: 8px 0 14px 22px; padding: 0; }
+    li { margin: 5px 0; }
+    .lead {
+      margin-top: 12px;
+      max-width: 900px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 14px 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 14px 0;
+    }
+    .notice {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 13px 15px;
+      margin: 14px 0;
+    }
+    .notice.green { border-left-color: var(--green); }
+    .notice.yellow { border-left-color: var(--yellow); }
+    .notice.red { border-left-color: var(--red); }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-right: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      background: #e0edff;
+      color: #1d4ed8;
+    }
+    .tag.green { background: #dcfce7; color: #166534; }
+    .tag.yellow { background: #fef3c7; color: #92400e; }
+    .tag.red { background: #fee2e2; color: #991b1b; }
+    .footer {
+      margin-top: 42px;
+      color: var(--muted);
+      font-size: 13px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+    @media (max-width: 840px) {
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 26px; }
+      main { padding: 28px 14px 48px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>forge-play / lumber_order / fps-game-editor 本地联调方案</h1>
+  <p class="lead">
+    本文档记录 2026-05-19 确认的本地联调环境、启动顺序、登录绕过方式、验证点和已知风险。目标是先验证
+    <code>forge-play HostKernel</code> 能加载本地 <code>lumber_order</code>，并让 <code>lumber_order</code> 使用联调版
+    <code>fps-game-editor</code> 源码；第一阶段只在项目侧接入平台现有 <code>mode:change</code> 命令，协议完全打通是下一步工作。
+  </p>
+
+  <div class="notice yellow">
+    <span class="tag yellow">重要边界</span>
+    本轮本地联调不走真实创建项目、E2B sandbox、GitHub 发布或飞书 OAuth。不要在首页弹窗里点击“加入项目”或“从模板创建”。联调入口使用
+    <code>previewUrl</code> 直接把本地 Vite 页面放进 forge-play 的 sandbox iframe。
+  </div>
+
+  <h2>一、三仓工作区</h2>
+  <table>
+    <tr><th>项目</th><th>联调路径</th><th>分支</th><th>用途</th></tr>
+    <tr>
+      <td><code>forge-play</code></td>
+      <td><code>/Users/admin/work/UGIT/forge-play</code></td>
+      <td><code>codex/fps-editor-forge-play-integration</code></td>
+      <td>平台 HostKernel、Service Worker、bridge/MCP server、workspace 页面。</td>
+    </tr>
+    <tr>
+      <td><code>lumber_order</code></td>
+      <td><code>/Users/admin/work/UGIT-Branch/lumber_order-forge-play</code></td>
+      <td><code>codex/forge-play-integration</code></td>
+      <td>本地游戏项目 Vite 服务，是本轮联调入口。</td>
+    </tr>
+    <tr>
+      <td><code>fps-game-editor</code></td>
+      <td><code>/Users/admin/work/UGIT-Branch/fps-game-editor-forge-play</code></td>
+      <td><code>codex/forge-play-integration</code></td>
+      <td>编辑器联调源码，供 <code>lumber_order</code> 通过 Vite alias 引用。</td>
+    </tr>
+  </table>
+
+  <div class="notice green">
+    <span class="tag green">已配置</span>
+    <code>lumber_order-forge-play/package.json</code> 中的 <code>dev:editor-local</code> 已改为
+    <code>FPS_GAME_EDITOR_ROOT=../fps-game-editor-forge-play</code>，因此在该 worktree 运行 <code>pnpm run dev:editor-local</code>
+    会使用联调版 <code>fps-game-editor</code>，不会触碰原来的 <code>fps-game-editor/main</code> 工作区。
+  </div>
+
+  <h2>二、服务与端口</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>forge-play Web</h3>
+      <p><code>http://localhost:3000</code></p>
+      <p>承载 workspace 页面、HostKernel、iframe 预览壳。</p>
+    </div>
+    <div class="card">
+      <h3>forge-play MCP bridge</h3>
+      <p><code>http://localhost:8080/script/bridge.js</code></p>
+      <p><code>lumber_order</code> 的 Vite bridge 插件会加载这个脚本。</p>
+    </div>
+    <div class="card">
+      <h3>lumber_order Vite</h3>
+      <p><code>http://localhost:5183</code></p>
+      <p>本地游戏页面，会被 <code>previewUrl</code> 放进 forge-play iframe。</p>
+    </div>
+  </div>
+
+  <h2>三、首次准备</h2>
+  <p>新 worktree 通常没有 <code>node_modules</code>，首次启动前执行一次即可。</p>
+  <pre><code>cd /Users/admin/work/UGIT-Branch/fps-game-editor-forge-play
+npm install</code></pre>
+  <pre><code>cd /Users/admin/work/UGIT-Branch/lumber_order-forge-play
+pnpm install</code></pre>
+  <pre><code>cd /Users/admin/work/UGIT/forge-play
+pnpm install</code></pre>
+  <p>如果 forge-play 已经安装过依赖，也可以先跳过；但当前联调分支新增了 MCP server 依赖，缺 <code>mitt</code> 或 <code>zundo</code> 时必须补装。</p>
+
+  <h2>四、启动顺序</h2>
+  <h3>1. 构建 bridge 与 MCP server</h3>
+  <pre><code>cd /Users/admin/work/UGIT/forge-play
+pnpm --filter @repo/mcp-bridge build
+pnpm --filter @repo/mcp-server build</code></pre>
+
+  <h3>2. 启动 8080 bridge/MCP 服务</h3>
+  <pre><code>cd /Users/admin/work/UGIT/forge-play
+pnpm --filter @repo/mcp-server dev</code></pre>
+  <p>期望看到：</p>
+  <pre><code>[Server] http://0.0.0.0:8080
+[CLI] E2B_SANDBOX_ID not set — skipping wiki bootstrap (local dev)</code></pre>
+
+  <h3>3. 启动 lumber_order 本地游戏</h3>
+  <pre><code>cd /Users/admin/work/UGIT-Branch/lumber_order-forge-play
+pnpm run dev:editor-local</code></pre>
+  <p><code>dev:editor-local</code> 已固定为 <code>--host 0.0.0.0 --port 5183 --strictPort</code>，避免和其他本地 Vite 服务抢 <code>5173</code>。如果 <code>5183</code> 被占用，Vite 会直接失败，先释放端口后再启动。</p>
+
+  <h3>4. 启动 forge-play Web</h3>
+  <pre><code>cd /Users/admin/work/UGIT/forge-play
+pnpm --filter web dev</code></pre>
+  <p>通常只启动 web 即可。如果 Web 因 agent 构建产物缺失而报错，再改用完整启动：</p>
+  <pre><code>cd /Users/admin/work/UGIT/forge-play
+pnpm run dev</code></pre>
+
+  <h2>五、打开联调页面</h2>
+  <p>浏览器打开：</p>
+  <pre><code>http://localhost:3000/zh/workspace/local-lumber?previewUrl=http%3A%2F%2Flocalhost%3A5183</code></pre>
+  <p><code>local-lumber</code> 是本地烟测用的假 sandboxId。因为 URL 里带了 <code>previewUrl</code>，forge-play 的 <code>Editor</code> 会跳过真实 E2B sandbox polling，直接把 iframe 指向 <code>http://localhost:5183</code>。</p>
+
+  <h2>六、登录绕过</h2>
+  <p>forge-play 的 middleware 会要求 <code>fp_session</code> cookie。由于本轮只做本地 <code>previewUrl</code> 烟测，可以在浏览器 Console 临时写入 cookie：</p>
+  <pre><code>document.cookie = "fp_session=local-dev; path=/; SameSite=Lax";
+location.href = "/zh/workspace/local-lumber?previewUrl=http%3A%2F%2Flocalhost%3A5183";</code></pre>
+  <div class="notice yellow">
+    <span class="tag yellow">限制</span>
+    这只是在本地绕过页面门禁，不代表真实登录。创建项目、加入项目、发布、GitHub、E2B、飞书 OAuth 仍然需要正式登录和完整环境变量。
+  </div>
+
+  <h2>七、健康检查</h2>
+  <pre><code>curl -I http://localhost:8080/script/bridge.js
+curl -I http://localhost:5183/
+curl -I -H 'Cookie: fp_session=local-dev' 'http://localhost:3000/zh/workspace/local-lumber?previewUrl=http://localhost:5183'</code></pre>
+  <table>
+    <tr><th>检查项</th><th>期望</th><th>说明</th></tr>
+    <tr>
+      <td><code>8080/script/bridge.js</code></td>
+      <td><code>200 OK</code></td>
+      <td>证明 <code>lumber_order</code> 能加载平台 bridge 脚本。</td>
+    </tr>
+    <tr>
+      <td><code>5183/</code></td>
+      <td><code>200 OK</code></td>
+      <td>证明本地游戏 Vite 服务可用。</td>
+    </tr>
+    <tr>
+      <td>带 cookie 访问 workspace URL</td>
+      <td><code>200 OK</code></td>
+      <td>证明 forge-play Web 能进入项目页；不带 cookie 会被重定向到登录页。</td>
+    </tr>
+  </table>
+
+  <h2>八、第一轮验证目标</h2>
+  <ul>
+    <li>forge-play workspace 页面能进入 <code>local-lumber</code> 项目页。</li>
+    <li>HostKernel 能把 <code>http://localhost:5183</code> 加载进 iframe。</li>
+    <li><code>lumber_order</code> 页面能正常渲染游戏画面。</li>
+    <li><code>lumber_order</code> 的 Vite alias 确实指向 <code>fps-game-editor-forge-play</code>。</li>
+    <li><code>bridge.js</code> 能注入，至少具备本地 bridge 基础能力。</li>
+    <li>forge-play 现有 <code>mode:change</code> 命令进入 iframe 后，项目侧能进入 <code>EditorWorld</code>。</li>
+  </ul>
+
+  <div class="notice green">
+    <span class="tag green">当前阶段</span>
+    当前只打通“forge-play 现有 <code>mode:change</code> 命令到项目侧 <code>EditorWorld</code> 切换”。本阶段不要求修改平台编辑按钮或 inspector 交互逻辑；无论命令来自平台按钮，还是来自平台当前分支已有的 ready 后自动进入编辑态逻辑，项目侧都只把它当作授权的模式切换命令。本阶段暂不处理场景保存、恢复、资产落盘、协同同步和发布提交的数据流。
+  </div>
+
+  <div class="notice yellow">
+    <span class="tag yellow">mock API 退出</span>
+    <code>__mock_platform_assets</code> 是早期为了本地快速模拟平台能力的临时方案。进入 forge-play 真实 HostKernel / sandbox 联调后，编辑器运行时不应再依赖这些 dev-only HTTP API。第一阶段改为：编辑器初始文档和素材库由 <code>lumber_order</code> 项目自身 adapter 提供；平台侧只发送模式切换命令，保存/恢复/资产写入暂不接入。
+  </div>
+
+  <h2>九、已知限制与下一步</h2>
+  <div class="notice red">
+    <span class="tag red">协议未完全对齐</span>
+    页面能加载不代表编辑协议已经完成。当前 forge-play 分支 Host 侧使用 <code>mode:change</code>、<code>document:export</code>、<code>document:commit</code>、<code>assets:drop</code>；而
+    <code>fps-game-editor</code> / <code>lumber_order</code> 当前主协议仍是 <code>mode.change</code>、<code>document.export</code>、<code>document.commit</code>、<code>asset.import</code>。
+  </div>
+  <p>后续需要补的平台兼容层：</p>
+  <table>
+    <tr><th>平台新协议</th><th>编辑器当前协议</th><th>处理建议</th></tr>
+    <tr><td><code>mode:change</code></td><td><code>LocalEditorHarness.enterEditor()</code></td><td>第一阶段只做模式切换：项目侧接收平台既有命令后，授权进入 EditorWorld，并回发 <code>mode:changed</code>。</td></tr>
+    <tr><td><code>document:export</code></td><td><code>document.export</code></td><td>adapter 转发，并把 <code>document.exported</code> 回包转成平台期望。</td></tr>
+    <tr><td><code>document:commit</code></td><td><code>document.commit</code></td><td>adapter 转发给项目 document adapter。</td></tr>
+    <tr><td><code>assets:drop</code></td><td><code>asset.import</code> / 项目 asset adapter</td><td>平台只传资源与落点，场景修改由编辑器和项目 adapter 决定。</td></tr>
+    <tr><td><code>register runtime</code></td><td><code>registerEditorRuntime</code> / <code>registerEditorPlugin</code></td><td>forge-play bridge 需要恢复兼容入口，或提供等价注册 API。</td></tr>
+  </table>
+
+  <h3>第一阶段实现约束</h3>
+  <ul>
+    <li><code>lumber_order</code> iframe 就绪后主动发送 <code>lifecycle:ready</code> 和当前 <code>mode:changed</code>。</li>
+    <li>本阶段不改 forge-play 的按钮或 inspector 行为，只适配它当前已经发送的 <code>mode:change</code> 命令。</li>
+    <li><code>lumber_order</code> 只监听 <code>mode:change</code>，并调用本项目授权的 <code>LocalEditorHarness.enterEditor()</code>。</li>
+    <li>本阶段保存、恢复、资产导入仍保持未接入状态，避免平台误认为它已经拥有场景数据更新权。</li>
+  </ul>
+
+  <h2>十、排障表</h2>
+  <table>
+    <tr><th>现象</th><th>原因</th><th>处理</th></tr>
+    <tr>
+      <td>打开项目页又回到登录弹窗</td>
+      <td>没有 <code>fp_session</code> cookie。</td>
+      <td>执行“登录绕过”里的 Console 代码，或正式登录。</td>
+    </tr>
+    <tr>
+      <td>首页出现“创建新项目”弹窗</td>
+      <td>进入了真实 workspace 创建流程。</td>
+      <td>关闭弹窗，直接打开带 <code>previewUrl</code> 的联调 URL。</td>
+    </tr>
+    <tr>
+      <td><code>Port 5183 is already in use</code></td>
+      <td>联调端口已被其他本地服务占用。</td>
+      <td>先释放 <code>5183</code>，再运行 <code>pnpm run dev:editor-local</code>。脚本带 <code>--strictPort</code>，不会静默漂移到其他端口。</td>
+    </tr>
+    <tr>
+      <td>MCP server build 缺 <code>mitt</code> 或 <code>zundo</code></td>
+      <td>forge-play 当前分支新增依赖，但根目录没安装。</td>
+      <td>在 <code>/Users/admin/work/UGIT/forge-play</code> 执行 <code>pnpm install</code>。</td>
+    </tr>
+    <tr>
+      <td>Next Build Error：<code>Can't resolve '@repo/agent/server/commit-message'</code></td>
+      <td><code>apps/web/tsconfig.json</code> 的通用 <code>@repo/*</code> path 会把深层导入错误解析到不存在的 <code>packages/agent/server/commit-message/src</code>。</td>
+      <td>为 <code>@repo/agent/server/commit-message</code> 增加精确 path，指向 <code>packages/agent/server/commit-message.ts</code>。</td>
+    </tr>
+    <tr>
+      <td>修完后又出现 <code>Can't resolve '@agent/prompt'</code> 或 <code>@pierre/diffs/worker</code></td>
+      <td>把 <code>@repo/agent/client</code> 指到源码会让 Next 编译 agent client 的 Vite 专用代码。</td>
+      <td><code>@repo/agent/client</code> 应指向 <code>packages/agent/dist/client/index.mjs</code>，<code>@repo/agent/styles.css</code> 指向 <code>dist/client/assets/agent.css</code>；server commit-message 才指源码。</td>
+    </tr>
+    <tr>
+      <td><code>bridge.js</code> 404 或加载失败</td>
+      <td>8080 服务没启动，或 bridge/server 未构建。</td>
+      <td>重新执行 bridge 与 MCP server 构建，再启动 <code>pnpm --filter @repo/mcp-server dev</code>。</td>
+    </tr>
+    <tr>
+      <td>页面可见但 Edit / Save / Asset Drop 不工作</td>
+      <td>平台新协议和 fps-game-editor 当前协议尚未适配。</td>
+      <td>进入下一步：补协议 adapter，不能让平台直接修改权威场景数据。</td>
+    </tr>
+    <tr>
+      <td>更新 forge-play / Service Worker 后，<code>Save &amp; Exit</code> 点击无反应</td>
+      <td>
+        浏览器仍可能被旧的 Service Worker 控制。典型判断是：点击后 <code>forge-play</code> 和
+        <code>lumber_order</code> 终端都没有出现 <code>/__fps_editor_authoring/save-editor-scene</code>
+        请求日志，这说明命令还没有进入新的保存链路。
+      </td>
+      <td>
+        在当前页面 Console 执行：
+        <pre><code>navigator.serviceWorker.getRegistrations()
+  .then(rs => Promise.all(rs.map(r => r.unregister())))
+  .then(() => location.reload());</code></pre>
+        这会注销当前站点旧的 Service Worker 并刷新页面，让浏览器重新加载最新的 forge-play 前端和 sandbox proxy 逻辑。
+        正常联调不需要每次执行；只有改过 <code>apps/web/public/sw.js</code>、proxy、iframe 注入或 Save &amp; Exit 链路后行为仍像旧版本时使用。
+      </td>
+    </tr>
+  </table>
+
+  <h2>十一、停止服务</h2>
+  <p>优先在对应终端里按 <code>Ctrl+C</code> 停止：</p>
+  <ul>
+    <li><code>pnpm --filter @repo/mcp-server dev</code></li>
+    <li><code>pnpm run dev:editor-local</code></li>
+    <li><code>pnpm --filter web dev</code></li>
+  </ul>
+  <p>如果终端丢失，可以再按端口查进程并手动停止。</p>
+
+  <h2>十二、核心原则</h2>
+  <div class="notice green">
+    <span class="tag green">数据权威</span>
+    平台负责承载、传输、调度、观测；编辑器负责解释、修改、保存、生成。forge-play 可以优化 HostKernel、iframe/sandbox 生命周期、Service Worker proxy、资源传输、缓存、capture、性能观测和错误恢复；但 <code>SceneDocument / EditorSession / project adapter</code> 仍然是编辑态权威链路。
+  </div>
+
+  <div class="notice red">
+    <span class="tag red">侵入边界</span>
+    平台 API 不能被设计成“平台拥有一份可编辑的通用 scene graph，并直接 patch 节点、材质、transform 或资产实例”。平台可以保存、恢复、传输编辑器导出的 opaque document，也可以向编辑器发送经过授权的命令；但任何会改变场景语义的操作必须回到 <code>fps-game-editor</code> 和项目 adapter 执行。
+  </div>
+
+  <table>
+    <tr><th>能力</th><th>允许的平台职责</th><th>必须由编辑器负责</th></tr>
+    <tr>
+      <td>模式切换</td>
+      <td>发送 <code>mode:change</code>，接收 <code>mode:changed</code>。</td>
+      <td>决定如何从 GameWorld 切换到 EditorWorld，以及如何释放/创建运行时对象。</td>
+    </tr>
+    <tr>
+      <td>文档持久化</td>
+      <td>保存、恢复、版本化编辑器导出的 opaque JSON。</td>
+      <td>解释文档 schema、校验内容、应用到编辑状态、导出运行时场景。</td>
+    </tr>
+    <tr>
+      <td>资产导入</td>
+      <td>提供文件、URL、sourceId、metadata 和沙盒文件能力。</td>
+      <td>决定资产如何注册、如何生成场景节点、如何进入撤销重做和脏状态。</td>
+    </tr>
+    <tr>
+      <td>数据更新</td>
+      <td>观察事件、转发命令、展示状态。</td>
+      <td>执行节点、材质、transform、层级、选择、历史栈等语义变更。</td>
+    </tr>
+  </table>
+
+  <div class="footer">
+    2026-05-19 · 本地联调 runbook · 路径：
+    <code>/Users/admin/work/UGIT-Branch/lumber_order-forge-play/docs/FORGE_PLAY_LOCAL_INTEGRATION_RUNBOOK.html</code>
+  </div>
+</main>
+</body>
+</html>

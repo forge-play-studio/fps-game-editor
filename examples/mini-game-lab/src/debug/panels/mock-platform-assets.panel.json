@@ -1,0 +1,253 @@
+{
+  "id": "mock-platform-assets",
+  "title": "Mock Platform Assets",
+  "configFile": "panel-framework.json",
+  "category": "Mock Platform",
+  "controller": "mockPlatformAssets",
+  "persistence": "none",
+  "params": [
+    {
+      "key": "assetPath",
+      "label": "资产路径",
+      "type": "string",
+      "configPaths": [],
+      "runtimePath": "assetPath",
+      "default": ""
+    },
+    {
+      "key": "assetName",
+      "label": "文件名",
+      "type": "string",
+      "configPaths": [],
+      "runtimePath": "assetName",
+      "default": ""
+    },
+    {
+      "key": "sourceId",
+      "label": "Source ID",
+      "type": "string",
+      "configPaths": [],
+      "runtimePath": "sourceId",
+      "default": ""
+    },
+    {
+      "key": "assetId",
+      "label": "Asset ID",
+      "type": "string",
+      "configPaths": [],
+      "runtimePath": "assetId",
+      "default": ""
+    },
+    {
+      "key": "displayName",
+      "label": "显示名",
+      "type": "string",
+      "configPaths": [],
+      "runtimePath": "displayName",
+      "default": ""
+    },
+    {
+      "key": "category",
+      "label": "分类",
+      "type": "string",
+      "configPaths": [],
+      "runtimePath": "category",
+      "default": "mock-platform"
+    },
+    {
+      "key": "position",
+      "label": "位置",
+      "type": "vector3",
+      "configPaths": [],
+      "runtimePath": "position",
+      "default": [0, 0, 0],
+      "range": [-20, 20],
+      "step": 0.05,
+      "group": "Transform"
+    },
+    {
+      "key": "rotationDeg",
+      "label": "旋转",
+      "type": "vector3",
+      "configPaths": [],
+      "runtimePath": "rotationDeg",
+      "default": [0, 0, 0],
+      "range": [-180, 180],
+      "step": 1,
+      "group": "Transform"
+    },
+    {
+      "key": "scale",
+      "label": "缩放",
+      "type": "vector3",
+      "configPaths": [],
+      "runtimePath": "scale",
+      "default": [1, 1, 1],
+      "range": [0.01, 8],
+      "step": 0.05,
+      "group": "Transform"
+    },
+    {
+      "key": "nodeId",
+      "label": "Node ID",
+      "type": "string",
+      "configPaths": [],
+      "runtimePath": "nodeId",
+      "default": "",
+      "group": "Scene Node"
+    },
+    {
+      "key": "albedoColor",
+      "label": "反照率",
+      "type": "vector3",
+      "configPaths": [],
+      "runtimePath": "albedoColor",
+      "default": [1, 1, 1],
+      "range": [0, 1],
+      "step": 0.01,
+      "group": "Material"
+    },
+    {
+      "key": "emissiveColor",
+      "label": "自发光",
+      "type": "vector3",
+      "configPaths": [],
+      "runtimePath": "emissiveColor",
+      "default": [0, 0, 0],
+      "range": [0, 1],
+      "step": 0.01,
+      "group": "Material"
+    },
+    {
+      "key": "materialAlpha",
+      "label": "透明度",
+      "type": "number",
+      "configPaths": [],
+      "runtimePath": "materialAlpha",
+      "default": 1,
+      "range": [0, 1],
+      "step": 0.01,
+      "group": "Material"
+    },
+    {
+      "key": "action.registerAndImport",
+      "label": "执行传输计划并导入",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "registerAndImport",
+      "description": "按 transportPlan 调用 mock /file 和 /exec，再执行 asset.import。",
+      "actionArgs": {
+        "assetPath": "$values.assetPath",
+        "assetName": "$values.assetName",
+        "sourceId": "$values.sourceId",
+        "assetId": "$values.assetId",
+        "displayName": "$values.displayName",
+        "category": "$values.category",
+        "position": "$values.position",
+        "scale": "$values.scale"
+      },
+      "group": "Flow"
+    },
+    {
+      "key": "action.applyTransform",
+      "label": "应用 Transform",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "applyTransform",
+      "actionArgs": {
+        "nodeId": "$values.nodeId",
+        "position": "$values.position",
+        "rotationDeg": "$values.rotationDeg",
+        "scale": "$values.scale"
+      },
+      "group": "Flow"
+    },
+    {
+      "key": "action.applyMaterial",
+      "label": "应用材质",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "applyMaterial",
+      "actionArgs": {
+        "nodeId": "$values.nodeId",
+        "albedoColor": "$values.albedoColor",
+        "emissiveColor": "$values.emissiveColor",
+        "materialAlpha": "$values.materialAlpha"
+      },
+      "group": "Flow"
+    },
+    {
+      "key": "action.removeNode",
+      "label": "删除节点",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "removeNode",
+      "actionArgs": {
+        "nodeId": "$values.nodeId"
+      },
+      "group": "Flow"
+    },
+    {
+      "key": "action.unregisterAsset",
+      "label": "传输计划注销资产",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "unregisterAsset",
+      "description": "生成 asset.unregistration.plan，按 transportPlan 写入 payload 并执行项目工具脚本。",
+      "actionArgs": {
+        "sourceId": "$values.sourceId"
+      },
+      "group": "Flow"
+    },
+    {
+      "key": "action.undo",
+      "label": "Undo",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "undo",
+      "group": "History"
+    },
+    {
+      "key": "action.redo",
+      "label": "Redo",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "redo",
+      "group": "History"
+    },
+    {
+      "key": "action.export",
+      "label": "导出检查",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "export",
+      "group": "Commit"
+    },
+    {
+      "key": "action.commit",
+      "label": "Commit",
+      "type": "action",
+      "configPaths": [],
+      "default": 0,
+      "action": "commit",
+      "group": "Commit"
+    },
+    {
+      "key": "logText",
+      "label": "执行日志",
+      "type": "log",
+      "configPaths": [],
+      "runtimePath": "logText",
+      "default": "",
+      "group": "Log"
+    }
+  ]
+}

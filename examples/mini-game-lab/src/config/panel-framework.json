@@ -1,0 +1,13 @@
+{
+  "runtimeProbe": {
+    "enabled": false,
+    "intensity": 1,
+    "tint": [
+      0.35,
+      0.72,
+      1
+    ],
+    "mode": "soft",
+    "note": "lumber_order debug panel probe"
+  }
+}

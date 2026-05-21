@@ -5,76 +5,56 @@
 当前 npm 版本：
 
 ```text
-0.1.0-alpha.0
+0.1.0
 ```
 
-这是 alpha 版本。建议游戏项目先使用精确版本安装，不要依赖浮动的 `latest`。
+这是 0.1.x 初始版本。建议游戏项目先使用精确版本安装，不要依赖浮动的 `latest`。
 
 ## 包结构
 
-本仓库是 monorepo，发布到 npm 的包如下：
+本仓库内部仍然按职责保留 monorepo 分层，但 npm 对外只发布一个包：
 
-| 包名 | 用途 |
-| --- | --- |
-| `@fps-games/editor` | 游戏项目主要使用的聚合入口，提供 `createBabylonForgePlayEditor(...)` |
-| `@fps-games/editor-protocol` | 平台、runtime、项目 adapter 共享的协议类型 |
-| `@fps-games/editor-core` | command、document、history、selection、lifecycle、capability runtime shell |
-| `@fps-games/editor-browser` | 浏览器 host、canvas、pointer、keyboard、iframe/focus 等封装 |
-| `@fps-games/editor-babylon` | Babylon 运行时编辑能力：selection、gizmo、Inspector host、monitor、material/outline adapter |
-| `@fps-games/editor-forge-play` | Forge Play bridge 注册、消息、事件和兼容层 |
+| 包名 | 用途 | 发布状态 |
+| --- | --- | --- |
+| `@fps-games/editor` | 游戏项目唯一安装入口，提供 EditorWorld、authoring host、Babylon/Forge Play 接线等公共能力 | 发布 |
+| `@fps-games/editor-protocol` | 平台、runtime、项目 adapter 共享的协议类型 | 内部 workspace，随 `@fps-games/editor` 打包 |
+| `@fps-games/editor-core` | command、document、history、selection、lifecycle、capability runtime shell | 内部 workspace，随 `@fps-games/editor` 打包 |
+| `@fps-games/editor-browser` | 浏览器 host、canvas、pointer、keyboard、iframe/focus、EditorWorld UI 等封装 | 内部 workspace，随 `@fps-games/editor` 打包 |
+| `@fps-games/editor-babylon` | Babylon 运行时编辑能力：selection、gizmo、Inspector host、monitor、material/outline adapter | 内部 workspace，随 `@fps-games/editor` 打包 |
+| `@fps-games/editor-forge-play` | Forge Play bridge 注册、消息、事件和兼容层 | 内部 workspace，随 `@fps-games/editor` 打包 |
 
-通常游戏项目只需要直接使用 `@fps-games/editor`。如果项目代码直接 import `@fps-games/editor-babylon` 或 `@fps-games/editor-protocol` 的类型或 helper，也要把对应包列为直接依赖。
+游戏项目不要直接安装或发布 `@fps-games/editor-*` 分层包。它们是维护边界，不是对外依赖边界。
 
 ## 对外使用原则
 
-当前策略是：**多包维护，单入口使用**。
+当前策略是：**多包维护，单包发布，单入口使用**。
 
-- 代码和发布保持多包结构，因为 protocol、core、browser、Babylon、Forge Play bridge 的职责边界真实存在。
+- 代码保持多包结构，因为 protocol、core、browser、Babylon、Forge Play bridge 的职责边界真实存在。
+- npm 只发布 `@fps-games/editor` 一个包，内部 workspace 作为 bundled dependencies 随聚合包进入 tarball。
 - 游戏项目默认只把 `@fps-games/editor` 当作公共入口，不需要理解内部组合方式。
-- `@fps-games/editor-*` 分层包可以发布到 npm，但它们主要服务于聚合包和少数高级接入场景。
-- 所有 `@fps-games/*` editor 包采用 lockstep version，同一次发布使用同一个版本号。
-- 快速迭代期使用 alpha 精确版本，例如 `0.1.0-alpha.0`、`0.1.0-alpha.1`，游戏项目不要依赖浮动版本。
+- `@fps-games/editor-*` 分层包标记为 private，不再独立发布。
+- 快速迭代期使用精确版本，例如 `0.1.0`、`0.1.1`，游戏项目不要依赖浮动版本。
 
-如果项目临时直接依赖 `@fps-games/editor-babylon` 或 `@fps-games/editor-protocol`，应把它视为当前 adapter 实现细节。后续公共入口会继续补充常用类型和 helper 的 re-export，逐步减少游戏项目需要直接理解的包数量。
+如果项目需要新的类型或 helper，应优先从 `@fps-games/editor` 统一 re-export，而不是让项目直接 import 内部分层包。
 
 ## 安装
 
 ### 推荐安装方式
 
-如果项目只从聚合入口导入：
-
 ```bash
-pnpm add @fps-games/editor@0.1.0-alpha.0
-```
-
-如果项目 adapter 需要直接导入 Babylon helper 或协议类型，按当前 `lumber_order` 接入方式安装：
-
-```bash
-pnpm add @fps-games/editor@0.1.0-alpha.0 @fps-games/editor-babylon@0.1.0-alpha.0 @fps-games/editor-protocol@0.1.0-alpha.0
+pnpm add @fps-games/editor@0.1.0
 ```
 
 使用 npm：
 
 ```bash
-npm install @fps-games/editor@0.1.0-alpha.0
-```
-
-或：
-
-```bash
-npm install @fps-games/editor@0.1.0-alpha.0 @fps-games/editor-babylon@0.1.0-alpha.0 @fps-games/editor-protocol@0.1.0-alpha.0
+npm install @fps-games/editor@0.1.0
 ```
 
 使用 yarn：
 
 ```bash
-yarn add @fps-games/editor@0.1.0-alpha.0
-```
-
-或：
-
-```bash
-yarn add @fps-games/editor@0.1.0-alpha.0 @fps-games/editor-babylon@0.1.0-alpha.0 @fps-games/editor-protocol@0.1.0-alpha.0
+yarn add @fps-games/editor@0.1.0
 ```
 
 ### Vite/TypeScript 配置
@@ -151,10 +131,10 @@ FPS_GAME_EDITOR_ROOT=/path/to/fps-game-editor pnpm dev
 
 ### 1. 安装 npm 包
 
-按项目实际 import 安装依赖。对现阶段 Forge Play + Babylon 项目，推荐先使用：
+安装唯一对外包：
 
 ```bash
-pnpm add @fps-games/editor@0.1.0-alpha.0 @fps-games/editor-babylon@0.1.0-alpha.0 @fps-games/editor-protocol@0.1.0-alpha.0
+pnpm add @fps-games/editor@0.1.0
 ```
 
 ### 2. 保留项目自己的 adapter
@@ -290,21 +270,70 @@ if (import.meta.env.DEV) {
 ```json
 {
   "dependencies": {
-    "@fps-games/editor": "0.1.0-alpha.0",
-    "@fps-games/editor-babylon": "0.1.0-alpha.0",
-    "@fps-games/editor-protocol": "0.1.0-alpha.0"
+    "@fps-games/editor": "0.1.0"
   }
 }
 ```
 
-它同时移除了 `@fps-games/editor*` 的本地源码 alias 和 `FPS_GAME_EDITOR_ROOT` 运行路径。
+正式 npm 接入不需要安装 `@fps-games/editor-*` 内部分层包。它们会随 `@fps-games/editor` 的 tarball 一起被打包进去。
 
 ## 本仓库开发
 
-安装依赖后可运行：
+日常开发优先使用包内最小 playground：
+
+```bash
+npm run dev:editor-lab
+```
+
+`examples/editor-lab` 是编辑器框架自己的轻量假项目。它不依赖 `lumber_order`，但会走真实主链路：
+
+```text
+createLocalEditorHarness
+  -> ProjectAuthoringHost
+  -> lab source driver
+  -> EditorSession
+  -> Babylon EditorWorld projection
+```
+
+它覆盖 hierarchy、transform、save、undo/redo、dirty 和基础 Babylon 投影，适合平时快速改编辑器框架。`examples/babylon-editor-world` 仍保留为更低层的 Babylon 投影 demo。
+
+如果需要验证“编辑器保存后回到真实 GameWorld”的完整体验，可以启动从 `lumber_order` 基线复制来的 mini game lab：
+
+```bash
+cd examples/mini-game-lab
+npm install
+cd ../..
+npm run dev:mini-game-lab
+```
+
+默认地址是：
+
+```text
+http://localhost:5184
+```
+
+`examples/mini-game-lab` 保留了 lumber_order 的真实资产、GameWorld、SceneBuilder、项目 adapter 和本地 authoring API，但默认关闭 Forge Play bridge。它用于在包仓库内快速模拟真实游戏闭环；`lumber_order + forge-play` 仍然是最终平台沙盒验收环境。
+
+`mini-game-lab` 是 dev-only fixture，不参与 npm 包发布，也不要求提交它自己的 `node_modules` 或 lockfile。它的依赖声明留在 `examples/mini-game-lab/package.json`，不进入根包依赖。
+
+常用自测：
 
 ```bash
 npm run check
+```
+
+`check` 会跑包边界检查、TypeScript 检查和 Vitest 单元测试。
+
+浏览器 smoke：
+
+```bash
+npm run test:browser
+```
+
+包消费 smoke：
+
+```bash
+npm run test:pack
 ```
 
 构建所有包：
@@ -313,13 +342,25 @@ npm run check
 npm run build
 ```
 
+构建 editor-lab：
+
+```bash
+npm run build:editor-lab
+```
+
+检查 mini-game-lab 类型：
+
+```bash
+npm run typecheck:mini-game-lab
+```
+
 检查 npm tarball 内容：
 
 ```bash
 npm run pack:dry-run
 ```
 
-发布 alpha 包：
+发布 npm 包：
 
 ```bash
 npm run publish:next
@@ -328,10 +369,13 @@ npm run publish:next
 发布前必须确认：
 
 - `npm run check` 通过。
-- `npm run pack:dry-run` 里每个包只包含 `dist` 和 `package.json`。
-- 每个包的 `exports` 指向真实存在的 `dist/index.js` 和 `dist/index.d.ts`。
-- 版本号已经同步更新到所有 `@fps-games/*` 包。
-- 底层包先发布，最后发布 `@fps-games/editor` 聚合入口，减少 registry 同步窗口里聚合包依赖不可解析的风险。
+- `npm run build:editor-lab` 通过。
+- `npm run test:browser` 通过。
+- `npm run test:pack` 通过。
+- `npm run pack:dry-run` 只生成 `@fps-games/editor` tarball。
+- tarball 的 Bundled Dependencies 包含 5 个内部 workspace：protocol、core、browser、Babylon、Forge Play bridge。
+- `@fps-games/editor` 的 `exports` 指向真实存在的 `dist/index.js` 和 `dist/index.d.ts`。
+- 版本号已经同步更新到所有内部 workspace，便于 bundled dependency 元数据保持一致。
 - 游戏项目升级时使用精确版本，并提交 lockfile。
 
 ## 设计文档

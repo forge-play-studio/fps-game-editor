@@ -231,11 +231,11 @@
     </table>
 
     <h2>包组织方式现状</h2>
-    <p><span class="status-tag tag-current">当前设计共识</span>当前设计共识是 <strong>monorepo 多包维护 + 一个聚合入口包给游戏项目使用</strong>。当前实现状态是 <code>@fps-games/editor-protocol</code>、<code>@fps-games/editor-browser</code>、<code>@fps-games/editor-forge-play</code>、<code>@fps-games/editor-core</code>、<code>@fps-games/editor-babylon</code>、<code>@fps-games/editor</code> 已落地，UI 包尚未实现。</p>
-    <p><span class="status-tag tag-current">发布与使用原则</span>多包结构是维护和发布边界，不是普通游戏项目的使用心智。对外默认入口是 <code>@fps-games/editor</code>；其他 <code>@fps-games/editor-*</code> 包属于分层实现包和高级接入面。所有 editor 包采用 lockstep version，同一轮发布使用同一个版本号。游戏项目在快速迭代期应使用精确 alpha 版本和 lockfile 固定依赖。</p>
+    <p><span class="status-tag tag-current">当前设计共识</span>当前设计共识是 <strong>monorepo 多包维护 + 一个 npm 包对外发布</strong>。当前实现状态是 <code>@fps-games/editor-protocol</code>、<code>@fps-games/editor-browser</code>、<code>@fps-games/editor-forge-play</code>、<code>@fps-games/editor-core</code>、<code>@fps-games/editor-babylon</code>、<code>@fps-games/editor</code> 已落地，UI 包尚未实现。</p>
+    <p><span class="status-tag tag-current">发布与使用原则</span>多包结构是内部维护边界，不是 npm 发布边界，也不是普通游戏项目的使用心智。对外唯一安装入口是 <code>@fps-games/editor</code>；其他 <code>@fps-games/editor-*</code> 包属于 private workspace，随聚合包作为 bundled dependencies 进入 tarball，不再独立发布。游戏项目在快速迭代期应使用精确版本和 lockfile 固定依赖。</p>
     <table>
       <tr><th>包</th><th>职责</th><th>是否直接依赖项目 schema</th></tr>
-      <tr><td><code>@fps-games/editor</code></td><td>游戏项目主要引入的聚合入口，当前组合 core、browser、Babylon、forge-play bridge，并新增本地 EditorWorld harness。</td><td>否，依赖项目提供 adapters</td></tr>
+      <tr><td><code>@fps-games/editor</code></td><td>游戏项目唯一安装的聚合入口，当前组合 core、browser、Babylon、forge-play bridge，并新增本地 EditorWorld harness。</td><td>否，依赖项目提供 adapters</td></tr>
       <tr><td><code>@fps-games/editor-core</code></td><td>命令、事件、document session、history、dirty 状态、生命周期、capability registry。</td><td>否</td></tr>
       <tr><td><code>@fps-games/editor-protocol</code></td><td>平台与项目共享的 command/event/capability 类型和协议版本。</td><td>否</td></tr>
       <tr><td><code>@fps-games/editor-browser</code></td><td>浏览器 host 能力：window、document、canvas、pointer、keyboard、resize、iframe/focus 环境。</td><td>否</td></tr>
@@ -244,6 +244,18 @@
       <tr><td>UI 层</td><td><code>@fps-games/editor-browser</code> 提供 EditorWorld 工作台、Hierarchy、Asset Library、Component Inspector、工具栏和快捷键 shell；完整 <code>editor-ui</code> 产品层尚未单独落地。</td><td>只消费 session state、SerializedObject、tree adapter 和 asset item，不直接依赖项目 schema</td></tr>
       <tr><td>project adapter</td><td>每个游戏项目实现：Scene JSON schema、Asset registry、SceneBuilder、Game runtime、业务节点规则。</td><td>是，留在游戏项目内</td></tr>
     </table>
+
+    <h2>包内开发环境与自测</h2>
+    <p><span class="status-tag tag-current">当前实现</span><code>examples/editor-lab</code> 已作为 <code>fps-game-editor</code> 仓库内的主开发入口。它是一个轻量假项目，不依赖 <code>lumber_order</code> 或 <code>forge-play</code>，但走真实编辑器主链路：<code>createLocalEditorHarness -> ProjectAuthoringHost -> source driver -> EditorSession -> Babylon EditorWorld projection</code>。</p>
+    <table>
+      <tr><th>入口</th><th>用途</th><th>定位</th></tr>
+      <tr><td><code>npm run dev:editor-lab</code></td><td>启动最小 EditorWorld playground，快速验证 Hierarchy、Transform、Save、Undo/Redo、Dirty 和 Babylon projection。</td><td>日常编辑器框架开发入口。</td></tr>
+      <tr><td><code>npm run dev:mini-game-lab</code></td><td>启动从 <code>lumber_order</code> 联调基线复制来的真实 GameWorld lab，默认端口 <code>5184</code>，默认关闭 Forge Play bridge。首次使用前在 <code>examples/mini-game-lab</code> 内单独安装依赖。</td><td>dev-only 包内真实游戏闭环验证入口，用来观察保存后 GameWorld 是否消费项目编译结果；不参与 npm 发布或正式 build。</td></tr>
+      <tr><td><code>examples/babylon-editor-world</code></td><td>保留更低层的 Babylon 投影 demo。</td><td>底层投影/渲染实验，不替代 editor-lab。</td></tr>
+      <tr><td><code>lumber_order + forge-play</code></td><td>验证真实项目 schema、项目 adapter、平台按钮、沙盒保存和最终 GameWorld 运行效果。</td><td>真实项目和平台验收环境，不作为日常改包的唯一入口。</td></tr>
+    </table>
+    <p><span class="status-tag tag-current">测试护栏</span>当前仓库已新增 <code>vitest</code> 单元/fixture 测试、<code>Playwright</code> editor-lab 浏览器 smoke、<code>npm pack</code> consumer smoke，以及 <code>mini-game-lab</code> 的独立 typecheck 验证。<code>npm run check</code> 覆盖包边界、TypeScript 和 unit tests；<code>npm run test:browser</code> 验证 editor-lab 真实浏览器流程；<code>npm run test:pack</code> 验证只安装 <code>@fps-games/editor</code> 一个 tarball 时可以被临时项目消费。</p>
+    <p><span class="status-tag tag-current">边界说明</span><code>editor-lab</code> 只用于编辑器框架自测，不替代具体游戏项目 adapter。<code>mini-game-lab</code> 则保留 lumber_order 的真实项目 adapter、SceneBuilder、资产和 GameWorld，用于包仓库内快速模拟完整闭环；它仍不替代 <code>lumber_order + forge-play</code> 的最终平台验收。</p>
 
     <h2>通用编辑器与状态化扩展</h2>
     <p><span class="status-tag tag-current">当前设计共识</span><code>fps-game-editor</code> 的核心能力应保持通用场景编辑，不把 PA 单帧制作里的状态化编辑直接塞进 core。状态化编辑应作为可选扩展建立在通用编辑能力之上，这样普通项目仍然可以只做标准场景编辑。</p>
@@ -385,8 +397,8 @@
     <table>
       <tr><th>规则</th><th>当前约定</th><th>原因</th></tr>
       <tr><td>默认安装入口</td><td><code>@fps-games/editor</code></td><td>降低游戏项目接入成本，避免把内部包组合暴露成默认使用方式。</td></tr>
-      <tr><td>分层包可见性</td><td><code>@fps-games/editor-protocol</code>、<code>editor-core</code>、<code>editor-browser</code>、<code>editor-babylon</code>、<code>editor-forge-play</code> 继续发布</td><td>聚合包依赖它们，且边界真实存在；少数项目可直接引用高级 helper/type。</td></tr>
-      <tr><td>版本策略</td><td>lockstep version，例如全部使用 <code>0.1.0-alpha.0</code></td><td>减少跨包版本组合风险，适合当前快速迭代阶段。</td></tr>
+      <tr><td>分层包可见性</td><td><code>@fps-games/editor-protocol</code>、<code>editor-core</code>、<code>editor-browser</code>、<code>editor-babylon</code>、<code>editor-forge-play</code> 保留为 private workspace，不独立发布</td><td>边界真实存在，但不暴露成普通项目需要安装的 npm 包；需要的类型和 helper 通过 <code>@fps-games/editor</code> re-export。</td></tr>
+      <tr><td>版本策略</td><td>单包发布版本，例如 <code>@fps-games/editor@0.1.0</code></td><td>减少跨包版本组合风险，适合当前快速迭代阶段。</td></tr>
       <tr><td>消费策略</td><td>游戏项目使用精确版本并提交 lockfile</td><td>平台不能远程强行升级旧项目，项目升级必须显式发生。</td></tr>
     </table>
 
@@ -462,10 +474,10 @@ createBabylonForgePlayEditor({
     </table>
 
     <h2>编辑器功能更新策略共识</h2>
-    <p><span class="status-tag tag-current">当前设计共识</span>设计共识是：游戏项目引入确定版本的编辑器包，由 lockfile 固定。当前 npm alpha 已发布为 <code>0.1.0-alpha.0</code>，并采用多包 lockstep version。平台不能远程强行升级旧项目；项目升级必须显式修改 package.json 和 lockfile。</p>
+    <p><span class="status-tag tag-current">当前设计共识</span>设计共识是：游戏项目引入确定版本的编辑器包，由 lockfile 固定。当前 npm 单包版本准备发布为 <code>0.1.0</code>。平台不能远程强行升级旧项目；项目升级必须显式修改 package.json 和 lockfile。</p>
     <pre><code>{
   "dependencies": {
-    "@fps-games/editor": "0.1.0-alpha.0"
+    "@fps-games/editor": "0.1.0"
   }
 }</code></pre>
     <table>
@@ -1876,7 +1888,7 @@ gizmo.dragCancel
       <tr><th>位置</th><th>当前职责</th></tr>
       <tr><td><code>lumber_order/src/fps-game-editor-adapter/runtime.ts</code></td><td>组装 <code>@fps-games/editor</code>，把 <code>lumber_order</code> document、scene、binding 能力注入通用 editor runtime。</td></tr>
       <tr><td><code>lumber_order/src/fps-game-editor-adapter/asset-adapter.ts</code></td><td>复用现有 <code>AssetManager</code>、<code>SceneAssetPlacement</code>、<code>SceneAssetUsage</code> 和 document scene node API，处理资产注册、导入、删除和 scene node create/patch/remove。</td></tr>
-      <tr><td><code>lumber_order/package.json</code></td><td>通过 npm 精确版本安装 <code>@fps-games/editor</code>、<code>@fps-games/editor-babylon</code>、<code>@fps-games/editor-protocol</code>；当前联调脚本还保留 <code>dev:editor-local</code>，可通过 <code>FPS_GAME_EDITOR_ROOT</code> 指向本地 <code>fps-game-editor</code> 源码。</td></tr>
+      <tr><td><code>lumber_order/package.json</code></td><td>通过 npm 精确版本安装唯一对外包 <code>@fps-games/editor</code>；当前联调脚本还保留 <code>dev:editor-local</code>，可通过 <code>FPS_GAME_EDITOR_ROOT</code> 指向本地 <code>fps-game-editor</code> 源码。</td></tr>
       <tr><td><code>lumber_order/scripts/platform-sim/scenarios/helpers.mjs</code></td><td>Mock Platform dry-run 通过显式 iframe reload 模拟平台刷新，不依赖 Vite HMR 侦测 generated registry 变更。</td></tr>
       <tr><td>Round 7 record</td><td><code>docs/editor-lumber-order-adapter-round-7.md</code></td></tr>
       <tr><td>Review</td><td>独立 Re-Review 通过，未发现新的 P0/P1，允许进入下一轮。</td></tr>
@@ -2250,8 +2262,8 @@ gizmo.dragCancel
       </tr>
       <tr>
         <td>公共包缺少行为级 parity tests</td>
-        <td>当前已通过 package boundary 检查，但缺少 fake Babylon / 旧新 runtime 等价行为测试。</td>
-        <td>selection、monitor、undo/redo、export/commit 的新旧等价性仍需后续验证。</td>
+        <td>当前已新增 editor-lab、Vitest source/session fixture、Playwright 浏览器 smoke 和 pack consumer smoke；仍缺旧 runtime path 与新 EditorWorld 的完整等价测试。</td>
+        <td>基础 hierarchy、transform、dirty、undo/redo、save 和单包消费已有护栏；selection monitor、legacy runtime export/commit 等旧新等价性仍需后续验证。</td>
       </tr>
       <tr>
         <td>完整 <code>editor-ui</code> 产品层尚未落地</td>
