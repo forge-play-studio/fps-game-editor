@@ -1,4 +1,10 @@
 import * as LocalEditorPanels from './local-editor-ui-panels';
+import { createLocalEditorContextMenuController } from './local-editor-ui-context-menu';
+export {
+  createLocalEditorContextMenuController,
+  type LocalEditorContextMenuController,
+  type LocalEditorContextMenuOpenInput,
+} from './local-editor-ui-context-menu';
 import { createLocalEditorWorkbenchInputRouter } from './local-editor-ui-input-router';
 import { createLocalEditorPanelRegistry } from './local-editor-ui-panel-registry';
 import * as LocalEditorShared from './local-editor-ui-shared';
@@ -17,8 +23,11 @@ import type {
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformTool,
   LocalEditorBrowserUi,
+  LocalEditorBrowserUiHierarchyItem,
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiState,
+  LocalEditorContextAction,
+  LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
 
 export type {
@@ -47,6 +56,8 @@ export type {
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
+  LocalEditorContextAction,
+  LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
 
 export function createLocalEditorBrowserUi<TDocument = unknown>(
@@ -57,6 +68,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const callbacks = options.callbacks ?? {};
   ensureLocalEditorTheme(doc);
   const inputRouter = createLocalEditorWorkbenchInputRouter(doc);
+  const contextMenu = createLocalEditorContextMenuController(doc, (open) => {
+    inputRouter.setContextMenuOpen(open);
+  });
   let currentState: LocalEditorBrowserUiState<TDocument> | null = null;
   let hierarchyRename: { id: string; value: string } | null = null;
   let hierarchyDrag: { id: string } | null = null;
@@ -256,6 +270,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   root.appendChild(boxSelectionOverlay);
 
   const shortcutHelpPanel = createLocalEditorShortcutHelpPanel(doc);
+  shortcutHelpPanel.classList.add(LOCAL_EDITOR_THEME_CLASS);
   root.appendChild(shortcutHelpPanel);
 
   enterEditorButton.addEventListener('click', () => callbacks.onEnterEditor?.());
@@ -265,6 +280,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   undoButton.addEventListener('click', () => callbacks.onUndo?.());
   redoButton.addEventListener('click', () => callbacks.onRedo?.());
   const setShortcutHelpOpen = (open: boolean): void => {
+    if (open) contextMenu.close();
     helpOpen = open;
     inputRouter.setModalOpen(open);
     shortcutHelpPanel.style.display = helpOpen ? '' : 'none';
@@ -333,6 +349,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
         toggle: event.metaKey || event.ctrlKey,
       });
     }
+  });
+
+  hierarchyPanel.addEventListener('contextmenu', (event) => {
+    openHierarchyContextMenu(event);
   });
 
   hierarchyPanel.addEventListener('dblclick', (event) => {
@@ -474,6 +494,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   });
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented) return;
     if (currentState?.mode !== 'editor' || currentState.busy) return;
     const key = event.key.toLowerCase();
     const primaryModifier = event.metaKey || event.ctrlKey;
@@ -548,10 +569,198 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (currentState) render(currentState);
   }
 
+  function openHierarchyContextMenu(event: MouseEvent): void {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target || inputRouter.isEditableTarget(target)) return;
+    const state = currentState;
+    if (!state || state.mode !== 'editor' || state.busy) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (helpOpen) setShortcutHelpOpen(false);
+    const hadHierarchyDrop = hierarchyDrop !== null;
+    hierarchyDrag = null;
+    hierarchyDrop = null;
+
+    const hierarchyButton = target.closest<HTMLButtonElement>('[data-editor-hierarchy-id]');
+    const item = hierarchyButton?.dataset.editorHierarchyId
+      ? state.hierarchy.find(candidate => candidate.id === hierarchyButton.dataset.editorHierarchyId) ?? null
+      : null;
+
+    const actions = new Map<string, () => void>();
+    const items = item
+      ? createHierarchyNodeMenuItems(state, item, actions)
+      : createHierarchyBlankMenuItems(state, actions);
+
+    contextMenu.open({
+      x: event.clientX,
+      y: event.clientY,
+      items,
+      onAction(menuItem) {
+        actions.get(menuItem.id)?.();
+      },
+    });
+    if (currentState && hadHierarchyDrop) render(currentState);
+  }
+
+  function createHierarchyNodeMenuItems(
+    state: LocalEditorBrowserUiState<TDocument>,
+    item: LocalEditorBrowserUiHierarchyItem,
+    actions: Map<string, () => void>,
+  ): LocalEditorContextMenuItem[] {
+    const alreadySelected = state.selectedIds.includes(item.id);
+    const selectable = item.selectable !== false && item.locked !== true;
+    if (!alreadySelected && selectable) {
+      callbacks.onSelectHierarchyItem?.({ id: item.id, additive: false, toggle: false });
+    }
+    const targetIds = alreadySelected ? state.selectedIds : [item.id];
+    const activeId = alreadySelected ? state.activeId ?? item.id : item.id;
+    const canRename = item.locked !== true && item.renamable !== false;
+    const canCreateGroup = item.locked !== true && item.canHaveChildren !== false;
+    const canDelete = targetIds.length > 0 && targetIds.every(id => {
+      const candidate = state.hierarchy.find(entry => entry.id === id);
+      return !!candidate && candidate.locked !== true && candidate.deletable !== false;
+    });
+
+    actions.set('hierarchy.focus', () => {
+      submitHierarchyContextAction({ region: 'hierarchy', action: 'focus', targetIds, activeId });
+    });
+    actions.set('hierarchy.rename', () => {
+      submitHierarchyContextAction({ region: 'hierarchy', action: 'rename', targetId: item.id });
+    });
+    actions.set('hierarchy.create-group', () => {
+      submitHierarchyContextAction({
+        region: 'hierarchy',
+        action: 'create-group',
+        parentId: canCreateGroup ? item.id : null,
+        activeId,
+      });
+    });
+    actions.set('hierarchy.delete', () => {
+      submitHierarchyContextAction({ region: 'hierarchy', action: 'delete', targetIds, activeId });
+    });
+
+    return [
+      { id: 'hierarchy.focus', label: 'Focus in Preview', shortcut: 'F', disabled: !selectable },
+      { id: 'hierarchy.rename', label: 'Rename', disabled: !canRename },
+      { id: 'hierarchy.create-group', label: 'Add Empty Group', disabled: !canCreateGroup },
+      { id: 'hierarchy.delete', label: 'Delete', shortcut: 'Delete', danger: true, disabled: !canDelete },
+      { id: 'hierarchy.duplicate', label: 'Duplicate', shortcut: 'Cmd/Ctrl+D', disabled: true, separatorBefore: true },
+      { id: 'hierarchy.copy', label: 'Copy', shortcut: 'Cmd/Ctrl+C', disabled: true },
+      { id: 'hierarchy.paste', label: 'Paste', shortcut: 'Cmd/Ctrl+V', disabled: true },
+      { id: 'hierarchy.copy-transform', label: 'Copy Transform', disabled: true, separatorBefore: true },
+      { id: 'hierarchy.paste-transform', label: 'Paste Transform', disabled: true },
+      { id: 'hierarchy.locked', label: 'Locked', disabled: true, separatorBefore: true },
+      { id: 'hierarchy.do-not-serialize', label: 'Do Not Serialize', disabled: true },
+    ];
+  }
+
+  function createHierarchyBlankMenuItems(
+    state: LocalEditorBrowserUiState<TDocument>,
+    actions: Map<string, () => void>,
+  ): LocalEditorContextMenuItem[] {
+    actions.set('hierarchy.create-group', () => {
+      submitHierarchyContextAction({
+        region: 'hierarchy',
+        action: 'create-group',
+        parentId: null,
+        activeId: state.activeId,
+      });
+    });
+    return [
+      { id: 'hierarchy.create-group', label: 'Add Empty Group' },
+      { id: 'hierarchy.duplicate', label: 'Duplicate', shortcut: 'Cmd/Ctrl+D', disabled: true, separatorBefore: true },
+      { id: 'hierarchy.copy', label: 'Copy', shortcut: 'Cmd/Ctrl+C', disabled: true },
+      { id: 'hierarchy.paste', label: 'Paste', shortcut: 'Cmd/Ctrl+V', disabled: true },
+      { id: 'hierarchy.copy-transform', label: 'Copy Transform', disabled: true, separatorBefore: true },
+      { id: 'hierarchy.paste-transform', label: 'Paste Transform', disabled: true },
+      { id: 'hierarchy.locked', label: 'Locked', disabled: true, separatorBefore: true },
+      { id: 'hierarchy.do-not-serialize', label: 'Do Not Serialize', disabled: true },
+    ];
+  }
+
+  function submitHierarchyContextAction(action: LocalEditorContextAction): void {
+    if (action.action === 'rename') {
+      beginHierarchyRename(action.targetId);
+      return;
+    }
+    if (callbacks.onContextAction) {
+      callbacks.onContextAction(action);
+      return;
+    }
+    if (action.action === 'focus') callbacks.onFocusSelection?.();
+    else if (action.action === 'create-group') {
+      callbacks.onSceneGraphCreateGroup?.({
+        parentId: action.parentId ?? null,
+        activeId: action.activeId ?? null,
+        name: 'Group',
+      });
+    } else if (action.action === 'delete') {
+      callbacks.onSceneGraphDelete?.({
+        ids: action.targetIds,
+        activeId: action.activeId ?? null,
+      });
+    }
+  }
+
+  function beginHierarchyRename(id: string): void {
+    const state = currentState;
+    const item = state?.hierarchy.find(candidate => candidate.id === id) ?? null;
+    if (!state || !item || item.locked || item.renamable === false) return;
+    hierarchyRename = { id, value: item.label };
+    render(state);
+  }
+
+  function captureEditableFocus(doc: Document): { selector: string; value: string | null } | null {
+    const active = doc.activeElement instanceof HTMLInputElement ? doc.activeElement : null;
+    if (!active) return null;
+    if (active.dataset.editorHierarchyRenameInput) {
+      return {
+        selector: `[data-editor-hierarchy-rename-input="${cssEscape(active.dataset.editorHierarchyRenameInput)}"]`,
+        value: active.value,
+      };
+    }
+    if (active.dataset.serializedPath && active.dataset.serializedTargetId) {
+      return {
+        selector: [
+          `input[data-serialized-path="${cssEscape(active.dataset.serializedPath)}"]`,
+          `[data-serialized-target-id="${cssEscape(active.dataset.serializedTargetId)}"]`,
+        ].join(''),
+        value: active.value,
+      };
+    }
+    if (active.dataset.editorAssetFilter != null) {
+      return { selector: 'input[data-editor-asset-filter]', value: active.value };
+    }
+    return null;
+  }
+
+  function restoreEditableFocus(doc: Document, snapshot: { selector: string; value: string | null } | null): void {
+    if (!snapshot) return;
+    const input = doc.querySelector<HTMLInputElement>(snapshot.selector);
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    if (snapshot.value != null && input.value === snapshot.value) {
+      const position = input.value.length;
+      try {
+        input.setSelectionRange(position, position);
+      } catch {
+        // Number/search inputs may reject text selection APIs.
+      }
+    }
+  }
+
+  function cssEscape(value: string): string {
+    return typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(value)
+      : value.replace(/["\\]/g, '\\$&');
+  }
+
   const render = (state: LocalEditorBrowserUiState<TDocument>): void => {
     currentState = state;
+    const focusSnapshot = captureEditableFocus(doc);
     const inEditor = state.mode === 'editor';
     const disabled = state.busy;
+    if (!inEditor || disabled) contextMenu.close();
     hostChrome.style.display = inEditor ? 'none' : 'flex';
     enterEditorButton.disabled = disabled;
     for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton]) {
@@ -614,6 +823,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     LocalEditorPanels.renderHierarchyPanel(doc, hierarchyPanel, state, hierarchyRename, hierarchyDrop);
     LocalEditorPanels.renderWorkbenchBottomDockPanel(doc, assetPanel, state, panelRegistry.getBottomDockTab(), panelRegistry.getPanels('bottom'));
     LocalEditorPanels.renderInspectorPanel(doc, inspectorPanel, state);
+    restoreEditableFocus(doc, focusSnapshot);
   };
 
   return {
@@ -625,6 +835,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       workbench.root.remove();
       boxSelectionOverlay.remove();
       shortcutHelpPanel.remove();
+      contextMenu.dispose();
       inputRouter.dispose();
       doc.removeEventListener('keydown', onKeyDown);
     },

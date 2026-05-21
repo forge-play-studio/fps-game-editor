@@ -11,8 +11,11 @@ export type LocalEditorWorkbenchInputRegion =
 export interface LocalEditorWorkbenchInputRouter {
   getRegion(target: EventTarget | null): LocalEditorWorkbenchInputRegion;
   isEditableTarget(target: EventTarget | null): boolean;
+  isEditorOwnedRegion(target: EventTarget | null): boolean;
   isUiRegion(target: EventTarget | null): boolean;
+  setContextMenuOpen(open: boolean): void;
   setModalOpen(open: boolean): void;
+  shouldPreventBrowserContextMenu(event: MouseEvent): boolean;
   shouldHandleDocumentShortcut(event: KeyboardEvent): boolean;
   shouldHandleGlobalShortcut(event: KeyboardEvent): boolean;
   dispose(): void;
@@ -20,13 +23,13 @@ export interface LocalEditorWorkbenchInputRouter {
 
 export function createLocalEditorWorkbenchInputRouter(doc: Document): LocalEditorWorkbenchInputRouter {
   let modalOpen = false;
+  let contextMenuOpen = false;
   const stopPanelWheel = (event: WheelEvent): void => {
     if (!isUiRegion(event.target)) return;
     event.stopPropagation();
   };
   const stopPanelContextMenu = (event: MouseEvent): void => {
-    if (!isUiRegion(event.target)) return;
-    event.stopPropagation();
+    if (shouldPreventBrowserContextMenu(event)) event.preventDefault();
   };
   const stopPanelPointer = (event: PointerEvent): void => {
     if (!isUiRegion(event.target)) return;
@@ -40,15 +43,24 @@ export function createLocalEditorWorkbenchInputRouter(doc: Document): LocalEdito
   return {
     getRegion,
     isEditableTarget,
+    isEditorOwnedRegion,
     isUiRegion,
+    setContextMenuOpen(open) {
+      contextMenuOpen = open;
+    },
     setModalOpen(open) {
       modalOpen = open;
     },
+    shouldPreventBrowserContextMenu,
     shouldHandleDocumentShortcut(event) {
-      return !modalOpen && getRegion(event.target) !== 'modal';
+      return !modalOpen && !contextMenuOpen && getRegion(event.target) !== 'modal';
     },
     shouldHandleGlobalShortcut(event) {
-      return !modalOpen && !isEditableTarget(event.target) && getRegion(event.target) !== 'modal';
+      return !modalOpen
+        && !contextMenuOpen
+        && !isEditableTarget(event.target)
+        && !isEditableTarget(doc.activeElement)
+        && getRegion(event.target) !== 'modal';
     },
     dispose() {
       doc.removeEventListener('wheel', stopPanelWheel, { capture: true });
@@ -62,6 +74,7 @@ function getRegion(target: EventTarget | null): LocalEditorWorkbenchInputRegion 
   const element = target instanceof HTMLElement ? target : null;
   if (!element) return 'unknown';
   if (element.closest('[data-editor-shortcut-help]')) return 'modal';
+  if (element.closest('[data-editor-context-menu]')) return 'modal';
   const region = element.closest<HTMLElement>('[data-editor-workbench-region]')?.dataset.editorWorkbenchRegion;
   if (region === 'scene-toolbar') return 'scene-header';
   if (region === 'top-bar'
@@ -75,6 +88,17 @@ function getRegion(target: EventTarget | null): LocalEditorWorkbenchInputRegion 
   return 'unknown';
 }
 
+function isEditorOwnedRegion(target: EventTarget | null): boolean {
+  const region = getRegion(target);
+  return region === 'top-bar'
+    || region === 'left-dock'
+    || region === 'right-dock'
+    || region === 'bottom-dock'
+    || region === 'scene-header'
+    || region === 'modal'
+    || region === 'scene-view';
+}
+
 function isUiRegion(target: EventTarget | null): boolean {
   const region = getRegion(target);
   return region === 'top-bar'
@@ -83,6 +107,10 @@ function isUiRegion(target: EventTarget | null): boolean {
     || region === 'bottom-dock'
     || region === 'scene-header'
     || region === 'modal';
+}
+
+function shouldPreventBrowserContextMenu(event: MouseEvent): boolean {
+  return isEditorOwnedRegion(event.target) && !isEditableTarget(event.target);
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

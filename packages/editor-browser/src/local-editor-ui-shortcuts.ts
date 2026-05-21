@@ -66,12 +66,14 @@ export function createShortcutHelpPanel(doc: Document): HTMLDivElement {
     ['双击', '聚焦被点击的 GameObject'],
     ['层级树点击', '从 Hierarchy 中选择 GameObject'],
     ['层级树 Shift/Cmd', '在 Hierarchy 中追加或切换选择'],
+    ['右键层级节点', '打开 GameObject 操作菜单'],
   ]);
   appendShortcutSection(doc, panel, '文档', [
     ['Cmd/Ctrl + S', '保存场景'],
     ['Cmd/Ctrl + Z', '撤销'],
     ['Cmd/Ctrl + Shift + Z', '重做'],
     ['Ctrl + Y', '重做'],
+    ['Delete / Backspace', '删除当前选中的 GameObject'],
     ['保存场景', '保存 editor-scene，并编译运行时 scene 数据'],
   ]);
   appendShortcutSection(doc, panel, '面板', [
