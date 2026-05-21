@@ -158,6 +158,22 @@ export interface LocalEditorBrowserSceneGraphDropIntent {
   preserveWorldTransform?: boolean;
 }
 
+export interface LocalEditorContextMenuItem {
+  id: string;
+  label: string;
+  shortcut?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  separatorBefore?: boolean;
+  children?: LocalEditorContextMenuItem[];
+}
+
+export type LocalEditorContextAction =
+  | { region: 'hierarchy'; action: 'focus'; targetIds: string[]; activeId: string | null }
+  | { region: 'hierarchy'; action: 'rename'; targetId: string }
+  | { region: 'hierarchy'; action: 'create-group'; parentId?: string | null; activeId?: string | null }
+  | { region: 'hierarchy'; action: 'delete'; targetIds: string[]; activeId?: string | null };
+
 export interface LocalEditorBrowserUiCallbacks {
   onEnterEditor?: () => void;
   onSaveScene?: () => void;
@@ -178,6 +194,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onSceneGraphCreateGroup?: (intent: LocalEditorBrowserSceneGraphCreateGroupIntent) => void;
   onSceneGraphDelete?: (intent: LocalEditorBrowserSceneGraphDeleteIntent) => void;
   onSceneGraphDrop?: (intent: LocalEditorBrowserSceneGraphDropIntent) => void;
+  onContextAction?: (action: LocalEditorContextAction) => void;
 }
 
 export interface LocalEditorBrowserUiOptions {

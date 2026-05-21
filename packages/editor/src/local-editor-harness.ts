@@ -35,6 +35,7 @@ import {
   type LocalEditorBrowserUiPropertyInput,
   type LocalEditorBrowserUiHierarchyItem,
   type LocalEditorBrowserUiState,
+  type LocalEditorContextAction,
 } from '@fps-games/editor-browser';
 import {
   createBabylonEditorProjection,
@@ -298,6 +299,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       },
       onSceneGraphDrop: (intent) => {
         if (dropSceneGraphNode(state, options, intent)) harness.render();
+      },
+      onContextAction: (action) => {
+        if (handleContextAction(state, options, action)) harness.render();
       },
       onAssetFilterChange: (value) => {
         state.assetFilter = value;
@@ -666,6 +670,41 @@ function selectItem<TDocument, TPatch, TAsset>(
           label: 'Select Item',
         };
   return dispatchSelectionCommand(state, options, command);
+}
+
+function handleContextAction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  action: LocalEditorContextAction,
+): boolean {
+  if (action.region !== 'hierarchy') return false;
+  if (action.action === 'focus') {
+    const activeId = action.activeId ?? action.targetIds[action.targetIds.length - 1] ?? null;
+    const selectionChanged = activeId && !state.session?.getState().selection.selectedIds.includes(activeId)
+      ? dispatchSelectionCommand(state, options, {
+          type: 'selection.replace',
+          selectedIds: [activeId],
+          activeId,
+          label: 'Select Context Target',
+        })
+      : false;
+    return focusSelectedProjection(state) || selectionChanged;
+  }
+  if (action.action === 'rename') return false;
+  if (action.action === 'create-group') {
+    return createSceneGraphGroup(state, options, {
+      parentId: action.parentId ?? null,
+      activeId: action.activeId ?? null,
+      name: 'Group',
+    });
+  }
+  if (action.action === 'delete') {
+    return deleteSceneGraphNodes(state, options, {
+      ids: action.targetIds,
+      activeId: action.activeId ?? null,
+    });
+  }
+  return false;
 }
 
 function dispatchSelectionCommand<TDocument, TPatch, TAsset>(
