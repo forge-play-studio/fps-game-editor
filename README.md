@@ -10,6 +10,46 @@
 
 这是 0.1.x 初始版本。建议游戏项目先使用精确版本安装，不要依赖浮动的 `latest`。
 
+## 快速开始
+
+如果只是开发编辑器框架，优先启动轻量 editor lab：
+
+```bash
+npm install
+npm run dev:editor-lab
+```
+
+如果要验证“编辑器修改 -> 保存 -> GameWorld 运行态消费”的完整闭环，启动 mini game lab：
+
+```bash
+cd examples/mini-game-lab
+npm install
+cd ../..
+npm run dev:mini-game-lab
+```
+
+默认地址：
+
+```text
+http://localhost:5184
+```
+
+如果是首次 clone 且 mini-game-lab 资产缺失，请先确认 Git LFS 已启用：
+
+```bash
+git lfs install
+git lfs pull
+```
+
+常用检查：
+
+```bash
+npm run check
+npm run typecheck:mini-game-lab
+npm run build:editor-lab
+npm run pack:dry-run
+```
+
 ## 包结构
 
 本仓库内部仍然按职责保留 monorepo 分层，但 npm 对外只发布一个包：
@@ -279,6 +319,18 @@ if (import.meta.env.DEV) {
 
 ## 本仓库开发
 
+### 开发环境分层
+
+本仓库现在有三层测试环境，日常开发按从轻到重使用：
+
+| 环境 | 命令 | 用途 |
+| --- | --- | --- |
+| editor-lab | `npm run dev:editor-lab` | 最轻量的编辑器框架 playground，适合快速验证 EditorWorld、Hierarchy、Transform、Save、Undo/Redo |
+| mini-game-lab | `npm run dev:mini-game-lab` | 包仓库内的真实 GameWorld 闭环，基于 `lumber_order` 基线复制，适合验证保存后运行态消费 |
+| lumber_order + forge-play | 在对应项目启动 | 最终平台沙盒验收环境，验证 Forge Play 按钮、iframe、proxy、文件保存链路 |
+
+### editor-lab
+
 日常开发优先使用包内最小 playground：
 
 ```bash
@@ -296,6 +348,8 @@ createLocalEditorHarness
 ```
 
 它覆盖 hierarchy、transform、save、undo/redo、dirty 和基础 Babylon 投影，适合平时快速改编辑器框架。`examples/babylon-editor-world` 仍保留为更低层的 Babylon 投影 demo。
+
+### mini-game-lab
 
 如果需要验证“编辑器保存后回到真实 GameWorld”的完整体验，可以启动从 `lumber_order` 基线复制来的 mini game lab：
 
@@ -316,7 +370,21 @@ http://localhost:5184
 
 `mini-game-lab` 是 dev-only fixture，不参与 npm 包发布，也不要求提交它自己的 `node_modules` 或 lockfile。它的依赖声明留在 `examples/mini-game-lab/package.json`，不进入根包依赖。
 
-常用自测：
+### 自测命令
+
+常用命令：
+
+| 命令 | 说明 |
+| --- | --- |
+| `npm run check` | 包边界检查、TypeScript 检查、Vitest 单元测试 |
+| `npm run typecheck:mini-game-lab` | 检查 mini-game-lab 类型 |
+| `npm run build` | 构建所有内部包 |
+| `npm run build:editor-lab` | 构建 editor-lab |
+| `npm run test:browser` | Playwright 浏览器 smoke |
+| `npm run test:pack` | npm pack 后安装到临时 consumer 做消费 smoke |
+| `npm run pack:dry-run` | 检查最终 npm tarball 内容 |
+
+主检查：
 
 ```bash
 npm run check
@@ -324,7 +392,7 @@ npm run check
 
 `check` 会跑包边界检查、TypeScript 检查和 Vitest 单元测试。
 
-浏览器 smoke：
+浏览器 smoke 需要本机可运行 Playwright 浏览器：
 
 ```bash
 npm run test:browser
@@ -360,7 +428,9 @@ npm run typecheck:mini-game-lab
 npm run pack:dry-run
 ```
 
-发布 npm 包：
+### 发布前检查
+
+当前发布脚本：
 
 ```bash
 npm run publish:next
