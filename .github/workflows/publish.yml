@@ -1,0 +1,104 @@
+name: Publish Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: npm release channel
+        required: true
+        type: choice
+        options:
+          - beta
+          - stable
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @fps-games/editor
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ format('npm-{0}', github.event_name == 'workflow_dispatch' && inputs.channel || (contains(github.ref_name, '-beta.') && 'beta' || 'stable')) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve release channel
+        id: release
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            channel="${{ inputs.channel }}"
+            tag=""
+          else
+            tag="$GITHUB_REF_NAME"
+            if [[ "$tag" == *"-beta."* ]]; then
+              channel="beta"
+            else
+              channel="stable"
+            fi
+          fi
+
+          if [[ "$channel" == "stable" ]]; then
+            npm_tag="latest"
+          else
+            npm_tag="beta"
+          fi
+
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check release metadata
+        env:
+          RELEASE_CHANNEL: ${{ steps.release.outputs.channel }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if [[ -n "$RELEASE_TAG" ]]; then
+            npm run "release:check:$RELEASE_CHANNEL" -- --tag "$RELEASE_TAG"
+          else
+            npm run "release:check:$RELEASE_CHANNEL"
+          fi
+
+      - name: Check package boundaries, types, and unit tests
+        run: npm run check
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Build editor lab
+        run: npm run build:editor-lab
+
+      - name: Browser smoke
+        run: npm run test:browser
+
+      - name: Packed consumer smoke
+        run: npm run test:pack
+
+      - name: Tarball dry run
+        run: npm run pack:dry-run
+
+      - name: Publish to npm
+        env:
+          NPM_CONFIG_PROVENANCE: true
+          NPM_TAG: ${{ steps.release.outputs.npm_tag }}
+        run: npm publish --workspace @fps-games/editor --access public --tag "$NPM_TAG"

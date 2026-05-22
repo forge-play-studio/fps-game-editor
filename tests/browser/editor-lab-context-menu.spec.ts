@@ -81,8 +81,9 @@ test('hierarchy disclosure only toggles rows with children', async ({ page }) =>
 
   await starterGroup.locator('[data-editor-hierarchy-toggle]').click();
   await expect(blueBox).toBeHidden();
-  await page.locator('[data-editor-hierarchy-id="lab_sphere_01"]').click();
-  await expect(page.locator('text=lab_sphere_01')).toBeVisible();
+  const sphere = page.locator('[data-editor-hierarchy-id="lab_sphere_01"]');
+  await sphere.click();
+  await expect(sphere).toBeVisible();
 });
 
 test('hierarchy root is protected and group selection creates a real group', async ({ page }) => {

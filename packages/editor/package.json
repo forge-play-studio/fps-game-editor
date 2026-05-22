@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Aggregate public entrypoint for fps-game-editor.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forge-play-studio/fps-game-editor.git",
+    "directory": "packages/editor"
+  },
   "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

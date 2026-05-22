@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check release metadata
+        run: npm run release:check
+
+      - name: Check package boundaries, types, and unit tests
+        run: npm run check
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Build editor lab
+        run: npm run build:editor-lab
+
+      - name: Browser smoke
+        run: npm run test:browser
+
+      - name: Packed consumer smoke
+        run: npm run test:pack
+
+      - name: Tarball dry run
+        run: npm run pack:dry-run
