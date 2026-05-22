@@ -99,6 +99,7 @@ export interface LocalEditorBrowserInspectorProperty<TDocument = unknown> {
 export interface LocalEditorBrowserInspectorSection<TDocument = unknown> {
   id: string;
   title: string;
+  summary?: string;
   order?: number;
   placement?: 'summary' | 'body';
   collapsedByDefault?: boolean;

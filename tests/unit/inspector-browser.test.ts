@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
+  formatLocalEditorBrowserInspectorValue,
   resolveLocalEditorBrowserInspectorControlRegistration,
   type LocalEditorBrowserInspectorControlRegistration,
   type LocalEditorBrowserInspectorControlRenderContext,
@@ -111,5 +112,29 @@ describe('browser inspector control extensions', () => {
     }));
 
     expect(element.disabled).toBe(true);
+  });
+
+  it('formats readonly object values with stable keys and circular guards', () => {
+    const value: Record<string, unknown> = {
+      z: 3,
+      nested: {
+        b: true,
+        a: 'first',
+      },
+      a: 1,
+    };
+    value.self = value;
+
+    expect(formatLocalEditorBrowserInspectorValue(value)).toBe([
+      '{',
+      '  "a": 1,',
+      '  "nested": {',
+      '    "a": "first",',
+      '    "b": true',
+      '  },',
+      '  "self": "[Circular]",',
+      '  "z": 3',
+      '}',
+    ].join('\n'));
   });
 });

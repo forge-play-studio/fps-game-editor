@@ -77,6 +77,14 @@ function materialNumberPath(path: string): SceneNodeFieldSchemaEntry {
   return { path, appliesTo: VISUAL_NODE_KIND, validate: (value) => value == null || isFiniteNumber(value) };
 }
 
+function materialBooleanPath(path: string): SceneNodeFieldSchemaEntry {
+  return { path, appliesTo: VISUAL_NODE_KIND, validate: (value) => value == null || typeof value === 'boolean' };
+}
+
+function materialTextureUrlPath(path: string): SceneNodeFieldSchemaEntry {
+  return { path, appliesTo: VISUAL_NODE_KIND, validate: isOptionalNonEmptyString };
+}
+
 export const SCENE_NODE_FIELD_SCHEMA: ReadonlyArray<SceneNodeFieldSchemaEntry> = [
   { path: 'name', appliesTo: ANY_NODE_KIND, validate: isOptionalString },
   { path: 'parentId', appliesTo: ANY_NODE_KIND, validate: isOptionalString },
@@ -113,8 +121,37 @@ export const SCENE_NODE_FIELD_SCHEMA: ReadonlyArray<SceneNodeFieldSchemaEntry> =
   materialColorPath('overrides.material.emissiveColor'),
   materialNumberPath('overrides.material.metallic'),
   materialNumberPath('overrides.material.roughness'),
+  materialNumberPath('overrides.material.contrast'),
+  materialNumberPath('overrides.material.brightness'),
+  materialNumberPath('overrides.material.saturation'),
+  materialNumberPath('overrides.material.hue'),
+  materialNumberPath('overrides.material.colorDensity'),
   materialNumberPath('overrides.material.alpha'),
-  { path: 'overrides.material.backFaceCulling', appliesTo: VISUAL_NODE_KIND, validate: (value) => value == null || typeof value === 'boolean' },
+  materialNumberPath('overrides.material.alphaCutOff'),
+  materialNumberPath('overrides.material.transparencyMode'),
+  materialBooleanPath('overrides.material.backFaceCulling'),
+  materialTextureUrlPath('overrides.material.albedoTexture.url'),
+  materialTextureUrlPath('overrides.material.normalTexture.url'),
+  materialTextureUrlPath('overrides.material.metallicTexture.url'),
+  materialColorPath('overrides.material.pbr.albedoColor'),
+  materialNumberPath('overrides.material.pbr.baseWeight'),
+  materialColorPath('overrides.material.pbr.reflectivityColor'),
+  materialNumberPath('overrides.material.pbr.microSurface'),
+  materialColorPath('overrides.material.pbr.emissiveColor'),
+  materialColorPath('overrides.material.pbr.ambientColor'),
+  materialNumberPath('overrides.material.pbr.lightFalloff'),
+  materialNumberPath('overrides.material.pbr.directIntensity'),
+  materialNumberPath('overrides.material.pbr.emissiveIntensity'),
+  materialNumberPath('overrides.material.pbr.environmentIntensity'),
+  materialNumberPath('overrides.material.pbr.specularIntensity'),
+  materialNumberPath('overrides.material.pbr.metallicF0Factor'),
+  materialNumberPath('overrides.material.pbr.indexOfRefraction'),
+  materialColorPath('overrides.material.standard.diffuseColor'),
+  materialColorPath('overrides.material.standard.specularColor'),
+  materialNumberPath('overrides.material.standard.specularPower'),
+  materialColorPath('overrides.material.standard.emissiveColor'),
+  materialColorPath('overrides.material.standard.ambientColor'),
+  materialBooleanPath('overrides.material.standard.useSpecularOverAlpha'),
   { path: 'overrides.outline.renderOutline', appliesTo: VISUAL_NODE_KIND, validate: (value) => value == null || typeof value === 'boolean' },
   materialNumberPath('overrides.outline.outlineWidth'),
   { path: 'overrides.outline.outlineColor', appliesTo: VISUAL_NODE_KIND, validate: (value) => value == null || isColor(value) },

@@ -440,7 +440,7 @@ function inspectorSectionMatches<TDocument>(
   section: LocalEditorBrowserInspectorSection<TDocument>,
   needle: string,
 ): boolean {
-  return [section.id, section.title, ...(section.tags ?? [])]
+  return [section.id, section.title, section.summary ?? '', ...(section.tags ?? [])]
     .some(value => value.toLowerCase().includes(needle));
 }
 
@@ -459,37 +459,67 @@ function createInspectorSectionBlock<TDocument>(
   inspectorObject: LocalEditorBrowserInspectorObject<TDocument>,
   section: LocalEditorBrowserInspectorSection<TDocument>,
   controlRegistry: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[],
-): HTMLDivElement {
-  const block = createInspectorComponentBlock(doc);
-  const sectionTitle = doc.createElement('h3');
-  sectionTitle.style.cssText = 'font-size:12px;margin:0 0 8px;font-weight:900;color:var(--fps-editor-text-strong);display:flex;justify-content:space-between;gap:8px';
+): HTMLDetailsElement {
+  const block = doc.createElement('details');
+  block.dataset.editorInspectorSection = section.id;
+  block.open = section.collapsedByDefault !== true;
+  block.style.cssText = createInspectorBlockStyle();
+  const sectionTitle = doc.createElement('summary');
+  sectionTitle.style.cssText = [
+    'font-size:12px',
+    'margin:-2px 0 8px',
+    'font-weight:900',
+    'color:var(--fps-editor-text-strong)',
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
+    'gap:8px',
+    'cursor:pointer',
+    'list-style:none',
+  ].join(';');
   const label = doc.createElement('span');
   label.textContent = section.title;
   sectionTitle.appendChild(label);
-  if (section.persistence === 'runtime' || section.runtimeOnly) {
+  const meta = doc.createElement('span');
+  meta.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0;color:var(--fps-editor-muted);font-size:10px;text-transform:uppercase;letter-spacing:0';
+  if (section.summary) {
+    const summary = doc.createElement('span');
+    summary.textContent = section.summary;
+    summary.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;font-size:11px';
+    meta.appendChild(summary);
+  }
+  if (section.persistence === 'runtime' || section.runtimeOnly || section.persistence === 'readonly') {
     const badge = doc.createElement('span');
-    badge.textContent = 'Runtime';
-    badge.style.cssText = 'color:var(--fps-editor-muted);font-size:10px;text-transform:uppercase;letter-spacing:0';
-    sectionTitle.appendChild(badge);
+    badge.textContent = section.persistence === 'runtime' || section.runtimeOnly ? 'Runtime' : 'Readonly';
+    badge.style.cssText = 'flex:0 0 auto';
+    meta.appendChild(badge);
   }
+  sectionTitle.appendChild(meta);
   block.appendChild(sectionTitle);
+  const content = doc.createElement('div');
+  content.dataset.editorInspectorSectionContent = section.id;
   for (const group of groupInspectorProperties(section.properties)) {
-    if (group.kind === 'vector') appendInspectorVectorInputs(doc, block, inspectorObject, group.label, group.properties);
-    else appendInspectorPropertyRow(doc, block, inspectorObject, group.property, controlRegistry);
+    if (group.kind === 'vector') appendInspectorVectorInputs(doc, content, inspectorObject, group.label, group.properties);
+    else appendInspectorPropertyRow(doc, content, inspectorObject, group.property, controlRegistry);
   }
+  block.appendChild(content);
   return block;
 }
 
 function createInspectorComponentBlock(doc: Document): HTMLDivElement {
   const block = doc.createElement('div');
-  block.style.cssText = [
+  block.style.cssText = createInspectorBlockStyle();
+  return block;
+}
+
+function createInspectorBlockStyle(): string {
+  return [
     'margin:0 0 8px',
     'padding:9px',
     'border:1px solid var(--fps-editor-border)',
     'border-radius:3px',
     'background:var(--fps-editor-panel-soft)',
   ].join(';');
-  return block;
 }
 
 type InspectorPropertyGroup<TDocument> =
@@ -826,8 +856,11 @@ function createInspectorReadonlyControl<TDocument>(
   _target: LocalEditorBrowserInspectorObject<TDocument>,
   property: LocalEditorBrowserInspectorProperty<TDocument>,
 ): HTMLElement {
+  if (!property.mixed && isExpandableInspectorValue(property.value)) {
+    return createInspectorObjectReadonlyControl(doc, property);
+  }
   const valueElement = doc.createElement('div');
-  valueElement.textContent = property.mixed ? '--' : formatInspectorValue(property.value);
+  valueElement.textContent = property.mixed ? '--' : formatLocalEditorBrowserInspectorValue(property.value);
   valueElement.style.cssText = [
     `color:${property.persistence === 'runtime' ? 'var(--fps-editor-muted)' : 'var(--fps-editor-text)'}`,
     'overflow:hidden',
@@ -837,6 +870,40 @@ function createInspectorReadonlyControl<TDocument>(
   ].filter(Boolean).join(';');
   if (property.persistence === 'runtime') valueElement.title = 'Runtime-only context';
   return valueElement;
+}
+
+function createInspectorObjectReadonlyControl<TDocument>(
+  doc: Document,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLDetailsElement {
+  const details = doc.createElement('details');
+  details.style.cssText = [
+    'min-width:0',
+    'max-width:100%',
+    `color:${property.persistence === 'runtime' ? 'var(--fps-editor-muted)' : 'var(--fps-editor-text)'}`,
+  ].join(';');
+  const summary = doc.createElement('summary');
+  summary.textContent = formatInspectorObjectSummary(property.value);
+  summary.style.cssText = 'cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  details.appendChild(summary);
+  const pre = doc.createElement('pre');
+  pre.textContent = formatLocalEditorBrowserInspectorValue(property.value);
+  pre.style.cssText = [
+    'max-height:220px',
+    'overflow:auto',
+    'white-space:pre-wrap',
+    'word-break:break-word',
+    'margin:6px 0 0',
+    'padding:7px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-field)',
+    'font-size:11px',
+    'line-height:1.45',
+  ].join(';');
+  details.appendChild(pre);
+  if (property.persistence === 'runtime') details.title = 'Runtime-only context';
+  return details;
 }
 
 export function applyLocalEditorBrowserInspectorControlBinding<TDocument>(
@@ -976,14 +1043,47 @@ function inferLegacyInspectorCommitMode<TDocument>(
   }
 }
 
-function formatInspectorValue(value: unknown): string {
+export function formatLocalEditorBrowserInspectorValue(value: unknown): string {
   if (value == null) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
+  if (typeof value === 'object') return JSON.stringify(toStableInspectorJsonValue(value), null, 2);
+  if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
+  if (typeof value === 'symbol') return String(value);
   return String(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isExpandableInspectorValue(value: unknown): boolean {
+  return !!value && typeof value === 'object';
+}
+
+function formatInspectorObjectSummary(value: unknown): string {
+  if (Array.isArray(value)) return `Array(${value.length})`;
+  if (!isRecord(value)) return 'Object';
+  const keys = Object.keys(value).sort();
+  if (keys.length === 0) return 'Object {}';
+  const shown = keys.slice(0, 4).join(', ');
+  return keys.length > 4 ? `Object { ${shown}, ... }` : `Object { ${shown} }`;
+}
+
+function toStableInspectorJsonValue(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+  if (value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'bigint') return String(value);
+  if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
+  if (typeof value === 'symbol') return String(value);
+  if (typeof value !== 'object') return String(value);
+  if (seen.has(value)) return '[Circular]';
+  if (depth > 6) return '[MaxDepth]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.map(item => toStableInspectorJsonValue(item, seen, depth + 1));
+  const record = value as Record<string, unknown>;
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort()) {
+    output[key] = toStableInspectorJsonValue(record[key], seen, depth + 1);
+  }
+  return output;
 }
 
 function colorValueToHex(value: unknown): string {

@@ -154,6 +154,12 @@ export interface PbrMaterialLightingOverrideConfig {
   emissiveColor?: ColorRGB;
   ambientColor?: ColorRGB;
   lightFalloff?: number;
+  directIntensity?: number;
+  emissiveIntensity?: number;
+  environmentIntensity?: number;
+  specularIntensity?: number;
+  metallicF0Factor?: number;
+  indexOfRefraction?: number;
 }
 
 export interface StandardMaterialLightingOverrideConfig {

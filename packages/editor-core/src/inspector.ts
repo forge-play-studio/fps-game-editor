@@ -81,6 +81,7 @@ export interface InspectorProperty<TDocument = unknown> {
 export interface InspectorSection<TDocument = unknown> {
   id: string;
   title: string;
+  summary?: string;
   order?: number;
   placement?: 'summary' | 'body';
   collapsedByDefault?: boolean;

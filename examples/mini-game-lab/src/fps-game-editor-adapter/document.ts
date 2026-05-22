@@ -473,10 +473,7 @@ function collectSceneNodeDescendantIds(sceneNodes: SceneNodeConfig[], nodeId: st
 }
 
 function validateProjectEditorSceneJson(sceneConfig: SceneConfig, phase: string): boolean {
-  const errors = validateSceneJsonV2(sceneConfig, {
-    allowOrphanSharedMaterials: true,
-    allowOrphanNodeMaterials: true,
-  });
+  const errors = validateSceneJsonV2(sceneConfig);
   if (errors.length === 0) return true;
   logDocument('scene json v2 validation failed', {
     phase,
@@ -702,6 +699,15 @@ function cleanupSceneNodeOverrides(value: VisualOverrideContainer): void {
   const overrides = value.overrides;
   if (!overrides) return;
 
+  const material = pruneMaterialSnapshot(overrides.material ?? null);
+  if (material) overrides.material = material;
+  else delete overrides.material;
+
+  for (const [key, childMaterial] of Object.entries(overrides.childMaterials ?? {})) {
+    const normalized = pruneMaterialSnapshot(childMaterial);
+    if (normalized) overrides.childMaterials![key] = normalized;
+    else delete overrides.childMaterials![key];
+  }
   if (overrides.childMaterials && Object.keys(overrides.childMaterials).length === 0) {
     delete overrides.childMaterials;
   }
@@ -1236,6 +1242,48 @@ function applyMaterialPropToSnapshot(
       }
       ensurePbrMaterialLightingSnapshot(snapshot).lightFalloff = value as number;
       return;
+    case 'material.pbr.directIntensity':
+      if (value == null) {
+        if (snapshot.pbr) delete snapshot.pbr.directIntensity;
+        return;
+      }
+      ensurePbrMaterialLightingSnapshot(snapshot).directIntensity = value as number;
+      return;
+    case 'material.pbr.emissiveIntensity':
+      if (value == null) {
+        if (snapshot.pbr) delete snapshot.pbr.emissiveIntensity;
+        return;
+      }
+      ensurePbrMaterialLightingSnapshot(snapshot).emissiveIntensity = value as number;
+      return;
+    case 'material.pbr.environmentIntensity':
+      if (value == null) {
+        if (snapshot.pbr) delete snapshot.pbr.environmentIntensity;
+        return;
+      }
+      ensurePbrMaterialLightingSnapshot(snapshot).environmentIntensity = value as number;
+      return;
+    case 'material.pbr.specularIntensity':
+      if (value == null) {
+        if (snapshot.pbr) delete snapshot.pbr.specularIntensity;
+        return;
+      }
+      ensurePbrMaterialLightingSnapshot(snapshot).specularIntensity = value as number;
+      return;
+    case 'material.pbr.metallicF0Factor':
+      if (value == null) {
+        if (snapshot.pbr) delete snapshot.pbr.metallicF0Factor;
+        return;
+      }
+      ensurePbrMaterialLightingSnapshot(snapshot).metallicF0Factor = value as number;
+      return;
+    case 'material.pbr.indexOfRefraction':
+      if (value == null) {
+        if (snapshot.pbr) delete snapshot.pbr.indexOfRefraction;
+        return;
+      }
+      ensurePbrMaterialLightingSnapshot(snapshot).indexOfRefraction = value as number;
+      return;
     case 'material.standard.diffuseColor':
       if (value == null) {
         if (snapshot.standard) delete snapshot.standard.diffuseColor;
@@ -1685,8 +1733,6 @@ function createSceneNodeFromArgs(sceneConfig: SceneConfig, args: ProjectEditorCr
 function validateSceneNodeCandidate(sceneConfig: SceneConfig, nodeId: string): void {
   const errors = validateSceneJsonV2(sceneConfig, {
     strictNodeIds: [nodeId],
-    allowOrphanSharedMaterials: true,
-    allowOrphanNodeMaterials: true,
   });
   if (errors.length === 0) return;
   throw new ProjectEditorSceneNodeError(
@@ -1803,6 +1849,19 @@ function applyJsonFieldPatch(target: Record<string, any>, patch: SceneNodeFieldP
   cursor[leaf] = cloneJson(patch.value);
 }
 
+function normalizeSceneNodePatchValue(path: string, value: unknown): unknown {
+  if ([
+    'overrides.material.albedoTexture.url',
+    'overrides.material.normalTexture.url',
+    'overrides.material.metallicTexture.url',
+  ].includes(path)) {
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  return value;
+}
+
 export function patchProjectEditorSceneNode(
   args: ProjectEditorPatchSceneNodeArgs,
   context?: ProjectEditorPluginContext,
@@ -1830,6 +1889,10 @@ export function patchProjectEditorSceneNode(
   const candidateNode = cloneJson(candidateNodes[nodeIndex]) as SceneNodeConfig;
   for (const patch of args.patches) {
     const schema = resolveSceneNodeFieldSchema(patch.path, candidateNode.kind);
+    const normalizedPatch: SceneNodeFieldPatch = {
+      path: patch.path,
+      value: normalizeSceneNodePatchValue(patch.path, patch.value),
+    };
     if (!schema) {
       throw new ProjectEditorSceneNodeError(
         PROJECT_EDITOR_SCENE_NODE_ERROR_CODES.unsupportedSceneNodeField,
@@ -1837,21 +1900,22 @@ export function patchProjectEditorSceneNode(
         { nodeId: args.nodeId, path: patch.path },
       );
     }
-    if (patch.value == null && schema.allowDelete === false) {
+    if (normalizedPatch.value == null && schema.allowDelete === false) {
       throw new ProjectEditorSceneNodeError(
         PROJECT_EDITOR_SCENE_NODE_ERROR_CODES.invalidSceneNodeFieldDelete,
         `[ProjectEditor][Document] Scene node field cannot be deleted: ${patch.path}`,
         { nodeId: args.nodeId, path: patch.path },
       );
     }
-    if (!schema.validate(patch.value)) {
+    if (!schema.validate(normalizedPatch.value)) {
       throw new ProjectEditorSceneNodeError(
         PROJECT_EDITOR_SCENE_NODE_ERROR_CODES.invalidSceneNodeFieldValue,
         `[ProjectEditor][Document] Invalid value for scene node field path: ${patch.path}`,
         { nodeId: args.nodeId, path: patch.path, value: patch.value },
       );
     }
-    applyJsonFieldPatch(candidateNode as unknown as Record<string, any>, patch);
+    applyJsonFieldPatch(candidateNode as unknown as Record<string, any>, normalizedPatch);
+    cleanupSceneNodeOverrides(candidateNode as VisualOverrideContainer);
   }
   if (candidateNode.parentId) assertValidSceneParent(candidate, candidateNode.parentId, candidateNode.id);
   candidateNodes[nodeIndex] = candidateNode;
