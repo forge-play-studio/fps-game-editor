@@ -52,6 +52,7 @@ import {
   createSceneMainSourceDriver,
   loadEditorAssetLibrary,
   loadSceneMainSource,
+  saveSceneMainSource,
 } from '../fps-game-editor-adapter/scene-main-source-driver';
 import { compileEditorSceneDocumentToSceneConfig } from '../fps-game-editor-adapter/editor-scene-compiler';
 
@@ -406,6 +407,10 @@ function postForgePlayEvent(name: string, payload: Record<string, unknown> = {})
 function installForgePlayModeBridge(harness: LocalEditorHarness): () => void {
   let currentMode: 'play' | 'edit' = 'play';
   let inFlight: Promise<void> | null = null;
+  const saveState = {
+    preparedRevision: 0,
+    committedRevision: 0,
+  };
 
   function reportModeChangeError(error: unknown, fallbackMode: 'play' | 'edit'): void {
     const messageText = error instanceof Error ? error.message : String(error);
@@ -430,6 +435,8 @@ function installForgePlayModeBridge(harness: LocalEditorHarness): () => void {
     }
     inFlight = (async () => {
       if (mode === 'edit') {
+        saveState.preparedRevision = 0;
+        saveState.committedRevision = 0;
         await harness.enterEditor();
         currentMode = 'edit';
         postForgePlayEvent(FORGE_PLAY_EVENT.MODE_CHANGE, { mode: 'edit' });
@@ -437,10 +444,14 @@ function installForgePlayModeBridge(harness: LocalEditorHarness): () => void {
       }
 
       if (options.save === true) {
-        const saved = await harness.saveScene();
-        if (!saved) {
-          reportModeChangeError(new Error('save_failed'), 'edit');
-          return;
+        const platformCommitAlreadySaved = saveState.preparedRevision > 0
+          && saveState.preparedRevision === saveState.committedRevision;
+        if (!platformCommitAlreadySaved) {
+          const saved = await harness.saveScene();
+          if (!saved) {
+            reportModeChangeError(new Error('save_failed'), 'edit');
+            return;
+          }
         }
       }
 
@@ -466,12 +477,17 @@ function installForgePlayModeBridge(harness: LocalEditorHarness): () => void {
     const payload = (message as { payload?: Record<string, unknown> }).payload;
     if (!payload) return;
     if (payload.name === FORGE_PLAY_COMMAND.DOCUMENT_EXPORT) {
-      void exportForgePlayDocument(harness, payload).catch((error) => {
+      void exportForgePlayDocument(harness, payload, saveState).catch((error) => {
         postForgePlayDocumentExportError(payload, error);
       });
       return;
     }
-    if (payload.name === FORGE_PLAY_COMMAND.DOCUMENT_COMMIT) return;
+    if (payload.name === FORGE_PLAY_COMMAND.DOCUMENT_COMMIT) {
+      if (saveState.preparedRevision > 0) {
+        saveState.committedRevision = saveState.preparedRevision;
+      }
+      return;
+    }
     if (payload.name !== FORGE_PLAY_COMMAND.MODE_CHANGE) return;
 
     const mode = payload.mode === 'edit' ? 'edit' : payload.mode === 'play' ? 'play' : null;
@@ -498,17 +514,44 @@ function installForgePlayModeBridge(harness: LocalEditorHarness): () => void {
 async function exportForgePlayDocument(
   harness: LocalEditorHarness,
   payload: Record<string, unknown>,
+  saveState: { preparedRevision: number; committedRevision: number },
 ): Promise<void> {
   const requestId = typeof payload.requestId === 'string' ? payload.requestId : undefined;
   const workingDocument = harness.getWorkingDocument();
   if (!workingDocument) throw new Error('editor_document_unavailable');
   const assets = await loadEditorAssetLibrary();
   const editorScene = enrichEditorSceneDocumentAssets(workingDocument as EditorSceneDocument, assets);
-  const compiled = compileEditorSceneDocumentToSceneConfig(editorScene, baseSceneConfig as SceneConfig);
+  const prepared = await saveSceneMainSource(editorScene, { mode: 'prepare-platform-save' });
+  const sceneJsonText = readPreparedSceneJsonText(prepared.sceneJsonText, prepared.compiledArtifact?.data, prepared.document);
+  saveState.preparedRevision += 1;
+  saveState.committedRevision = 0;
   postForgePlayEvent(FORGE_PLAY_EVENT.DOCUMENT_EXPORTED, {
     ...(requestId ? { requestId } : {}),
-    sceneJsonText: `${JSON.stringify(compiled.sceneConfig, null, 2)}\n`,
+    sceneJsonText,
+    ...(typeof prepared.expectedVersion === 'number'
+      ? { expectedVersion: prepared.expectedVersion }
+      : readBaseSceneVersion() !== undefined
+        ? { expectedVersion: readBaseSceneVersion() }
+        : {}),
   });
+}
+
+function readPreparedSceneJsonText(
+  sceneJsonText: string | undefined,
+  compiledArtifactData: unknown,
+  editorScene: EditorSceneDocument,
+): string {
+  if (typeof sceneJsonText === 'string' && sceneJsonText.trim()) return sceneJsonText;
+  if (compiledArtifactData && typeof compiledArtifactData === 'object' && !Array.isArray(compiledArtifactData)) {
+    return `${JSON.stringify(compiledArtifactData, null, 2)}\n`;
+  }
+  const compiled = compileEditorSceneDocumentToSceneConfig(editorScene, baseSceneConfig as SceneConfig);
+  return `${JSON.stringify(compiled.sceneConfig, null, 2)}\n`;
+}
+
+function readBaseSceneVersion(): number | undefined {
+  const version = (baseSceneConfig as unknown as { version?: unknown }).version;
+  return typeof version === 'number' ? version : undefined;
 }
 
 function postForgePlayDocumentExportError(payload: Record<string, unknown>, error: unknown): void {

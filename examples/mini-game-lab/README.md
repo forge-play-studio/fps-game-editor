@@ -66,9 +66,10 @@ FPS_GAME_EDITOR_ROOT=/absolute/path/to/fps-game-editor pnpm dev
 
 2. 打开游戏页面，页面顶部会出现 `Game Mode / Editor Mode` 按钮组。
 3. 点击 `Enter Editor`，当前 GameWorld 会被 dispose，随后在同一个 `renderCanvas` 上创建独立 Babylon EditorWorld。第一版 EditorWorld 只显示 camera/light/grid，不投影 `scene.nodes`。
-4. 点击 `Save Scene`，它会走 `exportProjectEditorDocument -> 本地 mock platform 写 src/config/scene.json -> commitProjectEditorDocumentSave`。
-5. 点击 `Save & Run Game`，保存后 dispose EditorWorld 并刷新页面，重新创建 GameWorld，让 `SceneBuilder` 消费最新 `scene.json`。
-6. 如果不想保存本次编辑，点击 `Discard & Run Game`，直接 dispose EditorWorld 并刷新页面。
+4. 点击 `Save Scene`，它会走 `ProjectAuthoringHost.commitSource -> /__fps_editor_authoring/save-editor-scene`，本地 commit 模式会同时写 `src/config/editor-scene.json` 和编译后的 `src/config/scene.json`。
+5. 在 Forge Play `Save & Exit` 链路里，`document.export` 会先以 `prepare-platform-save` 模式写 `editor-scene.json`，只返回编译后的 `sceneJsonText`；随后由平台现有保存 API 写 `scene.json`。
+6. 平台发送 `document.commit` 后，后续 `mode.change(play, save: true)` 不再重复保存 authoring source，只切回 GameWorld。
+7. 如果不想保存本次编辑，点击 `Discard & Run Game`，直接 dispose EditorWorld 并刷新页面。
 
 这个 switcher 只用于本地开发；它不直接改项目 document，也不替代平台编辑按钮。当前第一版先跑通 `GameWorld -> 独立 EditorWorld -> 保存 document -> 重启 GameWorld`，后续再把 `scene.nodes` 投影到 EditorWorld 并接入 selection/gizmo patch。
 

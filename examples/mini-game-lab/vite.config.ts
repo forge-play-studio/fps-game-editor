@@ -248,6 +248,9 @@ function projectAuthoringApiPlugin() {
 
           if (route.startsWith('/save-editor-scene')) {
             const rawEditorScene = body.editorScene;
+            const saveMode = body.mode === 'prepare-platform-save'
+              ? 'prepare-platform-save'
+              : 'local-commit-save';
             const editorScenePath = resolve(__dirname, 'src/config/editor-scene.json');
             const scenePath = resolve(__dirname, 'src/config/scene.json');
             const previousSceneConfig = existsSync(scenePath)
@@ -264,25 +267,34 @@ function projectAuthoringApiPlugin() {
             const compiled = compileEditorSceneDocumentToSceneConfig(editorScene, previousSceneConfig);
             assertSceneJsonV2(compiled.sceneConfig);
 
-            const version = typeof previousSceneConfig.version === 'number' ? previousSceneConfig.version + 1 : 1;
+            const previousVersion = typeof previousSceneConfig.version === 'number' ? previousSceneConfig.version : undefined;
+            const version = typeof previousVersion === 'number' ? previousVersion + 1 : 1;
             const updatedAt = new Date().toISOString();
             const savedEditorSceneText = `${JSON.stringify(editorScene, null, 2)}\n`;
-            const savedSceneJsonText = `${JSON.stringify({
-              ...compiled.sceneConfig,
-              version,
-              updatedAt,
-            }, null, 2)}\n`;
+            const savedSceneJsonText = saveMode === 'local-commit-save'
+              ? `${JSON.stringify({
+                ...compiled.sceneConfig,
+                version,
+                updatedAt,
+              }, null, 2)}\n`
+              : `${JSON.stringify(compiled.sceneConfig, null, 2)}\n`;
 
             await writeFile(editorScenePath, savedEditorSceneText, 'utf8');
-            await writeFile(scenePath, savedSceneJsonText, 'utf8');
-            invalidateViteFileModules(server, [editorScenePath, scenePath]);
+            if (saveMode === 'local-commit-save') {
+              await writeFile(scenePath, savedSceneJsonText, 'utf8');
+            }
+            invalidateViteFileModules(
+              server,
+              saveMode === 'local-commit-save' ? [editorScenePath, scenePath] : [editorScenePath],
+            );
 
             sendJson(res, 200, {
               ok: true,
+              mode: saveMode,
               editorScenePath,
               scenePath,
-              version,
-              updatedAt,
+              expectedVersion: previousVersion,
+              ...(saveMode === 'local-commit-save' ? { version, updatedAt } : {}),
               editorScene,
               sceneJsonText: savedSceneJsonText,
               summary: {
