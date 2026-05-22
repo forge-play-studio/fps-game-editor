@@ -1,6 +1,6 @@
 {
   "name": "@fps-games/editor-babylon",
-  "version": "0.1.1-beta.1",
+  "version": "0.1.1-beta.2",
   "private": true,
   "type": "module",
   "description": "BabylonJS runtime integrations for fps-game-editor.",
@@ -25,8 +25,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@fps-games/editor-browser": "0.1.1-beta.1",
-    "@fps-games/editor-core": "0.1.1-beta.1",
-    "@fps-games/editor-protocol": "0.1.1-beta.1"
+    "@fps-games/editor-browser": "0.1.1-beta.2",
+    "@fps-games/editor-core": "0.1.1-beta.2",
+    "@fps-games/editor-protocol": "0.1.1-beta.2"
   }
 }
