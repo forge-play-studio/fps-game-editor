@@ -26,8 +26,8 @@ export function validateSceneJsonV2(
   options: SceneJsonV2ValidationOptions = {},
 ): SceneJsonV2ValidationError[] {
   const {
-    allowOrphanSharedMaterials = true,
-    allowOrphanNodeMaterials = true,
+    allowOrphanSharedMaterials = false,
+    allowOrphanNodeMaterials = false,
     strictAssetIds = [],
     strictNodeIds = [],
     maxErrors = 50,
@@ -59,6 +59,7 @@ export function validateSceneJsonV2(
 
   const assetIds = new Set<string>();
   const nodeIds = new Set<string>();
+  const nodeKinds = new Map<string, string>();
 
   scene.assets.forEach((asset, index) => {
     const path = `$.scene.assets[${index}]`;
@@ -89,7 +90,10 @@ export function validateSceneJsonV2(
     }
     if (!nonEmptyString(node.id)) add(`${path}.id`, 'node.id must be a non-empty string');
     else if (nodeIds.has(node.id)) add(`${path}.id`, `duplicate node id: ${node.id}`);
-    else nodeIds.add(node.id);
+    else {
+      nodeIds.add(node.id);
+      if (typeof node.kind === 'string') nodeKinds.set(node.id, node.kind);
+    }
     if (!NODE_KINDS.has(node.kind)) add(`${path}.kind`, 'node.kind must be group, instance, or transform');
   });
 
@@ -115,6 +119,12 @@ export function validateSceneJsonV2(
     if (node.kind === 'transform' && node.transformType === 'groundDecal') {
       validateGroundDecal(node.groundDecal, `${path}.groundDecal`, add);
     }
+    const visualOverrides = (node as Record<string, any>).overrides;
+    if (node.kind === 'instance' || node.kind === 'transform') {
+      validateVisualOverrides(visualOverrides, `${path}.overrides`, add);
+    } else if (visualOverrides != null) {
+      add(`${path}.overrides`, 'group nodes do not support visual overrides');
+    }
     if (strictNodes.has(node.id)) assertNoRuntimeOnlyFields(node, path, add);
   });
 
@@ -128,11 +138,34 @@ export function validateSceneJsonV2(
     if (material.scope != null && !MATERIAL_SCOPES.has(material.scope)) {
       add(`${path}.scope`, 'material scope must be sharedAsset or nodeMaterial');
     }
-    if (material.scope === 'sharedAsset' && (!nonEmptyString(material.assetId) || !assetIds.has(material.assetId)) && !allowOrphanSharedMaterials) {
-      add(`${path}.assetId`, `shared material assetId must reference scene.assets: ${material.assetId}`);
-    }
-    if (material.scope === 'nodeMaterial' && (!nonEmptyString(material.nodeId) || !nodeIds.has(material.nodeId)) && !allowOrphanNodeMaterials) {
-      add(`${path}.nodeId`, `node material nodeId must reference scene.nodes: ${material.nodeId}`);
+    const effectiveScope = typeof material.scope === 'string' && MATERIAL_SCOPES.has(material.scope)
+      ? material.scope
+      : nonEmptyString(material.assetId)
+        ? 'sharedAsset'
+        : nonEmptyString(material.nodeId)
+          ? 'nodeMaterial'
+          : null;
+    if (effectiveScope === 'sharedAsset') {
+      if (!nonEmptyString(material.assetId)) {
+        add(`${path}.assetId`, 'shared material assetId must be a non-empty string');
+      } else if (!assetIds.has(material.assetId) && !allowOrphanSharedMaterials) {
+        add(`${path}.assetId`, `shared material assetId must reference scene.assets: ${material.assetId}`);
+      }
+      if (material.nodeId != null) add(`${path}.nodeId`, 'shared material must not set nodeId');
+    } else if (effectiveScope === 'nodeMaterial') {
+      if (!nonEmptyString(material.nodeId)) {
+        add(`${path}.nodeId`, 'node material nodeId must be a non-empty string');
+      } else if (!nodeIds.has(material.nodeId) && !allowOrphanNodeMaterials) {
+        add(`${path}.nodeId`, `node material nodeId must reference scene.nodes: ${material.nodeId}`);
+      } else if (nodeIds.has(material.nodeId)) {
+        const nodeKind = nodeKinds.get(material.nodeId);
+        if (nodeKind !== 'instance' && nodeKind !== 'transform') {
+          add(`${path}.nodeId`, `node material nodeId must reference an instance or transform node: ${material.nodeId}`);
+        }
+      }
+      if (material.assetId != null) add(`${path}.assetId`, 'node material must not set assetId');
+    } else {
+      add(`${path}.scope`, 'material must declare scope or provide assetId/nodeId');
     }
     if (!nonEmptyString(material.materialName)) add(`${path}.materialName`, 'materialName must be a non-empty string');
     if (!isRecord(material.properties)) add(`${path}.properties`, 'properties must be an object');
@@ -178,6 +211,11 @@ function validateAssetDefaults(
     add(path, 'defaults must be an object');
     return;
   }
+  for (const key of Object.keys(defaults)) {
+    if (!['transform', 'outline', 'childOutlines'].includes(key)) {
+      add(`${path}.${key}`, `unsupported asset defaults field: ${key}`);
+    }
+  }
   validateTransform(defaults.transform, `${path}.transform`, add);
   validateOutline(defaults.outline, `${path}.outline`, add);
   if (defaults.childOutlines != null) {
@@ -189,6 +227,43 @@ function validateAssetDefaults(
       }
     }
   }
+}
+
+function validateVisualOverrides(value: unknown, path: string, add: (path: string, message: string) => void): void {
+  if (value == null) return;
+  if (!isRecord(value)) {
+    add(path, 'overrides must be an object');
+    return;
+  }
+  validateMaterialOverride(value.material, `${path}.material`, add);
+  validateOutline(value.outline, `${path}.outline`, add);
+  if (value.childMaterials != null) {
+    if (!isRecord(value.childMaterials)) {
+      add(`${path}.childMaterials`, 'childMaterials must be an object');
+    } else {
+      for (const [key, material] of Object.entries(value.childMaterials)) {
+        validateMaterialOverride(material, `${path}.childMaterials.${key}`, add);
+      }
+    }
+  }
+  if (value.childOutlines != null) {
+    if (!isRecord(value.childOutlines)) {
+      add(`${path}.childOutlines`, 'childOutlines must be an object');
+    } else {
+      for (const [key, outline] of Object.entries(value.childOutlines)) {
+        validateOutline(outline, `${path}.childOutlines.${key}`, add);
+      }
+    }
+  }
+}
+
+function validateMaterialOverride(value: unknown, path: string, add: (path: string, message: string) => void): void {
+  if (value == null) return;
+  if (!isRecord(value)) {
+    add(path, 'material override must be an object');
+    return;
+  }
+  validateMaterialProperties(value, path, add);
 }
 
 function validateGeneratedFrom(
@@ -329,21 +404,111 @@ function validateGroundDecal(value: unknown, path: string, add: (path: string, m
 }
 
 function validateMaterialProperties(value: Record<string, any>, path: string, add: (path: string, message: string) => void): void {
+  if (Object.keys(value).length === 0) {
+    add(path, 'material properties must contain at least one override field');
+    return;
+  }
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}.${key}`;
-    if (['albedoColor', 'diffuseColor', 'emissiveColor', 'outlineColor'].includes(key)) validateColor(child, childPath, add);
-    if (['metallic', 'roughness', 'contrast', 'brightness', 'saturation', 'hue', 'colorDensity', 'alpha', 'alphaCutOff', 'transparencyMode'].includes(key)) {
-      if (typeof child !== 'number' || !Number.isFinite(child)) add(childPath, `${key} must be a finite number`);
+    if (['albedoColor', 'diffuseColor', 'emissiveColor'].includes(key)) {
+      validateColor(child, childPath, add);
+    } else if (['metallic', 'roughness', 'contrast', 'brightness', 'saturation', 'hue', 'colorDensity', 'alpha', 'alphaCutOff', 'transparencyMode'].includes(key)) {
+      validateFiniteNumber(child, key, childPath, add);
+    } else if (key === 'backFaceCulling') {
+      validateBoolean(child, key, childPath, add);
+    } else if (['albedoTexture', 'normalTexture', 'metallicTexture'].includes(key)) {
+      validateMaterialTextureOverride(child, childPath, key, add);
+    } else if (key === 'pbr') {
+      if (!isRecord(child)) add(childPath, 'pbr must be an object');
+      else validatePbrMaterialProperties(child, childPath, add);
+    } else if (key === 'standard') {
+      if (!isRecord(child)) add(childPath, 'standard must be an object');
+      else validateStandardMaterialProperties(child, childPath, add);
+    } else {
+      add(childPath, `unsupported material override field: ${key}`);
     }
-    if (key === 'backFaceCulling' && typeof child !== 'boolean') add(childPath, 'backFaceCulling must be boolean');
-    if (['albedoTexture', 'normalTexture', 'metallicTexture'].includes(key)) {
-      if (!isRecord(child)) add(childPath, `${key} must be an object`);
-      else if (child.url != null && !nonEmptyString(child.url)) add(`${childPath}.url`, 'texture url must be non-empty when present');
+  }
+}
+
+function validatePbrMaterialProperties(value: Record<string, any>, path: string, add: (path: string, message: string) => void): void {
+  if (Object.keys(value).length === 0) {
+    add(path, 'pbr material properties must contain at least one override field');
+    return;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (['albedoColor', 'reflectivityColor', 'emissiveColor', 'ambientColor'].includes(key)) {
+      validateColor(child, childPath, add);
+    } else if ([
+      'baseWeight',
+      'microSurface',
+      'lightFalloff',
+      'directIntensity',
+      'emissiveIntensity',
+      'environmentIntensity',
+      'specularIntensity',
+      'metallicF0Factor',
+      'indexOfRefraction',
+    ].includes(key)) {
+      validateFiniteNumber(child, key, childPath, add);
+    } else {
+      add(childPath, `unsupported pbr material override field: ${key}`);
     }
-    if (['pbr', 'standard'].includes(key)) {
-      if (!isRecord(child)) add(childPath, `${key} must be an object`);
-      else validateMaterialProperties(child, childPath, add);
+  }
+}
+
+function validateStandardMaterialProperties(value: Record<string, any>, path: string, add: (path: string, message: string) => void): void {
+  if (Object.keys(value).length === 0) {
+    add(path, 'standard material properties must contain at least one override field');
+    return;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (['diffuseColor', 'specularColor', 'emissiveColor', 'ambientColor'].includes(key)) {
+      validateColor(child, childPath, add);
+    } else if (key === 'specularPower') {
+      validateFiniteNumber(child, key, childPath, add);
+    } else if (key === 'useSpecularOverAlpha') {
+      validateBoolean(child, key, childPath, add);
+    } else {
+      add(childPath, `unsupported standard material override field: ${key}`);
     }
+  }
+}
+
+function validateFiniteNumber(
+  value: unknown,
+  key: string,
+  path: string,
+  add: (path: string, message: string) => void,
+): void {
+  if (typeof value !== 'number' || !Number.isFinite(value)) add(path, `${key} must be a finite number`);
+}
+
+function validateBoolean(
+  value: unknown,
+  key: string,
+  path: string,
+  add: (path: string, message: string) => void,
+): void {
+  if (typeof value !== 'boolean') add(path, `${key} must be boolean`);
+}
+
+function validateMaterialTextureOverride(
+  value: unknown,
+  path: string,
+  key: string,
+  add: (path: string, message: string) => void,
+): void {
+  if (!isRecord(value)) {
+    add(path, `${key} must be an object`);
+    return;
+  }
+  if (!nonEmptyString(value.url)) {
+    add(`${path}.url`, 'texture url must be non-empty when texture override is present');
+  }
+  for (const childKey of Object.keys(value)) {
+    if (childKey !== 'url') add(`${path}.${childKey}`, `unsupported texture override field: ${childKey}`);
   }
 }
 

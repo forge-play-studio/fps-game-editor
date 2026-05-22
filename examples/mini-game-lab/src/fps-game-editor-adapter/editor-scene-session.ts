@@ -784,8 +784,184 @@ export interface EditorSceneInspectorPropertyPatchInput {
 
 export interface EditorSceneRuntimeInspectorContext {
   document: EditorSceneDocument;
+  targetIds?: string[];
   activeId: string | null;
+  projectionNode?: unknown | null;
   projectedRoot?: unknown;
+}
+
+export type EditorSceneInspectorSourceTag = 'Document' | 'Runtime' | 'Asset' | 'Derived';
+
+export interface EditorSceneReadonlyInspectorPropertyInput {
+  path: string;
+  label: string;
+  value: unknown;
+  order?: number;
+  persistence?: InspectorProperty<EditorSceneDocument>['persistence'];
+  source?: EditorSceneInspectorSourceTag;
+  tags?: readonly string[];
+  tooltip?: string;
+  valueType?: InspectorProperty<EditorSceneDocument>['valueType'];
+}
+
+export interface EditorSceneReadonlyInspectorSectionInput {
+  id: string;
+  title: string;
+  order: number;
+  properties: Array<InspectorProperty<EditorSceneDocument> | null | undefined>;
+  summary?: string;
+  persistence?: InspectorSection<EditorSceneDocument>['persistence'];
+  runtimeOnly?: boolean;
+  collapsedByDefault?: boolean;
+  tags?: readonly string[];
+  omitWhenEmpty?: boolean;
+}
+
+export function createEditorSceneReadonlyInspectorSection(
+  input: EditorSceneReadonlyInspectorSectionInput,
+): InspectorSection<EditorSceneDocument> | null {
+  const properties = input.properties
+    .filter((property): property is InspectorProperty<EditorSceneDocument> => !!property)
+    .map((property, order) => property.order == null ? { ...property, order } : property);
+  if (properties.length === 0 && input.omitWhenEmpty !== false) return null;
+  return {
+    id: input.id,
+    title: input.title,
+    order: input.order,
+    placement: 'body',
+    summary: input.summary,
+    persistence: input.persistence ?? (input.runtimeOnly ? 'runtime' : 'readonly'),
+    runtimeOnly: input.runtimeOnly,
+    collapsedByDefault: input.collapsedByDefault,
+    tags: input.tags,
+    properties,
+  };
+}
+
+export function createEditorSceneReadonlyInspectorProperty(
+  input: EditorSceneReadonlyInspectorPropertyInput,
+): InspectorProperty<EditorSceneDocument> | null {
+  if (!shouldDisplayEditorSceneInspectorValue(input.value)) return null;
+  const value = toEditorSceneInspectorSafeValue(input.value);
+  return {
+    path: input.path,
+    label: input.label,
+    valueType: input.valueType ?? inferEditorSceneInspectorValueType(value),
+    control: 'readonly',
+    value,
+    readOnly: true,
+    persistence: input.persistence ?? 'readonly',
+    commitMode: 'blur',
+    order: input.order,
+    tags: mergeEditorSceneInspectorTags(input.source, input.tags),
+    tooltip: input.tooltip,
+  };
+}
+
+export function createEditorSceneReadonlyVector3Properties(input: {
+  basePath: string;
+  label: string;
+  value: unknown;
+  order?: number;
+  persistence?: InspectorProperty<EditorSceneDocument>['persistence'];
+  source?: EditorSceneInspectorSourceTag;
+  tags?: readonly string[];
+}): InspectorProperty<EditorSceneDocument>[] {
+  const vector = readEditorSceneInspectorVec3(input.value);
+  if (!vector) return [];
+  const order = input.order ?? 0;
+  return (['x', 'y', 'z'] as const)
+    .map((axis, index) => createEditorSceneReadonlyInspectorProperty({
+      path: `${input.basePath}.${axis}`,
+      label: `${input.label}.${axis}`,
+      value: vector[axis],
+      order: order + index,
+      persistence: input.persistence,
+      source: input.source,
+      tags: input.tags,
+      valueType: 'number',
+    }))
+    .filter((property): property is InspectorProperty<EditorSceneDocument> => !!property);
+}
+
+export function readEditorSceneInspectorVec3(value: unknown): EditorSceneVec3 | null {
+  if (!value || typeof value !== 'object') return null;
+  const x = readEditorSceneRuntimeNumber(value, 'x');
+  const y = readEditorSceneRuntimeNumber(value, 'y');
+  const z = readEditorSceneRuntimeNumber(value, 'z');
+  if (x == null || y == null || z == null) return null;
+  return { x, y, z };
+}
+
+export function readEditorSceneRuntimeValue(value: unknown, key: string): unknown {
+  if (!isObjectRecord(value)) return undefined;
+  try {
+    return value[key];
+  } catch {
+    return undefined;
+  }
+}
+
+export function readEditorSceneRuntimeString(value: unknown, key: string): string | null {
+  const raw = readEditorSceneRuntimeValue(value, key);
+  return typeof raw === 'string' && raw.trim() ? raw : null;
+}
+
+export function readEditorSceneRuntimeNumber(value: unknown, key: string): number | null {
+  const raw = readEditorSceneRuntimeValue(value, key);
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+}
+
+export function readEditorSceneRuntimeBoolean(value: unknown, key: string): boolean | null {
+  const raw = readEditorSceneRuntimeValue(value, key);
+  return typeof raw === 'boolean' ? raw : null;
+}
+
+export function callEditorSceneRuntimeMethod(value: unknown, key: string, args: readonly unknown[] = []): unknown {
+  const method = readEditorSceneRuntimeValue(value, key);
+  if (typeof method !== 'function') return undefined;
+  try {
+    return method.apply(value, args);
+  } catch {
+    return undefined;
+  }
+}
+
+export function readEditorSceneRuntimeClassName(value: unknown): string | null {
+  if (!isObjectRecord(value)) return null;
+  const className = callEditorSceneRuntimeMethod(value, 'getClassName');
+  if (typeof className === 'string' && className.trim()) return className;
+  const constructorValue = readEditorSceneRuntimeValue(value, 'constructor');
+  const constructorName = constructorValue && typeof constructorValue === 'function'
+    ? constructorValue.name
+    : '';
+  return constructorName && constructorName !== 'Object' ? constructorName : null;
+}
+
+export function describeEditorSceneRuntimeObject(value: unknown): string | null {
+  const className = readEditorSceneRuntimeClassName(value);
+  const name = readEditorSceneRuntimeString(value, 'name');
+  if (className && name) return `${className} · ${name}`;
+  return className ?? name;
+}
+
+export function toEditorSceneInspectorSafeValue(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+  if (value == null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? roundForInspector(value) : '[NonFiniteNumber]';
+  if (typeof value === 'bigint') return String(value);
+  if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
+  if (typeof value === 'symbol') return String(value);
+  if (typeof value !== 'object') return String(value);
+  if (seen.has(value)) return '[Circular]';
+  if (depth > 6) return '[MaxDepth]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((entry) => toEditorSceneInspectorSafeValue(entry, seen, depth + 1));
+  const record = value as Record<string, unknown>;
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort()) {
+    output[key] = toEditorSceneInspectorSafeValue(readEditorSceneRuntimeValue(record, key), seen, depth + 1);
+  }
+  return output;
 }
 
 export function getEditorSceneRuntimeInspectorSections(
@@ -794,27 +970,769 @@ export function getEditorSceneRuntimeInspectorSections(
   if (!context.activeId) return [];
   const gameObject = findEditorSceneGameObject(context.document, context.activeId);
   if (!gameObject) return [];
+  if (context.targetIds && context.targetIds.length !== 1) return [];
   const renderer = findEditorSceneModelRenderer(gameObject);
+  const runtime = createEditorSceneRuntimeInspectorSnapshot(context);
   const sourceRef = getEditorSceneAuthoringSourceRef(context.document);
-  const properties: InspectorProperty<EditorSceneDocument>[] = [
-    createRuntimeInspectorProperty('runtime.binding.sourceId', 'Source ID', sourceRef.sourceId, 0),
-    createRuntimeInspectorProperty('runtime.binding.sourceType', 'Source Type', sourceRef.sourceType, 1),
-    createRuntimeInspectorProperty('runtime.binding.objectId', 'Object ID', gameObject.id, 2),
-    createRuntimeInspectorProperty('runtime.binding.component', 'Component', renderer ? 'ModelRenderer' : readEditorSceneNodeKind(gameObject) === 'transform' ? 'Transform' : 'GameObject', 3),
-  ];
-  const materialKind = resolveProjectedMaterialRuntimeKind(context.projectedRoot);
-  if (materialKind) properties.push(createRuntimeInspectorProperty('runtime.material.kind', 'Material Kind', materialKind, properties.length));
-  return [{
+  return [
+    createEditorSceneRuntimeBindingSection(context, gameObject, renderer, sourceRef, runtime),
+    createEditorSceneGeometryBoxSection(runtime),
+    createEditorSceneRenderingSection(runtime),
+    createEditorSceneCollisionsSection(runtime),
+    createEditorScenePhysicsSection(runtime),
+    createEditorSceneShadowsSection(runtime),
+    createEditorSceneMaterialSection(runtime),
+    createEditorSceneMaterialTexturesSection(runtime),
+    createEditorSceneMaterialColorsSection(runtime),
+    createEditorSceneMetallicRoughnessSection(runtime),
+    createEditorSceneIntensityPropertiesSection(runtime),
+    createEditorSceneAnimationSkeletonSection(runtime),
+    createEditorSceneRawMiscSection(context, runtime),
+  ].filter((section): section is InspectorSection<EditorSceneDocument> => !!section);
+}
+
+function createEditorSceneRuntimeBindingSection(
+  context: EditorSceneRuntimeInspectorContext,
+  gameObject: EditorSceneGameObject,
+  renderer: ReturnType<typeof findEditorSceneModelRenderer>,
+  sourceRef: ReturnType<typeof getEditorSceneAuthoringSourceRef>,
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.binding.sourceId',
+    label: 'Source ID',
+    value: sourceRef.sourceId,
+    order: 0,
+    source: 'Document',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.binding.sourceType',
+    label: 'Source Type',
+    value: sourceRef.sourceType,
+    order: 1,
+    source: 'Document',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.binding.objectId',
+    label: 'Object ID',
+    value: gameObject.id,
+    order: 2,
+    source: 'Document',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.binding.component',
+    label: 'Component',
+    value: renderer ? 'ModelRenderer' : readEditorSceneNodeKind(gameObject) === 'transform' ? 'Transform' : 'GameObject',
+    order: 3,
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.projection.nodeId',
+    label: 'Projection Node ID',
+    value: readEditorSceneRuntimeString(context.projectionNode, 'id') ?? 'none',
+    order: 4,
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.projection.name',
+    label: 'Projection Name',
+    value: readEditorSceneRuntimeString(context.projectionNode, 'name') ?? 'none',
+    order: 5,
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.projection.parentId',
+    label: 'Projection Parent',
+    value: readEditorSceneRuntimeString(context.projectionNode, 'parentId') ?? 'none',
+    order: 6,
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.projection.assetSource',
+    label: 'Projection Asset Source',
+    value: readProjectionAssetSource(context.projectionNode) ?? 'none',
+    order: 7,
+    source: 'Asset',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.root.status',
+    label: 'Projected Root',
+    value: runtime.root ? 'available' : 'not projected',
+    order: 8,
+    source: 'Runtime',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.root.className',
+    label: 'Runtime Class',
+    value: readEditorSceneRuntimeClassName(runtime.root) ?? 'none',
+    order: 9,
+    source: 'Runtime',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.root.name',
+    label: 'Runtime Name',
+    value: readEditorSceneRuntimeString(runtime.root, 'name') ?? 'none',
+    order: 10,
+    source: 'Runtime',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.binding.primaryMesh',
+    label: 'Primary Mesh',
+    value: describeEditorSceneRuntimeObject(runtime.primaryMesh) ?? 'none',
+    order: 11,
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.binding.primaryMaterial',
+    label: 'Primary Material',
+    value: describeEditorSceneRuntimeObject(runtime.material) ?? 'none',
+    order: 12,
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.material.kind',
+    label: 'Material Kind',
+    value: resolveProjectedMaterialRuntimeKindFromMaterial(runtime.material) ?? 'none',
+    order: 13,
+    source: 'Runtime',
+  });
+  return createRuntimeInspectorSection({
     id: 'runtimeBinding',
     title: 'Runtime Binding',
     order: 910,
-    placement: 'body',
-    persistence: 'runtime',
-    runtimeOnly: true,
+    summary: runtime.root ? describeEditorSceneRuntimeObject(runtime.root) ?? 'Runtime' : 'not projected',
+    collapsedByDefault: true,
     properties,
-  }];
+  });
 }
 
+interface EditorSceneRuntimeInspectorSnapshot {
+  root: unknown;
+  projectionNode: unknown;
+  childNodes: unknown[];
+  meshes: unknown[];
+  primaryMesh: unknown;
+  material: unknown;
+}
+
+function createEditorSceneRuntimeInspectorSnapshot(
+  context: EditorSceneRuntimeInspectorContext,
+): EditorSceneRuntimeInspectorSnapshot {
+  const root = context.projectedRoot ?? null;
+  const meshes = collectEditorSceneRuntimeMeshes(root);
+  const primaryMesh = meshes.find((mesh) => !!readEditorSceneRuntimeValue(mesh, 'material')) ?? meshes[0] ?? null;
+  return {
+    root,
+    projectionNode: context.projectionNode ?? null,
+    childNodes: collectEditorSceneRuntimeChildNodes(root),
+    meshes,
+    primaryMesh,
+    material: findProjectedRuntimeMaterial(root),
+  };
+}
+
+function createEditorSceneGeometryBoxSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  const bounds = readEditorSceneRuntimeBounds(runtime.root) ?? readEditorSceneRuntimeBounds(runtime.primaryMesh);
+  if (bounds) {
+    appendRuntimeVector3Properties(properties, 'runtime.bounds.min', 'Bounds Min', bounds.min, properties.length, 'Derived');
+    appendRuntimeVector3Properties(properties, 'runtime.bounds.max', 'Bounds Max', bounds.max, properties.length, 'Derived');
+    appendRuntimeVector3Properties(properties, 'runtime.bounds.center', 'Bounds Center', bounds.center, properties.length, 'Derived');
+    appendRuntimeVector3Properties(properties, 'runtime.bounds.size', 'Bounds Size', bounds.size, properties.length, 'Derived');
+  } else {
+    appendRuntimeInspectorProperty(properties, {
+      path: 'runtime.bounds.status',
+      label: 'Bounds',
+      value: 'not available',
+      source: 'Derived',
+    });
+  }
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.geometry.meshCount',
+    label: 'Mesh Count',
+    value: runtime.meshes.length,
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.geometry.childNodeCount',
+    label: 'Child Nodes',
+    value: runtime.childNodes.length,
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.geometry.totalVertices',
+    label: 'Total Vertices',
+    value: sumEditorSceneRuntimeMeshNumbers(runtime.meshes, 'getTotalVertices'),
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.geometry.totalIndices',
+    label: 'Total Indices',
+    value: sumEditorSceneRuntimeMeshNumbers(runtime.meshes, 'getTotalIndices'),
+    source: 'Derived',
+  });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.geometry.subMeshCount',
+    label: 'SubMeshes',
+    value: runtime.meshes.reduce<number>((total, mesh) => total + readEditorSceneRuntimeArrayLength(mesh, 'subMeshes'), 0),
+    source: 'Derived',
+  });
+  return createRuntimeInspectorSection({
+    id: 'geometryBox',
+    title: 'Geometry / Box',
+    order: 920,
+    summary: bounds ? `${runtime.meshes.length} mesh${runtime.meshes.length === 1 ? '' : 'es'}` : 'no bounds',
+    collapsedByDefault: false,
+    properties,
+  });
+}
+
+function createEditorSceneRenderingSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const target = runtime.primaryMesh ?? runtime.root;
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.nodeClass', label: 'Node Class', value: readEditorSceneRuntimeClassName(target) ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.nodeName', label: 'Node Name', value: readEditorSceneRuntimeString(target, 'name') ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.isEnabled', label: 'Enabled', value: readEditorSceneRuntimeIsEnabled(target) ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.isVisible', label: 'Is Visible', value: readEditorSceneRuntimeBoolean(target, 'isVisible') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.visibility', label: 'Visibility', value: readEditorSceneRuntimeNumber(target, 'visibility') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.layerMask', label: 'Layer Mask', value: readEditorSceneRuntimeNumber(target, 'layerMask') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.renderingGroupId', label: 'Rendering Group', value: readEditorSceneRuntimeNumber(target, 'renderingGroupId') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.alphaIndex', label: 'Alpha Index', value: readEditorSceneRuntimeNumber(target, 'alphaIndex') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.alwaysSelectAsActiveMesh', label: 'Always Active Mesh', value: readEditorSceneRuntimeBoolean(target, 'alwaysSelectAsActiveMesh') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.rendering.billboardMode', label: 'Billboard Mode', value: readEditorSceneRuntimeNumber(target, 'billboardMode') ?? 'not available' });
+  return createRuntimeInspectorSection({
+    id: 'rendering',
+    title: 'Rendering',
+    order: 930,
+    summary: readEditorSceneRuntimeString(target, 'name') ?? readEditorSceneRuntimeClassName(target) ?? 'not available',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneCollisionsSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const target = runtime.primaryMesh ?? runtime.root;
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.collisions.checkCollisions', label: 'Check Collisions', value: readEditorSceneRuntimeBoolean(target, 'checkCollisions') ?? 'not configured' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.collisions.collisionMask', label: 'Collision Mask', value: readEditorSceneRuntimeNumber(target, 'collisionMask') ?? 'not configured' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.collisions.collisionGroup', label: 'Collision Group', value: readEditorSceneRuntimeNumber(target, 'collisionGroup') ?? 'not configured' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.collisions.collisionResponse', label: 'Collision Response', value: readEditorSceneRuntimeBoolean(target, 'collisionResponse') ?? 'not configured' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.collisions.moveWithCollisions', label: 'Move With Collisions', value: typeof readEditorSceneRuntimeValue(target, 'moveWithCollisions') === 'function' ? 'available' : 'not available' });
+  appendRuntimeVector3Properties(properties, 'runtime.collisions.ellipsoid', 'Ellipsoid', readEditorSceneRuntimeValue(target, 'ellipsoid'), properties.length, 'Runtime', 'not configured');
+  appendRuntimeVector3Properties(properties, 'runtime.collisions.ellipsoidOffset', 'Ellipsoid Offset', readEditorSceneRuntimeValue(target, 'ellipsoidOffset'), properties.length, 'Runtime', 'not configured');
+  return createRuntimeInspectorSection({
+    id: 'collisions',
+    title: 'Collisions',
+    order: 940,
+    summary: readEditorSceneRuntimeBoolean(target, 'checkCollisions') === true ? 'enabled' : 'not configured',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorScenePhysicsSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const target = runtime.primaryMesh ?? runtime.root;
+  const physicsBody = readEditorSceneRuntimeValue(target, 'physicsBody');
+  const physicsImpostor = readEditorSceneRuntimeValue(target, 'physicsImpostor');
+  const body = physicsBody ?? physicsImpostor;
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.physics.status', label: 'Physics', value: body ? 'configured' : 'not configured' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.physics.bodyClass', label: 'Body Class', value: readEditorSceneRuntimeClassName(body) ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.physics.bodyName', label: 'Body Name', value: readEditorSceneRuntimeString(body, 'name') ?? readEditorSceneRuntimeString(body, 'id') ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.physics.mass', label: 'Mass', value: readEditorScenePhysicsParam(body, 'mass') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.physics.friction', label: 'Friction', value: readEditorScenePhysicsParam(body, 'friction') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.physics.restitution', label: 'Restitution', value: readEditorScenePhysicsParam(body, 'restitution') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.physics.disablePreStep', label: 'Disable Pre Step', value: readEditorSceneRuntimeBoolean(body, 'disablePreStep') ?? 'not available' });
+  return createRuntimeInspectorSection({
+    id: 'physics',
+    title: 'Physics',
+    order: 950,
+    summary: body ? describeEditorSceneRuntimeObject(body) ?? 'configured' : 'not configured',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneShadowsSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const target = runtime.primaryMesh ?? runtime.root;
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.shadows.receiveShadows', label: 'Receive Shadows', value: readEditorSceneRuntimeBoolean(target, 'receiveShadows') ?? 'not configured' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.shadows.shadowEnabled', label: 'Shadow Enabled', value: callEditorSceneRuntimeMethod(target, 'isShadowEnabled') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.shadows.shadowDepthWrapper', label: 'Shadow Depth Wrapper', value: describeEditorSceneRuntimeObject(readEditorSceneRuntimeValue(runtime.material, 'shadowDepthWrapper')) ?? 'none' });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.shadows.receivingMeshCount',
+    label: 'Receiving Meshes',
+    value: runtime.meshes.filter((mesh) => readEditorSceneRuntimeBoolean(mesh, 'receiveShadows') === true).length,
+    source: 'Derived',
+  });
+  return createRuntimeInspectorSection({
+    id: 'shadows',
+    title: 'Shadows',
+    order: 960,
+    summary: readEditorSceneRuntimeBoolean(target, 'receiveShadows') === true ? 'receiving' : 'not configured',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneMaterialSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const material = runtime.material;
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.status', label: 'Material', value: material ? 'available' : 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.className', label: 'Class', value: readEditorSceneRuntimeClassName(material) ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.name', label: 'Name', value: readEditorSceneRuntimeString(material, 'name') ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.id', label: 'ID', value: readEditorSceneRuntimeString(material, 'id') ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.uniqueId', label: 'Unique ID', value: readEditorSceneRuntimeNumber(material, 'uniqueId') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.alpha', label: 'Alpha', value: readEditorSceneRuntimeNumber(material, 'alpha') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.backFaceCulling', label: 'Back Face Culling', value: readEditorSceneRuntimeBoolean(material, 'backFaceCulling') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.twoSidedLighting', label: 'Two Sided Lighting', value: readEditorSceneRuntimeBoolean(material, 'twoSidedLighting') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.disableLighting', label: 'Disable Lighting', value: readEditorSceneRuntimeBoolean(material, 'disableLighting') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.wireframe', label: 'Wireframe', value: readEditorSceneRuntimeBoolean(material, 'wireframe') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.pointsCloud', label: 'Points Cloud', value: readEditorSceneRuntimeBoolean(material, 'pointsCloud') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.fillMode', label: 'Fill Mode', value: readEditorSceneRuntimeNumber(material, 'fillMode') ?? 'not available' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.material.activeTextureCount', label: 'Active Textures', value: readEditorSceneRuntimeArrayLengthFromMethod(material, 'getActiveTextures'), source: 'Derived' });
+  return createRuntimeInspectorSection({
+    id: 'material',
+    title: 'Material',
+    order: 970,
+    summary: describeEditorSceneRuntimeObject(material) ?? 'none',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneMaterialTexturesSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const material = runtime.material;
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.material.textures.activeCount',
+    label: 'Active Texture Count',
+    value: readEditorSceneRuntimeArrayLengthFromMethod(material, 'getActiveTextures'),
+    source: 'Derived',
+  });
+  let textureCount = 0;
+  for (const slot of EDITOR_SCENE_RUNTIME_TEXTURE_SLOTS) {
+    const texture = readEditorSceneRuntimeValue(material, slot);
+    if (!texture) continue;
+    textureCount += 1;
+    appendTextureInspectorProperties(properties, `runtime.material.textures.${slot}`, toInspectorLabel(slot), texture);
+  }
+  if (textureCount === 0) {
+    appendRuntimeInspectorProperty(properties, { path: 'runtime.material.textures.status', label: 'Textures', value: 'none' });
+  }
+  return createRuntimeInspectorSection({
+    id: 'materialTextures',
+    title: 'Material Textures',
+    order: 980,
+    summary: textureCount > 0 ? `${textureCount} slot${textureCount === 1 ? '' : 's'}` : 'none',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneMaterialColorsSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  let colorCount = 0;
+  for (const slot of EDITOR_SCENE_RUNTIME_COLOR_SLOTS) {
+    const color = readEditorSceneRuntimeValue(runtime.material, slot);
+    if (!appendRuntimeColorProperties(properties, `runtime.material.colors.${slot}`, toInspectorLabel(slot), color, properties.length)) continue;
+    colorCount += 1;
+  }
+  if (colorCount === 0) appendRuntimeInspectorProperty(properties, { path: 'runtime.material.colors.status', label: 'Colors', value: 'none' });
+  return createRuntimeInspectorSection({
+    id: 'materialColors',
+    title: 'Material Colors',
+    order: 990,
+    summary: colorCount > 0 ? `${colorCount} color${colorCount === 1 ? '' : 's'}` : 'none',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneMetallicRoughnessSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  for (const slot of EDITOR_SCENE_RUNTIME_METALLIC_ROUGHNESS_SLOTS) {
+    appendRuntimeInspectorProperty(properties, {
+      path: `runtime.material.metallicRoughness.${slot}`,
+      label: toInspectorLabel(slot),
+      value: readEditorSceneRuntimeNumber(runtime.material, slot) ?? 'not available',
+    });
+  }
+  return createRuntimeInspectorSection({
+    id: 'metallicRoughness',
+    title: 'Metallic / Roughness',
+    order: 1000,
+    summary: runtime.material ? 'runtime material' : 'none',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneIntensityPropertiesSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  for (const slot of EDITOR_SCENE_RUNTIME_INTENSITY_SLOTS) {
+    appendRuntimeInspectorProperty(properties, {
+      path: `runtime.material.intensity.${slot}`,
+      label: toInspectorLabel(slot),
+      value: readEditorSceneRuntimeNumber(runtime.material, slot) ?? 'not available',
+    });
+  }
+  return createRuntimeInspectorSection({
+    id: 'intensityProperties',
+    title: 'Intensity Properties',
+    order: 1010,
+    summary: runtime.material ? 'runtime material' : 'none',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneAnimationSkeletonSection(
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const target = runtime.primaryMesh ?? runtime.root;
+  const skeleton = readEditorSceneRuntimeValue(target, 'skeleton');
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.animation.rootAnimationCount', label: 'Root Animations', value: readEditorSceneRuntimeArrayLength(runtime.root, 'animations'), source: 'Derived' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.animation.meshAnimationCount', label: 'Mesh Animations', value: readEditorSceneRuntimeArrayLength(target, 'animations'), source: 'Derived' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.skeleton.status', label: 'Skeleton', value: skeleton ? 'available' : 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.skeleton.className', label: 'Skeleton Class', value: readEditorSceneRuntimeClassName(skeleton) ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.skeleton.name', label: 'Skeleton Name', value: readEditorSceneRuntimeString(skeleton, 'name') ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.skeleton.id', label: 'Skeleton ID', value: readEditorSceneRuntimeString(skeleton, 'id') ?? 'none' });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.skeleton.boneCount', label: 'Bones', value: readEditorSceneRuntimeArrayLength(skeleton, 'bones'), source: 'Derived' });
+  return createRuntimeInspectorSection({
+    id: 'animationSkeleton',
+    title: 'Animation / Skeleton',
+    order: 1020,
+    summary: skeleton ? readEditorSceneRuntimeString(skeleton, 'name') ?? 'skeleton' : 'none',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createEditorSceneRawMiscSection(
+  context: EditorSceneRuntimeInspectorContext,
+  runtime: EditorSceneRuntimeInspectorSnapshot,
+): InspectorSection<EditorSceneDocument> | null {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.raw.rootMetadata', label: 'Root Metadata', value: readEditorSceneRuntimeValue(runtime.root, 'metadata') ?? 'none', tags: ['Raw'] });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.raw.primaryMeshMetadata', label: 'Mesh Metadata', value: readEditorSceneRuntimeValue(runtime.primaryMesh, 'metadata') ?? 'none', tags: ['Raw'] });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.raw.materialMetadata', label: 'Material Metadata', value: readEditorSceneRuntimeValue(runtime.material, 'metadata') ?? 'none', tags: ['Raw'] });
+  appendRuntimeInspectorProperty(properties, { path: 'runtime.raw.projectionAssetMetadata', label: 'Projection Asset Metadata', value: readProjectionAssetMetadata(context.projectionNode) ?? 'none', source: 'Asset', tags: ['Raw'] });
+  appendRuntimeInspectorProperty(properties, {
+    path: 'runtime.misc.isDisposed',
+    label: 'Root Disposed',
+    value: callEditorSceneRuntimeMethod(runtime.root, 'isDisposed') ?? 'not available',
+  });
+  return createRuntimeInspectorSection({
+    id: 'rawMisc',
+    title: 'Raw / Misc',
+    order: 1030,
+    summary: 'metadata',
+    collapsedByDefault: true,
+    properties,
+  });
+}
+
+function createRuntimeInspectorSection(input: {
+  id: string;
+  title: string;
+  order: number;
+  properties: Array<InspectorProperty<EditorSceneDocument> | null | undefined>;
+  summary?: string;
+  collapsedByDefault?: boolean;
+}): InspectorSection<EditorSceneDocument> | null {
+  return createEditorSceneReadonlyInspectorSection({
+    id: input.id,
+    title: input.title,
+    order: input.order,
+    summary: input.summary,
+    persistence: 'runtime',
+    runtimeOnly: true,
+    collapsedByDefault: input.collapsedByDefault,
+    omitWhenEmpty: false,
+    tags: ['Runtime'],
+    properties: input.properties,
+  });
+}
+
+function appendRuntimeInspectorProperty(
+  properties: InspectorProperty<EditorSceneDocument>[],
+  input: Omit<EditorSceneReadonlyInspectorPropertyInput, 'persistence'>,
+): void {
+  appendReadonlyInspectorProperty(properties, {
+    ...input,
+    persistence: 'runtime',
+    source: input.source ?? 'Runtime',
+  });
+}
+
+function appendRuntimeVector3Properties(
+  properties: InspectorProperty<EditorSceneDocument>[],
+  basePath: string,
+  label: string,
+  value: unknown,
+  order: number,
+  source: EditorSceneInspectorSourceTag = 'Runtime',
+  missingValue?: string,
+): void {
+  const vectorProperties = createEditorSceneReadonlyVector3Properties({
+    basePath,
+    label,
+    value,
+    order,
+    persistence: 'runtime',
+    source,
+  });
+  if (vectorProperties.length > 0) properties.push(...vectorProperties);
+  else if (missingValue) appendRuntimeInspectorProperty(properties, { path: `${basePath}.status`, label, value: missingValue, order, source });
+}
+
+function appendRuntimeColorProperties(
+  properties: InspectorProperty<EditorSceneDocument>[],
+  basePath: string,
+  label: string,
+  value: unknown,
+  order: number,
+): boolean {
+  const color = readEditorSceneInspectorColor(value);
+  if (!color) return false;
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.r`, label: `${label}.r`, value: color.r, order, valueType: 'number' });
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.g`, label: `${label}.g`, value: color.g, order: order + 1, valueType: 'number' });
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.b`, label: `${label}.b`, value: color.b, order: order + 2, valueType: 'number' });
+  if (color.a != null) appendRuntimeInspectorProperty(properties, { path: `${basePath}.a`, label: `${label}.a`, value: color.a, order: order + 3, valueType: 'number' });
+  return true;
+}
+
+function appendTextureInspectorProperties(
+  properties: InspectorProperty<EditorSceneDocument>[],
+  basePath: string,
+  label: string,
+  texture: unknown,
+): void {
+  const order = properties.length;
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.className`, label: `${label} Class`, value: readEditorSceneRuntimeClassName(texture) ?? 'Texture', order });
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.name`, label: `${label} Name`, value: readEditorSceneRuntimeString(texture, 'name') ?? 'none', order: order + 1 });
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.url`, label: `${label} URL`, value: readEditorSceneTextureUrl(texture) ?? 'none', order: order + 2 });
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.level`, label: `${label} Level`, value: readEditorSceneRuntimeNumber(texture, 'level') ?? 'not available', order: order + 3 });
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.coordinatesIndex`, label: `${label} UV Set`, value: readEditorSceneRuntimeNumber(texture, 'coordinatesIndex') ?? 'not available', order: order + 4 });
+  appendRuntimeInspectorProperty(properties, { path: `${basePath}.hasAlpha`, label: `${label} Has Alpha`, value: readEditorSceneRuntimeBoolean(texture, 'hasAlpha') ?? 'not available', order: order + 5 });
+}
+
+interface EditorSceneRuntimeBounds {
+  min: EditorSceneVec3;
+  max: EditorSceneVec3;
+  center: EditorSceneVec3;
+  size: EditorSceneVec3;
+}
+
+function readEditorSceneRuntimeBounds(value: unknown): EditorSceneRuntimeBounds | null {
+  const hierarchyBounds = callEditorSceneRuntimeMethod(value, 'getHierarchyBoundingVectors');
+  const hierarchyMin = readEditorSceneInspectorVec3(readEditorSceneRuntimeValue(hierarchyBounds, 'min'));
+  const hierarchyMax = readEditorSceneInspectorVec3(readEditorSceneRuntimeValue(hierarchyBounds, 'max'));
+  if (hierarchyMin && hierarchyMax) return createEditorSceneRuntimeBounds(hierarchyMin, hierarchyMax);
+  const boundingInfo = callEditorSceneRuntimeMethod(value, 'getBoundingInfo');
+  const boundingBox = readEditorSceneRuntimeValue(boundingInfo, 'boundingBox');
+  const minimumWorld = readEditorSceneInspectorVec3(readEditorSceneRuntimeValue(boundingBox, 'minimumWorld'));
+  const maximumWorld = readEditorSceneInspectorVec3(readEditorSceneRuntimeValue(boundingBox, 'maximumWorld'));
+  if (minimumWorld && maximumWorld) return createEditorSceneRuntimeBounds(minimumWorld, maximumWorld);
+  return null;
+}
+
+function createEditorSceneRuntimeBounds(min: EditorSceneVec3, max: EditorSceneVec3): EditorSceneRuntimeBounds {
+  return {
+    min,
+    max,
+    center: {
+      x: (min.x + max.x) / 2,
+      y: (min.y + max.y) / 2,
+      z: (min.z + max.z) / 2,
+    },
+    size: {
+      x: max.x - min.x,
+      y: max.y - min.y,
+      z: max.z - min.z,
+    },
+  };
+}
+
+function collectEditorSceneRuntimeMeshes(root: unknown): unknown[] {
+  const meshes = callEditorSceneRuntimeMethod(root, 'getChildMeshes', [false]);
+  const result = Array.isArray(meshes) ? [...meshes] : [];
+  if (isEditorSceneRuntimeMeshLike(root)) result.unshift(root);
+  return [...new Set(result)];
+}
+
+function collectEditorSceneRuntimeChildNodes(root: unknown): unknown[] {
+  const children = callEditorSceneRuntimeMethod(root, 'getChildren');
+  return Array.isArray(children) ? children : [];
+}
+
+function isEditorSceneRuntimeMeshLike(value: unknown): boolean {
+  return !!value && (
+    !!readEditorSceneRuntimeValue(value, 'material')
+    || typeof readEditorSceneRuntimeValue(value, 'getTotalVertices') === 'function'
+    || typeof readEditorSceneRuntimeValue(value, 'getBoundingInfo') === 'function'
+  );
+}
+
+function sumEditorSceneRuntimeMeshNumbers(meshes: unknown[], methodName: string): number | string {
+  let total = 0;
+  let count = 0;
+  for (const mesh of meshes) {
+    const value = callEditorSceneRuntimeMethod(mesh, methodName);
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    total += value;
+    count += 1;
+  }
+  return count > 0 ? total : 'not available';
+}
+
+function readEditorSceneRuntimeArrayLength(value: unknown, key: string): number {
+  const raw = readEditorSceneRuntimeValue(value, key);
+  return Array.isArray(raw) ? raw.length : 0;
+}
+
+function readEditorSceneRuntimeArrayLengthFromMethod(value: unknown, key: string): number | string {
+  const raw = callEditorSceneRuntimeMethod(value, key);
+  return Array.isArray(raw) ? raw.length : 'not available';
+}
+
+function readEditorSceneRuntimeIsEnabled(value: unknown): boolean | null {
+  const enabled = callEditorSceneRuntimeMethod(value, 'isEnabled');
+  return typeof enabled === 'boolean' ? enabled : null;
+}
+
+function readEditorScenePhysicsParam(value: unknown, key: string): number | null {
+  const direct = readEditorSceneRuntimeNumber(value, key);
+  if (direct != null) return direct;
+  const param = callEditorSceneRuntimeMethod(value, 'getParam', [key]);
+  return typeof param === 'number' && Number.isFinite(param) ? param : null;
+}
+
+function readEditorSceneTextureUrl(texture: unknown): string | null {
+  return readEditorSceneRuntimeString(texture, 'url')
+    ?? readEditorSceneRuntimeString(texture, 'name')
+    ?? readEditorSceneRuntimeString(callEditorSceneRuntimeMethod(texture, 'getInternalTexture'), 'url');
+}
+
+function readEditorSceneInspectorColor(value: unknown): { r: number; g: number; b: number; a?: number } | null {
+  if (!value || typeof value !== 'object') return null;
+  const r = readEditorSceneRuntimeNumber(value, 'r');
+  const g = readEditorSceneRuntimeNumber(value, 'g');
+  const b = readEditorSceneRuntimeNumber(value, 'b');
+  if (r == null || g == null || b == null) return null;
+  const a = readEditorSceneRuntimeNumber(value, 'a');
+  return a == null ? { r, g, b } : { r, g, b, a };
+}
+
+function readProjectionAssetSource(projectionNode: unknown): string | null {
+  const asset = readEditorSceneRuntimeValue(projectionNode, 'asset');
+  return readEditorSceneRuntimeString(asset, 'sourceId') ?? readEditorSceneRuntimeString(asset, 'id');
+}
+
+function readProjectionAssetMetadata(projectionNode: unknown): unknown {
+  return readEditorSceneRuntimeValue(readEditorSceneRuntimeValue(projectionNode, 'asset'), 'metadata');
+}
+
+function resolveProjectedMaterialRuntimeKindFromMaterial(material: unknown): string | null {
+  const className = readEditorSceneRuntimeClassName(material);
+  if (!className) return null;
+  if (className.includes('PBR')) return 'pbr';
+  if (className.includes('Standard')) return 'standard';
+  return className;
+}
+
+const EDITOR_SCENE_RUNTIME_TEXTURE_SLOTS = [
+  'albedoTexture',
+  'diffuseTexture',
+  'emissiveTexture',
+  'ambientTexture',
+  'opacityTexture',
+  'bumpTexture',
+  'normalTexture',
+  'metallicTexture',
+  'reflectionTexture',
+  'refractionTexture',
+  'lightmapTexture',
+  'specularTexture',
+  'roughnessTexture',
+] as const;
+
+const EDITOR_SCENE_RUNTIME_COLOR_SLOTS = [
+  'albedoColor',
+  'diffuseColor',
+  'emissiveColor',
+  'ambientColor',
+  'specularColor',
+  'reflectivityColor',
+] as const;
+
+const EDITOR_SCENE_RUNTIME_METALLIC_ROUGHNESS_SLOTS = [
+  'metallic',
+  'roughness',
+  'microSurface',
+  'specularPower',
+  'baseWeight',
+  'indexOfRefraction',
+] as const;
+
+const EDITOR_SCENE_RUNTIME_INTENSITY_SLOTS = [
+  'directIntensity',
+  'emissiveIntensity',
+  'environmentIntensity',
+  'specularIntensity',
+  'cameraExposure',
+  'cameraContrast',
+] as const;
+
+function toInspectorLabel(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function findProjectedRuntimeMaterial(root: unknown): unknown {
+  const record = isObjectRecord(root) ? root : null;
+  const directMaterial = readEditorSceneRuntimeValue(record, 'material');
+  if (directMaterial) return directMaterial;
+  const meshes = callEditorSceneRuntimeMethod(root, 'getChildMeshes', [false]);
+  if (Array.isArray(meshes)) {
+    const mesh = meshes.find((candidate) => !!readEditorSceneRuntimeValue(candidate, 'material'));
+    if (mesh) return readEditorSceneRuntimeValue(mesh, 'material');
+  }
+  return null;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object';
+}
+
+/*
+ * Runtime Inspector sections intentionally use only guarded property/method reads.
+ * Babylon objects can contain throwing getters while assets are loading or after disposal.
+ */
 export function createEditorSceneInspectorPropertyPatch(
   input: EditorSceneInspectorPropertyPatchInput,
 ): { patch: EditorSceneDocumentPatch; label: string; changedId: string; changedIds: string[] } | null {
@@ -1150,10 +2068,22 @@ function createEditorSceneInspectorSections(
       title: 'Common',
       order: 10,
       placement: 'body',
+      summary: nodeKind,
       persistence: 'document',
+      collapsedByDefault: false,
       properties: createCommonInspectorProperties(document, gameObject, nodeKind),
     },
   ];
+  const hierarchySourceSection = createEditorSceneReadonlyInspectorSection({
+    id: 'hierarchySource',
+    title: 'Hierarchy / Source',
+    order: 15,
+    summary: createHierarchySourceSummary(document, gameObject),
+    collapsedByDefault: true,
+    tags: ['Document', 'Derived'],
+    properties: createHierarchySourceInspectorProperties(document, gameObject),
+  });
+  if (hierarchySourceSection) sections.push(hierarchySourceSection);
   const transform = findEditorSceneTransform(gameObject);
   if (transform) {
     sections.push({
@@ -1161,8 +2091,10 @@ function createEditorSceneInspectorSections(
       title: 'Transform',
       order: 20,
       placement: 'body',
+      summary: 'Local + World',
       persistence: 'document',
-      properties: createTransformInspectorProperties(nodeKind, transform),
+      collapsedByDefault: false,
+      properties: createTransformInspectorProperties(document, gameObject, nodeKind, transform),
     });
   }
   const renderer = findEditorSceneModelRenderer(gameObject);
@@ -1172,7 +2104,9 @@ function createEditorSceneInspectorSections(
       title: 'Renderer / Asset',
       order: 30,
       placement: 'body',
+      summary: createRendererInspectorSummary(document, renderer.assetId),
       persistence: 'document',
+      collapsedByDefault: true,
       properties: createRendererInspectorProperties(document, gameObject, renderer.assetId),
     });
   }
@@ -1182,40 +2116,143 @@ function createEditorSceneInspectorSections(
       title: 'Ground Decal',
       order: 40,
       placement: 'body',
+      summary: gameObject.groundDecal ? 'Configured' : 'Defaults',
       persistence: 'document',
+      collapsedByDefault: true,
       properties: createGroundDecalInspectorProperties(nodeKind, gameObject.groundDecal),
     });
   }
   if (nodeKind === 'instance' || nodeKind === 'transform') {
-    sections.push({
-      id: 'materialOverride',
-      title: 'Material Override',
-      order: 50,
-      placement: 'body',
-      persistence: 'document',
-      properties: createMaterialOverrideInspectorProperties(nodeKind, gameObject.overrides?.material),
-    });
+    sections.push(...createMaterialOverrideInspectorSections(nodeKind, gameObject.overrides?.material));
     sections.push({
       id: 'outline',
       title: 'Outline',
       order: 60,
       placement: 'body',
+      summary: gameObject.overrides?.outline ? 'Configured' : 'Defaults',
       persistence: 'document',
+      collapsedByDefault: true,
       properties: createOutlineInspectorProperties(nodeKind, gameObject.overrides?.outline),
     });
   }
+  const componentsSection = createEditorSceneReadonlyInspectorSection({
+    id: 'components',
+    title: 'Scripts / Components',
+    order: 65,
+    summary: createComponentsInspectorSummary(gameObject),
+    collapsedByDefault: true,
+    tags: ['Document'],
+    properties: createComponentsInspectorProperties(gameObject),
+  });
+  if (componentsSection) sections.push(componentsSection);
   const metadataProperties = createMetadataInspectorProperties(document, gameObject, renderer?.assetId ?? null);
   if (metadataProperties.length > 0) {
     sections.push({
       id: 'metadata',
       title: 'Metadata',
-      order: 70,
+      order: 80,
       placement: 'body',
+      summary: createMetadataInspectorSummary(document, gameObject, renderer?.assetId ?? null),
       persistence: 'readonly',
+      collapsedByDefault: true,
+      tags: ['Document', 'Asset'],
       properties: metadataProperties,
     });
   }
   return sections;
+}
+
+function createHierarchySourceSummary(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
+): string {
+  const parent = gameObject.parentId ? findEditorSceneGameObject(document, gameObject.parentId) : null;
+  return parent ? `Parent: ${parent.name ?? parent.id}` : 'Scene root';
+}
+
+function createHierarchySourceInspectorProperties(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
+): InspectorProperty<EditorSceneDocument>[] {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  const parent = gameObject.parentId ? findEditorSceneGameObject(document, gameObject.parentId) : null;
+  const directChildren = document.scene.gameObjects.filter((entry) => entry.parentId === gameObject.id);
+  const descendantCount = Math.max(collectEditorSceneSubtreeIdList(document, [gameObject.id]).length - 1, 0);
+  const sourceRef = document.meta?.authoringSource ?? getEditorSceneAuthoringSourceRef(document);
+  const siblingIndex = document.scene.gameObjects
+    .filter((entry) => entry.parentId === gameObject.parentId)
+    .findIndex((entry) => entry.id === gameObject.id);
+  appendReadonlyInspectorProperty(properties, {
+    path: 'hierarchy.parentId',
+    label: 'Parent ID',
+    value: gameObject.parentId ?? 'none',
+    order: 0,
+    source: 'Document',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'hierarchy.parentName',
+    label: 'Parent Name',
+    value: parent ? parent.name ?? parent.id : gameObject.parentId ? 'missing' : 'none',
+    order: 1,
+    source: 'Document',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'hierarchy.childCount',
+    label: 'Children',
+    value: directChildren.length,
+    order: 2,
+    source: 'Derived',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'hierarchy.descendantCount',
+    label: 'Descendants',
+    value: descendantCount,
+    order: 3,
+    source: 'Derived',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'hierarchy.siblingIndex',
+    label: 'Sibling Index',
+    value: siblingIndex >= 0 ? siblingIndex : 'unknown',
+    order: 4,
+    source: 'Derived',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'document.gameObjectIndex',
+    label: 'Document Index',
+    value: document.scene.gameObjects.findIndex((entry) => entry.id === gameObject.id),
+    order: 5,
+    source: 'Derived',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'document.schemaVersion',
+    label: 'Schema Version',
+    value: document.schemaVersion,
+    order: 6,
+    source: 'Document',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'source.sourceId',
+    label: 'Source ID',
+    value: sourceRef.sourceId,
+    order: 7,
+    source: 'Document',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'source.sourceType',
+    label: 'Source Type',
+    value: sourceRef.sourceType,
+    order: 8,
+    source: 'Document',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'source.revision',
+    label: 'Revision',
+    value: sourceRef.revision ?? 'none',
+    order: 9,
+    source: 'Document',
+  });
+  return properties;
 }
 
 function createCommonInspectorProperties(
@@ -1223,7 +2260,7 @@ function createCommonInspectorProperties(
   gameObject: EditorSceneGameObject,
   nodeKind: SceneNodeConfig['kind'],
 ): InspectorProperty<EditorSceneDocument>[] {
-  return [
+  const properties: InspectorProperty<EditorSceneDocument>[] = [
     createReadonlyInspectorProperty('id', 'ID', gameObject.id, 0),
     createDocumentInspectorProperty(document, nodeKind, {
       path: 'name',
@@ -1243,10 +2280,35 @@ function createCommonInspectorProperties(
       commitMode: 'immediate',
       order: 2,
     }),
+    createReadonlyInspectorProperty('kind.resolved', 'Resolved Kind', nodeKind, 3),
+    createReadonlyInspectorProperty('kind.explicit', 'Explicit Kind', gameObject.kind ?? 'inferred', 4),
+    createReadonlyInspectorProperty('common.activeField', 'Active Field', gameObject.active ?? 'default:true', 5),
   ];
+  if (nodeKind === 'transform') {
+    properties.push(createDocumentInspectorProperty(document, nodeKind, {
+      path: 'transformType',
+      label: 'Transform Type',
+      valueType: 'enum',
+      control: 'enum',
+      value: gameObject.transformType ?? 'plain',
+      commitMode: 'immediate',
+      order: 6,
+      options: [
+        { label: 'Plain', value: 'plain' },
+        { label: 'Light', value: 'light' },
+        { label: 'Camera', value: 'camera' },
+        { label: 'Ground Decal', value: 'groundDecal' },
+      ],
+    }));
+  } else {
+    properties.push(createReadonlyInspectorProperty('common.transformType', 'Transform Type', gameObject.transformType ?? 'none', 6));
+  }
+  return properties;
 }
 
 function createTransformInspectorProperties(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
   nodeKind: SceneNodeConfig['kind'],
   transform: { position: EditorSceneVec3; rotation: EditorSceneVec3; scale?: EditorSceneVec3 },
 ): InspectorProperty<EditorSceneDocument>[] {
@@ -1269,6 +2331,36 @@ function createTransformInspectorProperties(
       order += 1;
     }
   }
+  const world = getEditorSceneGameObjectWorldTransform(document, gameObject.id);
+  if (world) {
+    properties.push(...createEditorSceneReadonlyVector3Properties({
+      basePath: 'transform.world.position',
+      label: 'World Position',
+      value: world.position,
+      order,
+      source: 'Derived',
+    }));
+    order += 3;
+    properties.push(...createEditorSceneReadonlyVector3Properties({
+      basePath: 'transform.world.rotation',
+      label: 'World Rotation',
+      value: {
+        x: radiansToDegrees(world.rotation.x),
+        y: radiansToDegrees(world.rotation.y),
+        z: radiansToDegrees(world.rotation.z),
+      },
+      order,
+      source: 'Derived',
+    }));
+    order += 3;
+    properties.push(...createEditorSceneReadonlyVector3Properties({
+      basePath: 'transform.world.scale',
+      label: 'World Scale',
+      value: world.scale,
+      order,
+      source: 'Derived',
+    }));
+  }
   return properties;
 }
 
@@ -1277,7 +2369,7 @@ function createRendererInspectorProperties(
   _gameObject: EditorSceneGameObject,
   assetId: string,
 ): InspectorProperty<EditorSceneDocument>[] {
-  return [
+  const properties: InspectorProperty<EditorSceneDocument>[] = [
     createDocumentInspectorProperty(document, 'instance', {
       path: 'instance.assetId',
       label: 'Asset',
@@ -1292,6 +2384,71 @@ function createRendererInspectorProperties(
       })),
     }),
   ];
+  const asset = findEditorSceneAsset(document, assetId);
+  appendReadonlyInspectorProperty(properties, {
+    path: 'renderer.assetId',
+    label: 'Renderer Asset ID',
+    value: assetId,
+    order: 1,
+    source: 'Document',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'asset.id',
+    label: 'Asset ID',
+    value: asset?.id ?? 'missing',
+    order: 2,
+    source: 'Asset',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'asset.type',
+    label: 'Asset Type',
+    value: asset?.type ?? 'missing',
+    order: 3,
+    source: 'Asset',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'asset.sourceId',
+    label: 'Source ID',
+    value: asset?.sourceId ?? 'missing',
+    order: 4,
+    source: 'Asset',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'asset.displayName',
+    label: 'Display Name',
+    value: asset?.displayName ?? 'none',
+    order: 5,
+    source: 'Asset',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'asset.category',
+    label: 'Category',
+    value: asset?.category ?? 'none',
+    order: 6,
+    source: 'Asset',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'asset.materialMode',
+    label: 'Material Mode',
+    value: asset?.materialMode ?? 'none',
+    order: 7,
+    source: 'Asset',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'asset.defaults',
+    label: 'Defaults',
+    value: asset?.defaults ?? 'none',
+    order: 8,
+    source: 'Asset',
+    tags: ['Raw'],
+  });
+  return properties;
+}
+
+function createRendererInspectorSummary(document: EditorSceneDocument, assetId: string): string {
+  const asset = findEditorSceneAsset(document, assetId);
+  if (!asset) return `Missing asset: ${assetId}`;
+  return asset.displayName ?? asset.sourceId;
 }
 
 function createGroundDecalInspectorProperties(
@@ -1299,7 +2456,7 @@ function createGroundDecalInspectorProperties(
   groundDecal: EditorSceneGameObject['groundDecal'],
 ): InspectorProperty<EditorSceneDocument>[] {
   const decal = groundDecal ?? createDefaultGroundDecal();
-  return [
+  const properties: InspectorProperty<EditorSceneDocument>[] = [
     createDocumentInspectorProperty(null, nodeKind, {
       path: 'groundDecal.size.width',
       label: 'Width',
@@ -1330,7 +2487,7 @@ function createGroundDecalInspectorProperties(
       value: decal.textureId ?? '',
       commitMode: 'blur',
       order: 2,
-      coerce: value => normalizeEditorSceneInspectorValue('groundDecal.textureId', value),
+      coerce: (value: unknown) => normalizeEditorSceneInspectorValue('groundDecal.textureId', value),
     }),
     createDocumentInspectorProperty(null, nodeKind, {
       path: 'groundDecal.color',
@@ -1372,55 +2529,75 @@ function createGroundDecalInspectorProperties(
       step: 0.05,
     }),
   ];
+  appendReadonlyInspectorProperty(properties, {
+    path: 'groundDecal.raw',
+    label: 'Raw Ground Decal',
+    value: groundDecal ?? 'not configured',
+    order: properties.length,
+    source: 'Document',
+    tags: ['Raw'],
+  });
+  return properties;
 }
 
-function createMaterialOverrideInspectorProperties(
+function createMaterialOverrideInspectorSections(
+  nodeKind: SceneNodeConfig['kind'],
+  material: MaterialOverrideConfig | undefined,
+): InspectorSection<EditorSceneDocument>[] {
+  const summary = material ? 'Configured' : 'Defaults';
+  return [{
+    id: 'material',
+    title: 'Material',
+    order: 50,
+    placement: 'body',
+    summary,
+    persistence: 'document',
+    collapsedByDefault: true,
+    properties: createMaterialBaseInspectorProperties(nodeKind, material),
+  }, {
+    id: 'materialTextures',
+    title: 'Material Textures',
+    order: 52,
+    placement: 'body',
+    summary: createMaterialTextureInspectorSummary(material),
+    persistence: 'document',
+    collapsedByDefault: true,
+    properties: createMaterialTextureOverrideInspectorProperties(nodeKind, material),
+  }, {
+    id: 'materialColors',
+    title: 'Material Colors',
+    order: 54,
+    placement: 'body',
+    summary,
+    persistence: 'document',
+    collapsedByDefault: true,
+    properties: createMaterialColorOverrideInspectorProperties(nodeKind, material),
+  }, {
+    id: 'metallicRoughness',
+    title: 'Metallic / Roughness',
+    order: 56,
+    placement: 'body',
+    summary,
+    persistence: 'document',
+    collapsedByDefault: true,
+    properties: createMetallicRoughnessOverrideInspectorProperties(nodeKind, material),
+  }, {
+    id: 'intensityProperties',
+    title: 'Intensity Properties',
+    order: 58,
+    placement: 'body',
+    summary,
+    persistence: 'document',
+    collapsedByDefault: true,
+    properties: createIntensityOverrideInspectorProperties(nodeKind, material),
+  }];
+}
+
+function createMaterialBaseInspectorProperties(
   nodeKind: SceneNodeConfig['kind'],
   material: MaterialOverrideConfig | undefined,
 ): InspectorProperty<EditorSceneDocument>[] {
-  return [
-    createDocumentInspectorProperty(null, nodeKind, {
-      path: 'overrides.material.albedoColor',
-      label: 'Albedo',
-      valueType: 'color',
-      control: 'color',
-      value: material?.albedoColor ?? { r: 1, g: 1, b: 1 },
-      commitMode: 'immediate',
-      order: 0,
-    }),
-    createDocumentInspectorProperty(null, nodeKind, {
-      path: 'overrides.material.emissiveColor',
-      label: 'Emissive',
-      valueType: 'color',
-      control: 'color',
-      value: material?.emissiveColor ?? { r: 0, g: 0, b: 0 },
-      commitMode: 'immediate',
-      order: 1,
-    }),
-    createDocumentInspectorProperty(null, nodeKind, {
-      path: 'overrides.material.metallic',
-      label: 'Metallic',
-      valueType: 'number',
-      control: 'number',
-      value: material?.metallic ?? 0,
-      commitMode: 'live',
-      order: 2,
-      min: 0,
-      max: 1,
-      step: 0.05,
-    }),
-    createDocumentInspectorProperty(null, nodeKind, {
-      path: 'overrides.material.roughness',
-      label: 'Roughness',
-      valueType: 'number',
-      control: 'number',
-      value: material?.roughness ?? 1,
-      commitMode: 'live',
-      order: 3,
-      min: 0,
-      max: 1,
-      step: 0.05,
-    }),
+  const properties: InspectorProperty<EditorSceneDocument>[] = [
     createDocumentInspectorProperty(null, nodeKind, {
       path: 'overrides.material.alpha',
       label: 'Alpha',
@@ -1428,10 +2605,27 @@ function createMaterialOverrideInspectorProperties(
       control: 'number',
       value: material?.alpha ?? 1,
       commitMode: 'live',
-      order: 4,
+      order: 0,
       min: 0,
       max: 1,
       step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.alphaCutOff',
+      label: 'Alpha Cutoff',
+      value: material?.alphaCutOff ?? 0,
+      order: 1,
+      min: 0,
+      max: 1,
+      step: 0.01,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.transparencyMode',
+      label: 'Transparency Mode',
+      value: material?.transparencyMode ?? 0,
+      order: 2,
+      min: 0,
+      step: 1,
     }),
     createDocumentInspectorProperty(null, nodeKind, {
       path: 'overrides.material.backFaceCulling',
@@ -1440,16 +2634,297 @@ function createMaterialOverrideInspectorProperties(
       control: 'boolean',
       value: material?.backFaceCulling ?? true,
       commitMode: 'immediate',
-      order: 5,
+      order: 3,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.material.standard.useSpecularOverAlpha',
+      label: 'Standard Use Specular Over Alpha',
+      valueType: 'boolean',
+      control: 'boolean',
+      value: material?.standard?.useSpecularOverAlpha ?? false,
+      commitMode: 'immediate',
+      order: 4,
     }),
   ];
+  appendReadonlyInspectorProperty(properties, {
+    path: 'overrides.material.raw',
+    label: 'Raw Override',
+    value: material ?? 'not configured',
+    order: properties.length,
+    source: 'Document',
+    tags: ['Raw'],
+  });
+  return properties;
+}
+
+function createMaterialTextureOverrideInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  material: MaterialOverrideConfig | undefined,
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createMaterialTextureUrlInspectorProperty(nodeKind, {
+      path: 'overrides.material.albedoTexture.url',
+      label: 'Albedo Texture URL',
+      value: material?.albedoTexture?.url ?? '',
+      order: 0,
+    }),
+    createMaterialTextureUrlInspectorProperty(nodeKind, {
+      path: 'overrides.material.normalTexture.url',
+      label: 'Normal Texture URL',
+      value: material?.normalTexture?.url ?? '',
+      order: 1,
+    }),
+    createMaterialTextureUrlInspectorProperty(nodeKind, {
+      path: 'overrides.material.metallicTexture.url',
+      label: 'Metallic Texture URL',
+      value: material?.metallicTexture?.url ?? '',
+      order: 2,
+    }),
+  ];
+}
+
+function createMaterialColorOverrideInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  material: MaterialOverrideConfig | undefined,
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.albedoColor', 'Albedo', material?.albedoColor ?? { r: 1, g: 1, b: 1 }, 0),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.diffuseColor', 'Diffuse', material?.diffuseColor ?? { r: 1, g: 1, b: 1 }, 1),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.emissiveColor', 'Emissive', material?.emissiveColor ?? { r: 0, g: 0, b: 0 }, 2),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.pbr.albedoColor', 'PBR Albedo', material?.pbr?.albedoColor ?? { r: 1, g: 1, b: 1 }, 3),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.pbr.reflectivityColor', 'PBR Reflectivity', material?.pbr?.reflectivityColor ?? { r: 1, g: 1, b: 1 }, 4),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.pbr.emissiveColor', 'PBR Emissive', material?.pbr?.emissiveColor ?? { r: 0, g: 0, b: 0 }, 5),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.pbr.ambientColor', 'PBR Ambient', material?.pbr?.ambientColor ?? { r: 0, g: 0, b: 0 }, 6),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.standard.diffuseColor', 'Standard Diffuse', material?.standard?.diffuseColor ?? { r: 1, g: 1, b: 1 }, 7),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.standard.specularColor', 'Standard Specular', material?.standard?.specularColor ?? { r: 1, g: 1, b: 1 }, 8),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.standard.emissiveColor', 'Standard Emissive', material?.standard?.emissiveColor ?? { r: 0, g: 0, b: 0 }, 9),
+    createMaterialColorInspectorProperty(nodeKind, 'overrides.material.standard.ambientColor', 'Standard Ambient', material?.standard?.ambientColor ?? { r: 0, g: 0, b: 0 }, 10),
+  ];
+}
+
+function createMetallicRoughnessOverrideInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  material: MaterialOverrideConfig | undefined,
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.metallic',
+      label: 'Metallic',
+      value: material?.metallic ?? 0,
+      order: 0,
+      min: 0,
+      max: 1,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.roughness',
+      label: 'Roughness',
+      value: material?.roughness ?? 1,
+      order: 1,
+      min: 0,
+      max: 1,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.baseWeight',
+      label: 'PBR Base Weight',
+      value: material?.pbr?.baseWeight ?? 1,
+      order: 2,
+      min: 0,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.microSurface',
+      label: 'PBR Micro Surface',
+      value: material?.pbr?.microSurface ?? 1,
+      order: 3,
+      min: 0,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.metallicF0Factor',
+      label: 'PBR Metallic F0 Factor',
+      value: material?.pbr?.metallicF0Factor ?? 1,
+      order: 4,
+      min: 0,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.indexOfRefraction',
+      label: 'PBR Index Of Refraction',
+      value: material?.pbr?.indexOfRefraction ?? 1.5,
+      order: 5,
+      min: 0,
+      step: 0.01,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.standard.specularPower',
+      label: 'Standard Specular Power',
+      value: material?.standard?.specularPower ?? 64,
+      order: 6,
+      min: 0,
+      step: 1,
+    }),
+  ];
+}
+
+function createIntensityOverrideInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  material: MaterialOverrideConfig | undefined,
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.contrast',
+      label: 'Contrast',
+      value: material?.contrast ?? 1,
+      order: 0,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.brightness',
+      label: 'Brightness',
+      value: material?.brightness ?? 1,
+      order: 1,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.saturation',
+      label: 'Saturation',
+      value: material?.saturation ?? 1,
+      order: 2,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.hue',
+      label: 'Hue',
+      value: material?.hue ?? 0,
+      order: 3,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.colorDensity',
+      label: 'Color Density',
+      value: material?.colorDensity ?? 1,
+      order: 4,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.lightFalloff',
+      label: 'PBR Light Falloff',
+      value: material?.pbr?.lightFalloff ?? 0,
+      order: 5,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.directIntensity',
+      label: 'PBR Direct Intensity',
+      value: material?.pbr?.directIntensity ?? 1,
+      order: 6,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.emissiveIntensity',
+      label: 'PBR Emissive Intensity',
+      value: material?.pbr?.emissiveIntensity ?? 1,
+      order: 7,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.environmentIntensity',
+      label: 'PBR Environment Intensity',
+      value: material?.pbr?.environmentIntensity ?? 1,
+      order: 8,
+      step: 0.05,
+    }),
+    createMaterialNumberInspectorProperty(nodeKind, {
+      path: 'overrides.material.pbr.specularIntensity',
+      label: 'PBR Specular Intensity',
+      value: material?.pbr?.specularIntensity ?? 1,
+      order: 9,
+      step: 0.05,
+    }),
+  ];
+}
+
+function createMaterialColorInspectorProperty(
+  nodeKind: SceneNodeConfig['kind'],
+  path: string,
+  label: string,
+  value: { r: number; g: number; b: number },
+  order: number,
+): InspectorProperty<EditorSceneDocument> {
+  return createDocumentInspectorProperty(null, nodeKind, {
+    path,
+    label,
+    valueType: 'color',
+    control: 'color',
+    value,
+    commitMode: 'immediate',
+    order,
+  });
+}
+
+function createMaterialNumberInspectorProperty(
+  nodeKind: SceneNodeConfig['kind'],
+  input: {
+    path: string;
+    label: string;
+    value: number;
+    order: number;
+    min?: number;
+    max?: number;
+    step?: number;
+  },
+): InspectorProperty<EditorSceneDocument> {
+  return createDocumentInspectorProperty(null, nodeKind, {
+    path: input.path,
+    label: input.label,
+    valueType: 'number',
+    control: 'number',
+    value: input.value,
+    commitMode: 'live',
+    order: input.order,
+    min: input.min,
+    max: input.max,
+    step: input.step ?? 0.05,
+  });
+}
+
+function createMaterialTextureUrlInspectorProperty(
+  nodeKind: SceneNodeConfig['kind'],
+  input: {
+    path: string;
+    label: string;
+    value: string;
+    order: number;
+  },
+): InspectorProperty<EditorSceneDocument> {
+  return createDocumentInspectorProperty(null, nodeKind, {
+    path: input.path,
+    label: input.label,
+    valueType: 'string',
+    control: 'string',
+    value: input.value,
+    commitMode: 'blur',
+    order: input.order,
+    coerce: (value: unknown) => normalizeEditorSceneInspectorValue(input.path, value),
+  });
+}
+
+function createMaterialTextureInspectorSummary(material: MaterialOverrideConfig | undefined): string {
+  const count = [
+    material?.albedoTexture?.url,
+    material?.normalTexture?.url,
+    material?.metallicTexture?.url,
+  ].filter(Boolean).length;
+  return count > 0 ? `${count} override${count === 1 ? '' : 's'}` : 'Defaults';
 }
 
 function createOutlineInspectorProperties(
   nodeKind: SceneNodeConfig['kind'],
   outline: OutlineOverrideConfig | undefined,
 ): InspectorProperty<EditorSceneDocument>[] {
-  return [
+  const properties: InspectorProperty<EditorSceneDocument>[] = [
     createDocumentInspectorProperty(null, nodeKind, {
       path: 'overrides.outline.renderOutline',
       label: 'Render Outline',
@@ -1480,6 +2955,50 @@ function createOutlineInspectorProperties(
       order: 2,
     }),
   ];
+  appendReadonlyInspectorProperty(properties, {
+    path: 'overrides.outline.raw',
+    label: 'Raw Override',
+    value: outline ?? 'not configured',
+    order: properties.length,
+    source: 'Document',
+    tags: ['Raw'],
+  });
+  return properties;
+}
+
+function createComponentsInspectorSummary(gameObject: EditorSceneGameObject): string {
+  return gameObject.components.map((component) => component.type).join(', ') || 'none';
+}
+
+function createComponentsInspectorProperties(
+  gameObject: EditorSceneGameObject,
+): InspectorProperty<EditorSceneDocument>[] {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  appendReadonlyInspectorProperty(properties, {
+    path: 'components.count',
+    label: 'Count',
+    value: gameObject.components.length,
+    order: 0,
+    source: 'Document',
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'components.types',
+    label: 'Types',
+    value: createComponentsInspectorSummary(gameObject),
+    order: 1,
+    source: 'Document',
+  });
+  gameObject.components.forEach((component, index) => {
+    appendReadonlyInspectorProperty(properties, {
+      path: `components.${index}`,
+      label: `${component.type} ${index}`,
+      value: component,
+      order: index + 2,
+      source: 'Document',
+      tags: ['Component', 'Raw'],
+    });
+  });
+  return properties;
 }
 
 function createMetadataInspectorProperties(
@@ -1488,17 +3007,46 @@ function createMetadataInspectorProperties(
   assetId: string | null,
 ): InspectorProperty<EditorSceneDocument>[] {
   const properties: InspectorProperty<EditorSceneDocument>[] = [];
-  const asset = assetId ? document.assets.find((entry) => entry.id === assetId) : null;
-  if (asset) {
-    properties.push(createReadonlyInspectorProperty('metadata.assetSource', 'Asset Source', asset.sourceId, 0));
-    properties.push(createReadonlyInspectorProperty('metadata.assetCategory', 'Category', asset.category ?? '', 1));
-    if (asset.materialMode) properties.push(createReadonlyInspectorProperty('metadata.materialMode', 'Material Mode', asset.materialMode, 2));
-    if (asset.metadata) properties.push(createReadonlyInspectorProperty('metadata.asset', 'Asset Metadata', asset.metadata, 3));
-  }
-  if (gameObject.metadata) {
-    properties.push(createReadonlyInspectorProperty('metadata.gameObject', 'GameObject Metadata', gameObject.metadata, properties.length));
-  }
+  const asset = assetId ? findEditorSceneAsset(document, assetId) : null;
+  appendReadonlyInspectorProperty(properties, {
+    path: 'metadata.document',
+    label: 'Document Meta',
+    value: document.meta ?? 'none',
+    order: 0,
+    source: 'Document',
+    tags: ['Raw'],
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'metadata.gameObject',
+    label: 'GameObject Metadata',
+    value: gameObject.metadata ?? 'none',
+    order: 1,
+    source: 'Document',
+    tags: ['Raw'],
+  });
+  appendReadonlyInspectorProperty(properties, {
+    path: 'metadata.asset',
+    label: 'Asset Metadata',
+    value: asset?.metadata ?? 'none',
+    order: 2,
+    source: 'Asset',
+    tags: ['Raw'],
+  });
   return properties;
+}
+
+function createMetadataInspectorSummary(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
+  assetId: string | null,
+): string {
+  const asset = assetId ? findEditorSceneAsset(document, assetId) : null;
+  const sources = [
+    document.meta ? 'Document' : null,
+    gameObject.metadata ? 'GameObject' : null,
+    asset?.metadata ? 'Asset' : null,
+  ].filter((entry): entry is string => !!entry);
+  return sources.length > 0 ? sources.join(' + ') : 'none';
 }
 
 function createDocumentInspectorProperty(
@@ -1515,42 +3063,54 @@ function createDocumentInspectorProperty(
   };
 }
 
+function appendReadonlyInspectorProperty(
+  properties: InspectorProperty<EditorSceneDocument>[],
+  input: EditorSceneReadonlyInspectorPropertyInput,
+): void {
+  const property = createEditorSceneReadonlyInspectorProperty(input);
+  if (property) properties.push(property);
+}
+
 function createReadonlyInspectorProperty(
   path: string,
   label: string,
   value: unknown,
   order: number,
 ): InspectorProperty<EditorSceneDocument> {
-  return {
+  return createEditorSceneReadonlyInspectorProperty({
     path,
     label,
-    valueType: typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : typeof value === 'object' ? 'object' : 'string',
-    control: 'readonly',
     value,
-    readOnly: true,
-    persistence: 'readonly',
-    commitMode: 'blur',
     order,
-  };
+    persistence: 'readonly',
+    source: 'Document',
+  })!;
 }
 
-function createRuntimeInspectorProperty(
-  path: string,
-  label: string,
+function findEditorSceneAsset(document: EditorSceneDocument, assetId: string): EditorSceneAsset | null {
+  return document.assets.find((entry) => entry.id === assetId) ?? null;
+}
+
+function shouldDisplayEditorSceneInspectorValue(value: unknown): boolean {
+  return value != null && !(typeof value === 'number' && !Number.isFinite(value));
+}
+
+function inferEditorSceneInspectorValueType(
   value: unknown,
-  order: number,
-): InspectorProperty<EditorSceneDocument> {
-  return {
-    path,
-    label,
-    valueType: typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : typeof value === 'object' ? 'object' : 'string',
-    control: 'readonly',
-    value,
-    readOnly: true,
-    persistence: 'runtime',
-    commitMode: 'blur',
-    order,
-  };
+): InspectorProperty<EditorSceneDocument>['valueType'] {
+  if (typeof value === 'string') return 'string';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  if (value && typeof value === 'object') return 'object';
+  return 'unknown';
+}
+
+function mergeEditorSceneInspectorTags(
+  source: EditorSceneInspectorSourceTag | undefined,
+  tags: readonly string[] | undefined,
+): readonly string[] | undefined {
+  const merged = [...(source ? [source] : []), ...(tags ?? [])];
+  return merged.length > 0 ? [...new Set(merged)] : undefined;
 }
 
 function createEditorSceneInspectorValidator(
@@ -1583,6 +3143,10 @@ function validateEditorSceneInspectorValue(
 
 function normalizeEditorSceneInspectorValue(path: string, value: unknown): unknown {
   if (path === 'groundDecal.textureId' && typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (/^overrides\.material\.(albedoTexture|normalTexture|metallicTexture)\.url$/.test(path) && typeof value === 'string') {
     const trimmed = value.trim();
     return trimmed ? trimmed : null;
   }
@@ -1647,6 +3211,7 @@ function patchEditorSceneGameObject(
       next.kind = 'transform';
       next.transformType = value;
       if (value === 'groundDecal' && !next.groundDecal) next.groundDecal = createDefaultGroundDecal();
+      else if (value !== 'groundDecal') delete next.groundDecal;
     }
     return next;
   }
@@ -1671,6 +3236,7 @@ function patchEditorSceneGameObject(
   if (path.startsWith('overrides.')) {
     if (readEditorSceneNodeKind(next) === 'group') next.kind = 'instance';
     applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
+    cleanupEditorSceneGameObjectOverrides(next);
     return next;
   }
   return next;
@@ -1690,6 +3256,42 @@ function applyJsonFieldPatch(target: Record<string, unknown>, path: string, valu
   if (!leaf) return;
   if (value == null) delete cursor[leaf];
   else cursor[leaf] = structuredClone(value);
+}
+
+function cleanupEditorSceneGameObjectOverrides(gameObject: EditorSceneGameObject): void {
+  const overrides = gameObject.overrides;
+  if (!overrides) return;
+
+  const material = pruneEditorSceneMaterialOverride(overrides.material);
+  if (material) overrides.material = material;
+  else delete overrides.material;
+
+  for (const [key, childMaterial] of Object.entries(overrides.childMaterials ?? {})) {
+    const normalized = pruneEditorSceneMaterialOverride(childMaterial);
+    if (normalized) overrides.childMaterials![key] = normalized;
+    else delete overrides.childMaterials![key];
+  }
+  if (overrides.childMaterials && Object.keys(overrides.childMaterials).length === 0) delete overrides.childMaterials;
+  if (overrides.childTransforms && Object.keys(overrides.childTransforms).length === 0) delete overrides.childTransforms;
+  if (overrides.childOutlines && Object.keys(overrides.childOutlines).length === 0) delete overrides.childOutlines;
+
+  if (Object.keys(overrides).length === 0) delete gameObject.overrides;
+}
+
+function pruneEditorSceneMaterialOverride(
+  material: MaterialOverrideConfig | undefined,
+): MaterialOverrideConfig | undefined {
+  if (!material) return undefined;
+  const next: MaterialOverrideConfig = structuredClone(material);
+  for (const textureKey of ['albedoTexture', 'normalTexture', 'metallicTexture'] as const) {
+    const texture = next[textureKey];
+    if (texture && typeof texture === 'object' && Object.keys(texture).length === 0) delete next[textureKey];
+  }
+  for (const lightingKey of ['pbr', 'standard'] as const) {
+    const lighting = next[lightingKey];
+    if (lighting && typeof lighting === 'object' && Object.keys(lighting).length === 0) delete next[lightingKey];
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
 }
 
 function createDefaultGroundDecal(): NonNullable<EditorSceneGameObject['groundDecal']> {
@@ -1714,47 +3316,6 @@ function mergeGroundDecalDefaults(
       ? { ...defaults.color, ...groundDecal.color }
       : defaults.color,
   };
-}
-
-function resolveProjectedMaterialRuntimeKind(root: unknown): string | null {
-  const material = findProjectedRuntimeMaterial(root);
-  const className = readRuntimeClassName(material);
-  if (!className) return null;
-  if (className.includes('PBR')) return 'pbr';
-  if (className.includes('Standard')) return 'standard';
-  return className;
-}
-
-function findProjectedRuntimeMaterial(root: unknown): unknown {
-  const record = isObjectRecord(root) ? root : null;
-  const directMaterial = record?.material;
-  if (directMaterial) return directMaterial;
-  const getChildMeshes = record?.getChildMeshes;
-  if (typeof getChildMeshes === 'function') {
-    const meshes = getChildMeshes.call(root, false);
-    if (Array.isArray(meshes)) {
-      const mesh = meshes.find((candidate) => isObjectRecord(candidate) && !!candidate.material);
-      if (isObjectRecord(mesh)) return mesh.material;
-    }
-  }
-  return null;
-}
-
-function readRuntimeClassName(value: unknown): string | null {
-  if (!isObjectRecord(value)) return null;
-  const getClassName = value.getClassName;
-  if (typeof getClassName === 'function') {
-    const className = getClassName.call(value);
-    if (typeof className === 'string' && className.trim()) return className;
-  }
-  const constructorName = value.constructor && typeof value.constructor === 'function'
-    ? value.constructor.name
-    : '';
-  return constructorName && constructorName !== 'Object' ? constructorName : null;
-}
-
-function isObjectRecord(value: unknown): value is Record<string, any> {
-  return !!value && typeof value === 'object';
 }
 
 export function applyEditorSceneSerializedPropertyPatch(

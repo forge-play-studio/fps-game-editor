@@ -14,6 +14,7 @@ import type {
   SceneAssetConfig,
   SceneAssetMaterialMode,
   SceneInstanceNode,
+  SceneTransformNode,
   SceneMaterialScope,
   SceneNodeVisualOverrides,
   MaterialOverrideConfig,
@@ -125,6 +126,24 @@ function normalizePbrMaterialLightingOverride(value: unknown): PbrMaterialLighti
   }
   if (typeof value.lightFalloff === 'number' && Number.isFinite(value.lightFalloff)) {
     normalized.lightFalloff = value.lightFalloff;
+  }
+  if (typeof value.directIntensity === 'number' && Number.isFinite(value.directIntensity)) {
+    normalized.directIntensity = value.directIntensity;
+  }
+  if (typeof value.emissiveIntensity === 'number' && Number.isFinite(value.emissiveIntensity)) {
+    normalized.emissiveIntensity = value.emissiveIntensity;
+  }
+  if (typeof value.environmentIntensity === 'number' && Number.isFinite(value.environmentIntensity)) {
+    normalized.environmentIntensity = value.environmentIntensity;
+  }
+  if (typeof value.specularIntensity === 'number' && Number.isFinite(value.specularIntensity)) {
+    normalized.specularIntensity = value.specularIntensity;
+  }
+  if (typeof value.metallicF0Factor === 'number' && Number.isFinite(value.metallicF0Factor)) {
+    normalized.metallicF0Factor = value.metallicF0Factor;
+  }
+  if (typeof value.indexOfRefraction === 'number' && Number.isFinite(value.indexOfRefraction)) {
+    normalized.indexOfRefraction = value.indexOfRefraction;
   }
 
   return Object.keys(normalized).length > 0 ? normalized : undefined;
@@ -306,13 +325,28 @@ function normalizeSceneSharedMaterial(value: unknown): SceneSharedMaterialConfig
   return {
     id,
     scope,
-    ...(assetId ? { assetId } : {}),
-    ...(nodeId ? { nodeId } : {}),
+    ...(scope === 'sharedAsset' ? { assetId } : {}),
+    ...(scope === 'nodeMaterial' ? { nodeId } : {}),
     materialName,
     ...(ownerNodePath ? { ownerNodePath } : {}),
     ...(type ? { type } : {}),
     properties,
   };
+}
+
+function isRestorableSceneSharedMaterial(
+  value: SceneSharedMaterialConfig,
+  assetIds: ReadonlySet<string>,
+  nodeKinds: ReadonlyMap<string, SceneNodeConfig['kind']>,
+): boolean {
+  if (value.scope === 'sharedAsset') {
+    return !!value.assetId && assetIds.has(value.assetId);
+  }
+  if (value.scope === 'nodeMaterial') {
+    const nodeKind = value.nodeId ? nodeKinds.get(value.nodeId) : undefined;
+    return nodeKind === 'instance' || nodeKind === 'transform';
+  }
+  return false;
 }
 
 function normalizeSceneAssetDefaults(value: unknown): SceneAssetConfig['defaults'] | undefined {
@@ -432,12 +466,16 @@ export class ConfigService {
     for (const asset of scene.assets) {
       this.normalizeSceneAssetConfig(asset);
     }
-    scene.materials = scene.materials
-      .map((material) => normalizeSceneSharedMaterial(material))
-      .filter((material): material is SceneSharedMaterialConfig => !!material);
     for (const node of scene.nodes) {
       this.normalizeSceneNode(node);
     }
+    const assetIds = new Set(scene.assets.map((asset) => asset.id));
+    const nodeKinds = new Map(scene.nodes.map((node) => [node.id, node.kind] as const));
+    scene.materials = scene.materials
+      .map((material) => normalizeSceneSharedMaterial(material))
+      .filter((material): material is SceneSharedMaterialConfig => (
+        !!material && isRestorableSceneSharedMaterial(material, assetIds, nodeKinds)
+      ));
     return scene;
   }
 
@@ -458,11 +496,11 @@ export class ConfigService {
   }
 
   private normalizeSceneNode(node: SceneNodeConfig): void {
-    if (node.kind !== 'instance') return;
-    this.normalizeSceneInstanceNode(node);
+    if (node.kind !== 'instance' && node.kind !== 'transform') return;
+    this.normalizeSceneVisualNode(node);
   }
 
-  private normalizeSceneInstanceNode(node: SceneInstanceNode): void {
+  private normalizeSceneVisualNode(node: SceneInstanceNode | SceneTransformNode): void {
     const normalizedOverrides = normalizeSceneNodeOverrides(node.overrides);
     if (normalizedOverrides) {
       node.overrides = normalizedOverrides;

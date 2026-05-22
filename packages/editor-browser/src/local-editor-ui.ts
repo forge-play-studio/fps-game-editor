@@ -65,6 +65,7 @@ import type {
 export {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
+  formatLocalEditorBrowserInspectorValue,
   resolveLocalEditorBrowserInspectorControlRegistration,
 } from './local-editor-ui-panels';
 export type { LocalEditorBrowserInspectorRenderOptions } from './local-editor-ui-panels';

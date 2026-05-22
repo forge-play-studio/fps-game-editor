@@ -45,7 +45,6 @@ import {
 } from '../config';
 import {
   applyMaterialValueToRuntimeMaterial,
-  applyMaterialValueToRuntimeNode,
   resolveMaterialRuntimeKind,
   resolveMaterialOwnerNode,
   resolveOutlineTarget,
@@ -771,6 +770,12 @@ export class SceneBuilder {
       if (pbr.lightFalloff !== undefined) {
         applyMaterialValueToRuntimeMaterial(material, this.scene, 'material.pbr.lightFalloff', pbr.lightFalloff);
       }
+      this.applyRuntimeMaterialNumberProperty(material, 'directIntensity', pbr.directIntensity);
+      this.applyRuntimeMaterialNumberProperty(material, 'emissiveIntensity', pbr.emissiveIntensity);
+      this.applyRuntimeMaterialNumberProperty(material, 'environmentIntensity', pbr.environmentIntensity);
+      this.applyRuntimeMaterialNumberProperty(material, 'specularIntensity', pbr.specularIntensity);
+      this.applyRuntimeMaterialNumberProperty(material, 'metallicF0Factor', pbr.metallicF0Factor);
+      this.applyRuntimeMaterialNumberProperty(material, 'indexOfRefraction', pbr.indexOfRefraction);
       return;
     }
 
@@ -800,6 +805,11 @@ export class SceneBuilder {
         );
       }
     }
+  }
+
+  private applyRuntimeMaterialNumberProperty(material: any, key: string, value: number | undefined): void {
+    if (value === undefined || !(key in material)) return;
+    material[key] = value;
   }
 
   private detachOverrideMaterial(node: any, sceneNodeId: string, ownerNodePath: string): void {
@@ -1009,42 +1019,20 @@ export class SceneBuilder {
     sceneNodeId: string,
     asset?: SceneAssetConfig,
   ): void {
-    const ownerNode = resolveMaterialOwnerNode(rootNode, ownerNodePath)
-      ?? (!ownerNodePath ? rootNode.getChildMeshes(false).find((mesh) => !!(mesh as any)?.material) ?? null : null);
-    if (!ownerNode) return;
+    const ownerNode = this.resolveMaterialOverrideOwnerNode(rootNode, ownerNodePath);
+    if (!ownerNode?.material) return;
     if (asset && this.shouldShareAssetMaterials(asset)) {
       this.detachOverrideMaterial(ownerNode, sceneNodeId, ownerNodePath);
     }
 
-    const albedoColor = override.albedoColor ?? override.diffuseColor;
-    if (albedoColor) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.albedoColor', albedoColor);
-    }
-    if (override.emissiveColor) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.emissiveColor', override.emissiveColor);
-    }
-    if (override.metallic !== undefined) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.metallic', override.metallic);
-    }
-    if (override.roughness !== undefined) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.roughness', override.roughness);
-    }
-    if (override.alpha !== undefined) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.alpha', override.alpha);
-    }
-    if (override.backFaceCulling !== undefined) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.backFaceCulling', override.backFaceCulling);
-    }
-    if (override.albedoTexture !== undefined) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.albedoTexture.url', override.albedoTexture?.url ?? null);
-    }
-    if (override.normalTexture !== undefined) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.normalTexture.url', override.normalTexture?.url ?? null);
-    }
-    if (override.metallicTexture !== undefined) {
-      applyMaterialValueToRuntimeNode(ownerNode, this.scene, 'material.metallicTexture.url', override.metallicTexture?.url ?? null);
-    }
-    this.applyTypedMaterialLightingOverride((ownerNode as any)?.material, override);
+    this.applyMaterialPropertiesToRuntimeMaterial(ownerNode.material, override);
+  }
+
+  private resolveMaterialOverrideOwnerNode(rootNode: TransformNode, ownerNodePath: string): any | null {
+    const ownerNode = resolveMaterialOwnerNode(rootNode, ownerNodePath);
+    if (ownerNodePath) return ownerNode;
+    if (ownerNode?.material) return ownerNode;
+    return rootNode.getChildMeshes(false).find((mesh) => !!(mesh as any)?.material) ?? ownerNode ?? null;
   }
 
   private applyOutlineOverride(entity: TransformNode, override: OutlineOverrideConfig): void {
