@@ -29,8 +29,16 @@ export interface SceneMainSourceDriverOptions {
   fetchJson?: (url: string, init?: RequestInit) => Promise<Record<string, unknown>>;
 }
 
-interface SceneMainSourceSaveResult extends AuthoringSourceSaveResult<EditorSceneDocument> {
+export type SceneMainSourceSaveMode = 'local-commit-save' | 'prepare-platform-save';
+
+export interface SceneMainSourceSaveOptions {
+  mode?: SceneMainSourceSaveMode;
+}
+
+export interface SceneMainSourceSaveResult extends AuthoringSourceSaveResult<EditorSceneDocument> {
   compiledArtifact?: CompiledArtifact;
+  expectedVersion?: number;
+  sceneJsonText?: string;
 }
 
 export function createSceneMainSourceDriver(
@@ -96,13 +104,33 @@ export async function loadSceneMainSource(
 }
 
 export async function saveSceneMainSource(
-  request: (url: string, init?: RequestInit) => Promise<Record<string, unknown>> = fetchJson,
   editorScene: EditorSceneDocument,
+  options?: SceneMainSourceSaveOptions,
+): Promise<SceneMainSourceSaveResult>;
+export async function saveSceneMainSource(
+  request: (url: string, init?: RequestInit) => Promise<Record<string, unknown>>,
+  editorScene: EditorSceneDocument,
+  options?: SceneMainSourceSaveOptions,
+): Promise<SceneMainSourceSaveResult>;
+export async function saveSceneMainSource(
+  requestOrEditorScene: ((url: string, init?: RequestInit) => Promise<Record<string, unknown>>) | EditorSceneDocument = fetchJson,
+  editorSceneOrOptions?: EditorSceneDocument | SceneMainSourceSaveOptions,
+  maybeOptions: SceneMainSourceSaveOptions = {},
 ): Promise<SceneMainSourceSaveResult> {
+  const request = typeof requestOrEditorScene === 'function' ? requestOrEditorScene : fetchJson;
+  const editorScene = typeof requestOrEditorScene === 'function'
+    ? editorSceneOrOptions as EditorSceneDocument
+    : requestOrEditorScene;
+  const options = typeof requestOrEditorScene === 'function'
+    ? maybeOptions
+    : editorSceneOrOptions as SceneMainSourceSaveOptions | undefined;
   const saved = await request(`${PROJECT_AUTHORING_API_BASE}/save-editor-scene`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ editorScene }),
+    body: JSON.stringify({
+      editorScene,
+      mode: options?.mode ?? 'local-commit-save',
+    }),
   });
   const document = readEditorScene(saved.editorScene) ?? editorScene;
   const source = createEditorSceneAuthoringSourceDescriptor(document, readString(saved.editorScenePath));
@@ -111,6 +139,8 @@ export async function saveSceneMainSource(
     document,
     summary: summarizeSaveResult(saved),
     compiledArtifact: readCompiledRuntimeSceneArtifact(saved, source),
+    expectedVersion: typeof saved.expectedVersion === 'number' ? saved.expectedVersion : undefined,
+    sceneJsonText: typeof saved.sceneJsonText === 'string' ? saved.sceneJsonText : undefined,
   };
 }
 

@@ -368,6 +368,8 @@ http://localhost:5184
 
 `examples/mini-game-lab` 保留了 lumber_order 的真实资产、GameWorld、SceneBuilder、项目 adapter 和本地 authoring API，但默认关闭 Forge Play bridge。它用于在包仓库内快速模拟真实游戏闭环；`lumber_order + forge-play` 仍然是最终平台沙盒验收环境。
 
+保存链路分为两种语义：本地 `Save Scene` 使用 `local-commit-save`，同时写 `editor-scene.json` 和编译后的 `scene.json`；Forge Play `Save & Exit` 使用 `prepare-platform-save`，先保存 `editor-scene.json` 并导出 `sceneJsonText`，再交给平台现有保存 API 写 `scene.json`。平台随后发送的 `document.commit` 作为提交确认，尾部 `mode.change(play, save: true)` 不再重复保存同一次 authoring source。
+
 `mini-game-lab` 是 dev-only fixture，不参与 npm 包发布，也不要求提交它自己的 `node_modules` 或 lockfile。它的依赖声明留在 `examples/mini-game-lab/package.json`，不进入根包依赖。
 
 ### 自测命令
