@@ -1,3 +1,14 @@
+import type {
+  EditorPlacementMode,
+  EditorTransformConstraint,
+  EditorTransformAction,
+  EditorTransformHandleDescriptor,
+  EditorTransformOperationSettings,
+  EditorTransformSpace,
+  EditorTransformTool,
+  EditorTransformToolDescriptor,
+} from '@fps-games/editor-core';
+
 export type LocalEditorBrowserSerializedValueType =
   | 'string'
   | 'number'
@@ -140,11 +151,23 @@ export interface LocalEditorBrowserUiAssetItem {
   disabled?: boolean;
 }
 
-export type LocalEditorBrowserTransformTool = 'select' | 'move' | 'rotate' | 'scale';
+export type LocalEditorBrowserTransformTool = EditorTransformTool;
 
-export type LocalEditorBrowserTransformSpace = 'world' | 'local';
+export type LocalEditorBrowserTransformSpace = EditorTransformSpace;
 
-export type LocalEditorBrowserTransformConstraint = 'axis' | 'plane' | 'view-plane';
+export type LocalEditorBrowserTransformConstraint = EditorTransformConstraint;
+
+export type LocalEditorBrowserTransformHandleDescriptor = EditorTransformHandleDescriptor;
+
+export type LocalEditorBrowserTransformToolDescriptor = EditorTransformToolDescriptor;
+
+export type LocalEditorBrowserPlacementMode = EditorPlacementMode;
+
+export type LocalEditorBrowserTransformAction = EditorTransformAction;
+
+export type LocalEditorBrowserTransformOperationSettings = EditorTransformOperationSettings;
+
+export type LocalEditorBrowserTransformSnapStepKind = 'move' | 'rotate' | 'scale';
 
 export interface LocalEditorBrowserTransformToolState {
   activeTool: LocalEditorBrowserTransformTool;
@@ -152,6 +175,14 @@ export interface LocalEditorBrowserTransformToolState {
   activeConstraint?: LocalEditorBrowserTransformConstraint;
   dragPhase: 'idle' | 'dragging';
   draggingNodeId?: string | null;
+}
+
+export interface LocalEditorBrowserTransformOperationState {
+  settings: LocalEditorBrowserTransformOperationSettings;
+  selectedCount: number;
+  activeId: string | null;
+  canAlign: boolean;
+  canDistribute: boolean;
 }
 
 export interface LocalEditorBrowserHistoryEntry {
@@ -203,6 +234,7 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
     height: number;
   } | null;
   transformTool?: LocalEditorBrowserTransformToolState | null;
+  transformOperations?: LocalEditorBrowserTransformOperationState | null;
   session?: {
     source?: LocalEditorBrowserAuthoringSource | null;
     dirty: boolean;
@@ -341,6 +373,10 @@ export interface LocalEditorBrowserUiCallbacks {
   onTransformToolChange?: (tool: LocalEditorBrowserTransformTool) => void;
   onTransformSpaceChange?: (space: LocalEditorBrowserTransformSpace) => void;
   onTransformConstraintChange?: (constraint: LocalEditorBrowserTransformConstraint) => void;
+  onTransformSnapEnabledChange?: (enabled: boolean) => void;
+  onTransformSnapStepChange?: (input: { kind: LocalEditorBrowserTransformSnapStepKind; value: number }) => void;
+  onPlacementModeChange?: (mode: LocalEditorBrowserPlacementMode) => void;
+  onTransformAction?: (action: LocalEditorBrowserTransformAction) => void;
   onFocusSelection?: () => void;
   onCancelActiveOperation?: () => void;
   onSceneGraphRename?: (intent: LocalEditorBrowserSceneGraphRenameIntent) => void;

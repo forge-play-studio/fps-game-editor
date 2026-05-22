@@ -1,6 +1,10 @@
 import * as LocalEditorPanels from './local-editor-ui-panels';
 import { createLocalEditorHierarchyController } from './local-editor-ui-hierarchy-controller';
 import { createLocalEditorContextMenuController } from './local-editor-ui-context-menu';
+import {
+  DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
+  DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS,
+} from '@fps-games/editor-core';
 export {
   createLocalEditorHierarchyBlankMenu,
   createLocalEditorHierarchyDeleteShortcutAction,
@@ -53,9 +57,12 @@ import type {
   LocalEditorBrowserInspectorEditSource,
   LocalEditorBrowserInspectorPersistenceMode,
   LocalEditorBrowserInspectorProperty,
-  LocalEditorBrowserTransformConstraint,
+  LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserTransformAction,
   LocalEditorBrowserTransformSpace,
+  LocalEditorBrowserTransformSnapStepKind,
   LocalEditorBrowserTransformTool,
+  LocalEditorBrowserTransformToolState,
   LocalEditorBrowserUi,
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
@@ -89,6 +96,7 @@ export type {
   LocalEditorBrowserInspectorPersistenceMode,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserInspectorSection,
+  LocalEditorBrowserPlacementMode,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
   LocalEditorBrowserSceneGraphDeleteIntent,
   LocalEditorBrowserSceneGraphDropIntent,
@@ -102,6 +110,10 @@ export type {
   LocalEditorBrowserSerializedProperty,
   LocalEditorBrowserSerializedValueType,
   LocalEditorBrowserTransformConstraint,
+  LocalEditorBrowserTransformAction,
+  LocalEditorBrowserTransformOperationSettings,
+  LocalEditorBrowserTransformOperationState,
+  LocalEditorBrowserTransformSnapStepKind,
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformTool,
   LocalEditorBrowserTransformToolState,
@@ -314,14 +326,16 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const toolButtons = {
-    select: LocalEditorShared.createButton(doc, 'Q 选择'),
-    move: LocalEditorShared.createButton(doc, 'W 移动'),
-    rotate: LocalEditorShared.createButton(doc, 'E 旋转'),
-    scale: LocalEditorShared.createButton(doc, 'R 缩放'),
-  } satisfies Record<LocalEditorBrowserTransformTool, HTMLButtonElement>;
-  for (const [tool, button] of Object.entries(toolButtons) as Array<[LocalEditorBrowserTransformTool, HTMLButtonElement]>) {
-    button.dataset.transformTool = tool;
+  const toolButtons = new Map<LocalEditorBrowserTransformTool, HTMLButtonElement>();
+  const transformToolDescriptors = Object.values(DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS);
+  for (const descriptor of transformToolDescriptors) {
+    const shortcut = descriptor.shortcut ? `${descriptor.shortcut} ` : '';
+    const button = LocalEditorShared.createButton(doc, `${shortcut}${descriptor.label}`);
+    button.dataset.transformTool = descriptor.tool;
+    button.title = descriptor.handles.length > 0
+      ? `${descriptor.label} · ${descriptor.handles.map(handle => handle.label).join(' / ')}`
+      : descriptor.label;
+    toolButtons.set(descriptor.tool, button);
     toolGroup.appendChild(button);
   }
   const spaceGroup = doc.createElement('div');
@@ -340,17 +354,119 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     button.dataset.transformSpace = space;
     spaceGroup.appendChild(button);
   }
-  const constraintGroup = doc.createElement('div');
-  constraintGroup.style.cssText = [
+  const handleGroup = doc.createElement('div');
+  handleGroup.style.cssText = [
     'display:flex',
     'align-items:center',
     'gap:4px',
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const viewPlaneButton = LocalEditorShared.createButton(doc, '视图平面');
-  viewPlaneButton.dataset.transformConstraint = 'view-plane';
-  constraintGroup.appendChild(viewPlaneButton);
+  const snapGroup = doc.createElement('div');
+  snapGroup.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'gap:4px',
+    'padding-left:8px',
+    'border-left:1px solid var(--fps-editor-divider)',
+  ].join(';');
+  const snapButton = LocalEditorShared.createButton(doc, '吸附');
+  snapButton.dataset.transformSnapToggle = 'true';
+  snapButton.title = '移动 / 旋转 / 缩放吸附';
+  const snapStepInputs = new Map<LocalEditorBrowserTransformSnapStepKind, HTMLInputElement>();
+  for (const [kind, label, title] of [
+    ['move', 'M', '移动吸附步长'],
+    ['rotate', 'R', '旋转吸附角度'],
+    ['scale', 'S', '缩放吸附步长'],
+  ] as Array<[LocalEditorBrowserTransformSnapStepKind, string, string]>) {
+    const input = doc.createElement('input');
+    input.type = 'number';
+    input.min = '0.0001';
+    input.step = kind === 'rotate' ? '1' : '0.1';
+    input.dataset.transformSnapStep = kind;
+    input.title = `${label} · ${title}`;
+    input.style.cssText = [
+      'width:46px',
+      'height:26px',
+      'box-sizing:border-box',
+      'border:1px solid var(--fps-editor-border)',
+      'border-radius:3px',
+      'background:var(--fps-editor-field)',
+      'color:var(--fps-editor-text)',
+      'font-size:11px',
+      'font-weight:800',
+      'padding:0 4px',
+    ].join(';');
+    snapStepInputs.set(kind, input);
+  }
+  snapGroup.appendChild(snapButton);
+  for (const input of snapStepInputs.values()) snapGroup.appendChild(input);
+  const placementGroup = doc.createElement('div');
+  placementGroup.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'gap:4px',
+    'padding-left:8px',
+    'border-left:1px solid var(--fps-editor-divider)',
+  ].join(';');
+  const placementLabel = doc.createElement('span');
+  placementLabel.textContent = '放置';
+  placementLabel.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;font-weight:900;white-space:nowrap';
+  const placementButtons = {
+    off: LocalEditorShared.createButton(doc, '关'),
+    ground: LocalEditorShared.createButton(doc, '地'),
+    surface: LocalEditorShared.createButton(doc, '表'),
+  } satisfies Record<LocalEditorBrowserPlacementMode, HTMLButtonElement>;
+  placementButtons.off.title = '关闭放置模式';
+  placementButtons.ground.title = '放置到 XZ 地面';
+  placementButtons.surface.title = '放置到场景表面';
+  placementGroup.appendChild(placementLabel);
+  for (const [mode, button] of Object.entries(placementButtons) as Array<[LocalEditorBrowserPlacementMode, HTMLButtonElement]>) {
+    button.dataset.placementMode = mode;
+    placementGroup.appendChild(button);
+  }
+  const actionGroup = doc.createElement('div');
+  actionGroup.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'gap:4px',
+    'padding-left:8px',
+    'border-left:1px solid var(--fps-editor-divider)',
+  ].join(';');
+  const transformActionSelect = doc.createElement('select');
+  transformActionSelect.dataset.transformActionSelect = 'true';
+  transformActionSelect.title = '多选对齐 / 分布';
+  transformActionSelect.style.cssText = [
+    'height:26px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-field)',
+    'color:var(--fps-editor-text)',
+    'font-size:11px',
+    'font-weight:800',
+    'padding:0 4px',
+  ].join(';');
+  let selectedTransformAction: LocalEditorBrowserTransformAction = 'align-all';
+  for (const action of [
+    'align-x',
+    'align-y',
+    'align-z',
+    'align-all',
+    'distribute-x',
+    'distribute-y',
+    'distribute-z',
+  ] as LocalEditorBrowserTransformAction[]) {
+    const option = doc.createElement('option');
+    option.value = action;
+    option.textContent = LocalEditorShared.toTransformActionLabel(action);
+    transformActionSelect.appendChild(option);
+  }
+  transformActionSelect.value = selectedTransformAction;
+  const transformActionButton = LocalEditorShared.createButton(doc, '执行');
+  transformActionButton.dataset.transformActionRun = 'true';
+  transformActionButton.title = '对当前多选执行 Transform 操作';
+  actionGroup.appendChild(transformActionSelect);
+  actionGroup.appendChild(transformActionButton);
   const sceneToolStatus = doc.createElement('span');
   sceneToolStatus.style.cssText = [
     'max-width:220px',
@@ -385,7 +501,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneToolOverlay.appendChild(sceneQuickActions);
   sceneToolOverlay.appendChild(toolGroup);
   sceneToolOverlay.appendChild(spaceGroup);
-  sceneToolOverlay.appendChild(constraintGroup);
+  sceneToolOverlay.appendChild(handleGroup);
+  sceneToolOverlay.appendChild(snapGroup);
+  sceneToolOverlay.appendChild(placementGroup);
+  sceneToolOverlay.appendChild(actionGroup);
   sceneToolOverlay.appendChild(sceneToolStatus);
   sceneToolOverlay.appendChild(sceneMouseHint);
   sceneToolOverlay.appendChild(status);
@@ -439,14 +558,35 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const space = target?.closest<HTMLButtonElement>('[data-transform-space]')?.dataset.transformSpace as LocalEditorBrowserTransformSpace | undefined;
     if (space) callbacks.onTransformSpaceChange?.(space);
   });
-  constraintGroup.addEventListener('click', (event) => {
-    const target = event.target instanceof HTMLElement ? event.target : null;
-    const constraint = target?.closest<HTMLButtonElement>('[data-transform-constraint]')?.dataset.transformConstraint as LocalEditorBrowserTransformConstraint | undefined;
-    if (!constraint) return;
-    const currentConstraint = currentState?.transformTool?.activeConstraint ?? 'axis';
-    callbacks.onTransformConstraintChange?.(currentConstraint === constraint ? 'axis' : constraint);
+  snapButton.addEventListener('click', () => {
+    const enabled = currentState?.transformOperations?.settings.snap.enabled
+      ?? DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS.snap.enabled;
+    callbacks.onTransformSnapEnabledChange?.(!enabled);
   });
-
+  snapGroup.addEventListener('change', (event) => {
+    const input = event.target instanceof HTMLInputElement ? event.target : null;
+    const kind = input?.dataset.transformSnapStep as LocalEditorBrowserTransformSnapStepKind | undefined;
+    if (!input || !kind) return;
+    const value = Number(input.value);
+    if (!Number.isFinite(value) || value <= 0) {
+      const settings = currentState?.transformOperations?.settings ?? DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS;
+      input.value = formatSnapStepInputValue(settings.snap, kind);
+      return;
+    }
+    callbacks.onTransformSnapStepChange?.({ kind, value });
+  });
+  placementGroup.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const mode = target?.closest<HTMLButtonElement>('[data-placement-mode]')?.dataset.placementMode as LocalEditorBrowserPlacementMode | undefined;
+    if (mode) callbacks.onPlacementModeChange?.(mode);
+  });
+  transformActionSelect.addEventListener('change', () => {
+    selectedTransformAction = transformActionSelect.value as LocalEditorBrowserTransformAction;
+    if (currentState) render(currentState);
+  });
+  transformActionButton.addEventListener('click', () => {
+    callbacks.onTransformAction?.(selectedTransformAction);
+  });
   assetPanel.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
     const tabButton = target?.closest<HTMLButtonElement>('[data-editor-dock-tab]');
@@ -620,6 +760,55 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       : value.replace(/["\\]/g, '\\$&');
   }
 
+  function renderTransformHandleBadges(transformTool: LocalEditorBrowserTransformToolState | null): void {
+    LocalEditorShared.clearElement(handleGroup);
+    const tool = transformTool?.activeTool ?? 'select';
+    const descriptor = DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS[tool];
+    handleGroup.style.display = descriptor.handles.length > 0 ? 'flex' : 'none';
+    for (const handle of descriptor.handles) {
+      const badge = doc.createElement('span');
+      badge.dataset.transformHandle = handle.constraint;
+      badge.title = handle.description;
+      badge.textContent = handle.label;
+      badge.style.cssText = [
+        'height:22px',
+        'display:inline-flex',
+        'align-items:center',
+        'padding:0 7px',
+        'border:1px solid var(--fps-editor-border)',
+        'border-radius:3px',
+        'background:var(--fps-editor-field)',
+        'color:var(--fps-editor-muted-strong)',
+        'font-size:11px',
+        'font-weight:800',
+        'white-space:nowrap',
+        'pointer-events:none',
+      ].join(';');
+      handleGroup.appendChild(badge);
+    }
+  }
+
+  function formatSnapStepInputValue(
+    snap: { moveStep: number; rotateStepDegrees: number; scaleStep: number },
+    kind: LocalEditorBrowserTransformSnapStepKind,
+  ): string {
+    const value = kind === 'move'
+      ? snap.moveStep
+      : kind === 'rotate'
+        ? snap.rotateStepDegrees
+        : snap.scaleStep;
+    return Number.isFinite(value) ? String(value) : '';
+  }
+
+  function isTransformActionEnabled(
+    action: LocalEditorBrowserTransformAction,
+    operationState: NonNullable<LocalEditorBrowserUiState<TDocument>['transformOperations']>,
+  ): boolean {
+    return action.startsWith('align-')
+      ? operationState.canAlign
+      : operationState.canDistribute;
+  }
+
   const render = (state: LocalEditorBrowserUiState<TDocument>): void => {
     currentState = state;
     const focusSnapshot = captureEditableFocus(doc);
@@ -637,7 +826,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const transformTool = state.transformTool ?? null;
     workbench.root.style.display = inEditor ? '' : 'none';
     sceneToolOverlay.style.display = inEditor ? 'flex' : 'none';
-    for (const [tool, button] of Object.entries(toolButtons) as Array<[LocalEditorBrowserTransformTool, HTMLButtonElement]>) {
+    for (const [tool, button] of toolButtons) {
       button.disabled = disabled;
       LocalEditorShared.applyButtonActiveState(button, transformTool?.activeTool === tool);
     }
@@ -646,8 +835,33 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       LocalEditorShared.applyButtonActiveState(button, transformTool?.activeSpace === space);
     }
     sceneHelpButton.disabled = disabled;
-    viewPlaneButton.disabled = disabled || transformTool?.activeTool !== 'move';
-    LocalEditorShared.applyButtonActiveState(viewPlaneButton, transformTool?.activeTool === 'move' && transformTool?.activeConstraint === 'view-plane');
+    renderTransformHandleBadges(transformTool);
+    const transformOperations = state.transformOperations ?? {
+      settings: DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
+      selectedCount: state.selectedIds.length,
+      activeId: state.activeId,
+      canAlign: false,
+      canDistribute: false,
+    };
+    const operationSettings = transformOperations.settings;
+    snapGroup.style.display = inEditor ? 'flex' : 'none';
+    snapButton.disabled = disabled;
+    LocalEditorShared.applyButtonActiveState(snapButton, operationSettings.snap.enabled);
+    for (const [kind, input] of snapStepInputs) {
+      input.disabled = disabled;
+      if (doc.activeElement !== input) input.value = formatSnapStepInputValue(operationSettings.snap, kind);
+    }
+    placementGroup.style.display = inEditor ? 'flex' : 'none';
+    for (const [mode, button] of Object.entries(placementButtons) as Array<[LocalEditorBrowserPlacementMode, HTMLButtonElement]>) {
+      button.disabled = disabled;
+      LocalEditorShared.applyButtonActiveState(button, operationSettings.placementMode === mode);
+    }
+    actionGroup.style.display = inEditor ? 'flex' : 'none';
+    transformActionSelect.disabled = disabled;
+    transformActionButton.disabled = disabled || !isTransformActionEnabled(selectedTransformAction, transformOperations);
+    transformActionButton.title = selectedTransformAction.startsWith('align-')
+      ? '需要至少 2 个选中对象，并以 active object 为目标'
+      : '需要至少 3 个选中对象';
     undoButton.disabled = disabled || !state.session?.canUndo;
     redoButton.disabled = disabled || !state.session?.canRedo;
     LocalEditorShared.applyButtonActiveState(sceneHelpButton, inEditor && helpOpen);
@@ -673,10 +887,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
           : 'var(--fps-editor-muted)';
     sceneToolStatus.textContent = transformTool?.dragPhase === 'dragging'
       ? `正在拖拽 ${transformTool.draggingNodeId ?? '选择对象'}`
-      : `${LocalEditorShared.toTransformToolLabel(transformTool?.activeTool ?? 'select')} · ${LocalEditorShared.toTransformSpaceLabel(transformTool?.activeSpace ?? 'world')}${transformTool?.activeConstraint === 'view-plane' ? ' · 视图平面' : ''}`;
-    sceneMouseHint.textContent = transformTool?.activeConstraint === 'view-plane'
-      ? '视图平面移动 · 左键拖拽选中对象 · Esc 取消'
-      : '左键选择 · 空白拖拽框选 · 中键平移 · Alt+左键环绕 · 右键飞行 · 滚轮缩放';
+      : LocalEditorShared.toTransformToolStatusLabel(
+          transformTool?.activeTool ?? 'select',
+          transformTool?.activeSpace ?? 'world',
+        );
+    sceneMouseHint.textContent = [
+      LocalEditorShared.toTransformMouseHint(transformTool?.activeTool ?? 'select'),
+      LocalEditorShared.toTransformOperationStatusLabel(operationSettings),
+    ].join(' · ');
     const boxSelection = state.boxSelection;
     if (inEditor && boxSelection?.active) {
       boxSelectionOverlay.style.display = '';

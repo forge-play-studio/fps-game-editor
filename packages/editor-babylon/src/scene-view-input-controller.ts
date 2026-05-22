@@ -28,6 +28,7 @@ export interface BabylonSceneViewInputControllerOptions {
   isEnabled?: () => boolean;
   isGizmoDragCandidate?: (event: PointerEvent) => boolean;
   isViewPlaneMoveCandidate?: (event: PointerEvent) => boolean;
+  isPlacementCandidate?: (event: PointerEvent) => boolean;
   isBoxSelectCandidate?: (event: PointerEvent) => boolean;
   boxSelectDragThresholdPx?: number;
   onPointerIntentStart?: (event: BabylonSceneViewInputPointerEvent) => void;
@@ -262,6 +263,7 @@ function classifyPointerIntent(
 ): SceneViewPointerIntent | null {
   if (options.isGizmoDragCandidate?.(event)) return 'gizmo-drag';
   if (options.isViewPlaneMoveCandidate?.(event)) return 'view-plane-move';
+  if (button === 'left' && options.isPlacementCandidate?.(event)) return 'placement';
   if (event.altKey && button === 'left') return 'orbit';
   if (event.altKey && button === 'middle') return 'pan';
   if (event.altKey && button === 'right') return 'dolly';
@@ -288,6 +290,7 @@ function readModifiers(event: PointerEvent | KeyboardEvent): SceneViewInputModif
 }
 
 function toNavigationMode(intent: SceneViewPointerIntent): SceneViewNavigationMode {
+  if (intent === 'placement') return 'none';
   if (intent === 'orbit' || intent === 'pan' || intent === 'dolly' || intent === 'flythrough') return intent;
   return 'none';
 }

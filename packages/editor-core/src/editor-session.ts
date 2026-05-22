@@ -93,6 +93,10 @@ export interface EditorSessionDispatchResult<TDocument> {
   transaction?: UndoTransaction<TDocument>;
 }
 
+export interface EditorSessionDispatchOptions {
+  mergeWithPrevious?: boolean;
+}
+
 export interface EditorSessionOptions<TDocument, TPatch = unknown> {
   source?: AuthoringSourceDescriptor;
   persistedDocument: TDocument;
@@ -304,7 +308,10 @@ export class EditorSession<TDocument, TPatch = unknown> {
     return this.getState();
   }
 
-  dispatch(command: EditorCommand<TDocument, TPatch>): EditorSessionDispatchResult<TDocument> {
+  dispatch(
+    command: EditorCommand<TDocument, TPatch>,
+    options: EditorSessionDispatchOptions = {},
+  ): EditorSessionDispatchResult<TDocument> {
     const beforeDocument = this.cloneDocument(this.workingDocument);
     const beforeSelection = this.selection;
     if (isSelectionCommand(command)) {
@@ -323,7 +330,7 @@ export class EditorSession<TDocument, TPatch = unknown> {
     const documentChanged = !this.compareDocuments(beforeDocument, this.workingDocument);
     const selectionChanged = !selectionEquals(beforeSelection, this.selection);
     const transaction = documentChanged && isDocumentCommand(command)
-      ? this.pushTransaction(command, beforeDocument, this.workingDocument)
+      ? this.pushTransaction(command, beforeDocument, this.workingDocument, options)
       : undefined;
     return {
       command,
@@ -386,7 +393,18 @@ export class EditorSession<TDocument, TPatch = unknown> {
     command: DocumentCommand<TDocument, TPatch>,
     beforeDocument: TDocument,
     afterDocument: TDocument,
+    options: EditorSessionDispatchOptions,
   ): UndoTransaction<TDocument> {
+    const previous = options.mergeWithPrevious ? this.undoStack[this.undoStack.length - 1] : undefined;
+    if (previous) {
+      previous.afterDocument = this.cloneDocument(afterDocument);
+      this.redoStack = [];
+      return {
+        ...previous,
+        beforeDocument: this.cloneDocument(previous.beforeDocument),
+        afterDocument: this.cloneDocument(previous.afterDocument),
+      };
+    }
     const transaction: UndoTransaction<TDocument> = {
       id: `transaction_${this.nextTransactionId++}`,
       label: command.label ?? command.type,

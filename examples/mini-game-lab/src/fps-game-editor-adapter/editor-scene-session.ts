@@ -2,6 +2,7 @@ import {
   applySerializedPropertyPatch,
   createSerializedObject,
   type DocumentCommand,
+  type EditorPlacementHit,
   type EditorTransformSnapshot,
   type InspectorObject,
   type InspectorProperty,
@@ -64,6 +65,7 @@ export type EditorSceneDocumentPatch =
   | {
     kind: 'game-object.create-from-asset';
     assetItem: EditorSceneAssetLibraryItem;
+    placement?: EditorTransformSnapshot;
   }
   | {
     kind: 'game-object.transform';
@@ -76,6 +78,10 @@ export type EditorSceneDocumentPatch =
       targetId: string;
       transform: Partial<EditorTransformSnapshot>;
     }>;
+  }
+  | {
+    kind: 'game-object.duplicate-selection';
+    gameObjects: EditorSceneGameObject[];
   }
   | {
     kind: 'game-object.rename';
@@ -132,7 +138,7 @@ export function reduceEditorSceneDocument(
     return patchEditorSceneGameObjectField(document, patch.targetId, patch.path, patch.value);
   }
   if (patch.kind === 'game-object.create-from-asset') {
-    return addAssetLibraryItemToEditorSceneDocument(document, patch.assetItem).document;
+    return addAssetLibraryItemToEditorSceneDocument(document, patch.assetItem, patch.placement).document;
   }
   if (patch.kind === 'game-object.transform') {
     return patchEditorSceneGameObjectTransform(document, patch.targetId, {
@@ -160,6 +166,17 @@ export function reduceEditorSceneDocument(
       },
       document,
     );
+  }
+  if (patch.kind === 'game-object.duplicate-selection') {
+    const existingIds = new Set(document.scene.gameObjects.map((gameObject) => gameObject.id));
+    const gameObjects = patch.gameObjects.filter((gameObject) => !existingIds.has(gameObject.id));
+    if (gameObjects.length === 0) return document;
+    return {
+      ...document,
+      scene: {
+        gameObjects: [...document.scene.gameObjects, ...gameObjects],
+      },
+    };
   }
   if (patch.kind === 'game-object.rename') {
     const name = patch.name.trim();
@@ -627,6 +644,74 @@ export function createEditorSceneGroupSelectionPatch(
     },
     createdId: id,
     changedIds: [id, ...ids],
+  };
+}
+
+export function createEditorSceneDuplicateSelectionPatch(input: {
+  document: EditorSceneDocument;
+  targetIds: string[];
+  activeId: string | null;
+}): { patch: EditorSceneDocumentPatch; label: string; createdIds: string[]; activeId: string | null; changedIds: string[] } | null {
+  const idMap = new Map<string, string>();
+  const usedIds = new Set(input.document.scene.gameObjects.map((gameObject) => gameObject.id));
+  for (const targetId of input.targetIds) {
+    const source = findEditorSceneGameObject(input.document, targetId);
+    if (!source || source.id === 'mvp_root') continue;
+    const duplicateId = createUniqueEditorSceneId([...usedIds], `${source.id}_copy`);
+    usedIds.add(duplicateId);
+    idMap.set(source.id, duplicateId);
+  }
+  const gameObjects = input.targetIds
+    .map((targetId) => findEditorSceneGameObject(input.document, targetId))
+    .filter((source): source is EditorSceneGameObject => !!source && idMap.has(source.id))
+    .map((source) => {
+      const duplicate = structuredClone(source);
+      duplicate.id = idMap.get(source.id)!;
+      duplicate.name = `${source.name ?? source.id} Copy`;
+      if (duplicate.parentId && idMap.has(duplicate.parentId)) {
+        duplicate.parentId = idMap.get(duplicate.parentId)!;
+      }
+      return duplicate;
+    });
+  if (gameObjects.length === 0) return null;
+  const createdIds = gameObjects.map((gameObject) => gameObject.id);
+  const activeId = input.activeId && idMap.has(input.activeId)
+    ? idMap.get(input.activeId)!
+    : createdIds[createdIds.length - 1] ?? null;
+  return {
+    label: `Duplicate ${createdIds.length} object${createdIds.length === 1 ? '' : 's'}`,
+    patch: {
+      kind: 'game-object.duplicate-selection',
+      gameObjects,
+    },
+    createdIds,
+    activeId,
+    changedIds: createdIds,
+  };
+}
+
+export function createEditorScenePlacedAssetPatch(input: {
+  document: EditorSceneDocument;
+  asset: EditorSceneAssetLibraryItem;
+  hit: EditorPlacementHit;
+}): { patch: EditorSceneDocumentPatch; label: string; createdId: string; changedIds: string[] } {
+  const id = createUniqueEditorSceneId(
+    input.document.scene.gameObjects.map((gameObject) => gameObject.id),
+    sanitizeEditorSceneId(input.asset.sourceId),
+  );
+  return {
+    label: `Place ${input.asset.displayName}`,
+    patch: {
+      kind: 'game-object.create-from-asset',
+      assetItem: input.asset,
+      placement: {
+        position: { ...input.hit.position },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+    },
+    createdId: id,
+    changedIds: [id],
   };
 }
 
@@ -3334,12 +3419,13 @@ export function applyEditorSceneSerializedPropertyPatch(
 export function addAssetLibraryItemToEditorSceneDocument(
   document: EditorSceneDocument,
   assetItem: EditorSceneAssetLibraryItem,
+  placement?: EditorTransformSnapshot,
 ): { document: EditorSceneDocument; gameObject: EditorSceneGameObject } {
   const existingAsset = document.assets.find((asset) => asset.sourceId === assetItem.sourceId);
   const asset = existingAsset
     ? mergeEditorSceneAssetWithLibraryItem(existingAsset, assetItem)
     : createEditorSceneAssetFromLibraryItem(document, assetItem);
-  const gameObject = createGameObjectForAsset(document, assetItem, asset.id);
+  const gameObject = createGameObjectForAsset(document, assetItem, asset.id, placement);
   return {
     document: {
       ...document,
@@ -3503,14 +3589,15 @@ function createGameObjectForAsset(
   document: EditorSceneDocument,
   assetItem: EditorSceneAssetLibraryItem,
   assetId: string,
+  placement?: EditorTransformSnapshot,
 ): EditorSceneGameObject {
   const usedIds = document.scene.gameObjects.map((gameObject) => gameObject.id);
   const id = createUniqueEditorSceneId(usedIds, sanitizeEditorSceneId(assetItem.sourceId));
   const parentId = resolveEditorSceneRootContainerId(document);
   const worldTransform: EditorTransformSnapshot = {
-    position: getNextPlacementPosition(document),
-    rotation: { x: 0, y: 0, z: 0 },
-    scale: { x: 1, y: 1, z: 1 },
+    position: placement?.position ?? getNextPlacementPosition(document),
+    rotation: placement?.rotation ?? { x: 0, y: 0, z: 0 },
+    scale: placement?.scale ?? { x: 1, y: 1, z: 1 },
   };
   const localTransform = parentId
     ? toLocalTransformForParent(document, parentId, worldTransform) ?? worldTransform

@@ -1,4 +1,8 @@
 import type {
+  EditorPlacementHit,
+  EditorPlacementMode,
+  EditorTransformOperationSettings,
+  EditorTransformCanonicalConstraint,
   EditorSelectionState,
   EditorTransformBatchCommit,
   EditorTransformConstraint,
@@ -10,6 +14,11 @@ import type {
   EditorTransformTargetSnapshot,
   EditorTransformTool,
   EditorTransformVec3,
+} from '@fps-games/editor-core';
+import {
+  DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
+  normalizeEditorTransformConstraint,
+  snapEditorTransformSnapshot,
 } from '@fps-games/editor-core';
 import type {
   BabylonRuntimeGlobal,
@@ -23,13 +32,56 @@ export interface BabylonTransformGizmoDragEvent {
   activeId: string | null;
   tool: Exclude<EditorTransformTool, 'select'>;
   space: EditorTransformSpace;
-  constraint: EditorTransformConstraint;
+  constraint: EditorTransformCanonicalConstraint;
   pivot: EditorTransformPivot;
   before: EditorTransformSnapshot | null;
   beforeTransforms: Record<string, EditorTransformSnapshot>;
+  duplicate: boolean;
 }
 
 export type BabylonTransformGizmoCommit = EditorTransformGizmoCommit | EditorTransformBatchCommit;
+
+export interface BabylonTransformGizmoDuplicateDragInput {
+  targetIds: string[];
+  activeId: string | null;
+  tool: Exclude<EditorTransformTool, 'select'>;
+  space: EditorTransformSpace;
+  constraint: EditorTransformCanonicalConstraint;
+  beforeTransforms: Record<string, EditorTransformSnapshot>;
+}
+
+export interface BabylonTransformGizmoDuplicateDragResult {
+  targetIds: string[];
+  activeId?: string | null;
+}
+
+export type BabylonTransformGizmoHandleKey =
+  | 'xGizmo'
+  | 'yGizmo'
+  | 'zGizmo'
+  | 'xPlaneGizmo'
+  | 'yPlaneGizmo'
+  | 'zPlaneGizmo'
+  | 'uniformScaleGizmo';
+
+export function resolveBabylonTransformHandleConstraint(
+  tool: Exclude<EditorTransformTool, 'select'>,
+  handleKey: BabylonTransformGizmoHandleKey,
+): EditorTransformCanonicalConstraint | null {
+  if (tool === 'move') {
+    if (handleKey === 'xPlaneGizmo' || handleKey === 'yPlaneGizmo' || handleKey === 'zPlaneGizmo') return 'plane';
+    if (handleKey === 'xGizmo' || handleKey === 'yGizmo' || handleKey === 'zGizmo') return 'axis';
+    return null;
+  }
+  if (tool === 'rotate') {
+    return handleKey === 'xGizmo' || handleKey === 'yGizmo' || handleKey === 'zGizmo' ? 'axis' : null;
+  }
+  if (tool === 'scale') {
+    if (handleKey === 'uniformScaleGizmo') return 'uniform';
+    return handleKey === 'xGizmo' || handleKey === 'yGizmo' || handleKey === 'zGizmo' ? 'axis' : null;
+  }
+  return null;
+}
 
 export interface BabylonTransformGizmoControllerOptions {
   babylon: BabylonRuntimeGlobal;
@@ -41,6 +93,7 @@ export interface BabylonTransformGizmoControllerOptions {
   onDragUpdate?: (event: BabylonTransformGizmoDragEvent & { current: EditorTransformSnapshot }) => void;
   onDragEnd?: (event: BabylonTransformGizmoCommit) => void;
   onDragCancel?: (event: BabylonTransformGizmoDragEvent) => void;
+  onDuplicateDragStart?: (input: BabylonTransformGizmoDuplicateDragInput) => BabylonTransformGizmoDuplicateDragResult | null;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -49,6 +102,8 @@ export interface BabylonTransformGizmoController {
   setTool(tool: EditorTransformTool): void;
   setSpace(space: EditorTransformSpace): void;
   setConstraint(constraint: EditorTransformConstraint): void;
+  setOperationSettings(settings: EditorTransformOperationSettings): void;
+  preparePointerDrag(event: PointerEvent): void;
   setSelectedNode(nodeId: string | null): void;
   setSelection(selection: EditorSelectionState): void;
   refreshSelection(): void;
@@ -57,6 +112,8 @@ export interface BabylonTransformGizmoController {
   beginViewPlaneMove(event: PointerEvent): boolean;
   updateViewPlaneMove(event: PointerEvent): boolean;
   endViewPlaneMove(event: PointerEvent): boolean;
+  pickPlacementHit(clientX: number, clientY: number, mode: EditorPlacementMode): EditorPlacementHit | null;
+  setPlacementMarker(hit: EditorPlacementHit | null): void;
   cancelDrag(): void;
   dispose(): void;
 }
@@ -67,10 +124,12 @@ interface ActiveDrag {
   activeId: string | null;
   tool: Exclude<EditorTransformTool, 'select'>;
   space: EditorTransformSpace;
-  constraint: EditorTransformConstraint;
+  constraint: EditorTransformCanonicalConstraint;
   pivot: EditorTransformPivot;
   before: EditorTransformSnapshot | null;
   beforeTransforms: Record<string, EditorTransformSnapshot>;
+  duplicate: boolean;
+  proxyStart?: EditorTransformSnapshot;
   viewPlane?: {
     pointerId: number;
     startPoint: EditorTransformVec3;
@@ -92,13 +151,19 @@ export function createBabylonTransformGizmoController(
 
   let tool: EditorTransformTool = options.initialTool ?? 'select';
   let space: EditorTransformSpace = options.initialSpace ?? 'world';
-  let constraint: EditorTransformConstraint = 'axis';
+  let constraint: EditorTransformCanonicalConstraint = normalizeConstraintForTool(tool, 'axis') ?? 'axis';
   let selectedNodeId: string | null = null;
   let selectedNodeIds: string[] = [];
   let activeDrag: ActiveDrag | null = null;
   let disposed = false;
+  let operationSettings = cloneOperationSettings(DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS);
+  let pendingDuplicateDrag = false;
   let observerDisposers: ObserverDisposer[] = [];
   let pivotProxy: any | null = null;
+  let freeMoveHandle: any | null = null;
+  let freeMoveHandleMaterial: any | null = null;
+  let placementMarker: any | null = null;
+  let placementMarkerMaterial: any | null = null;
   const canvas = options.scene.getEngine?.().getRenderingCanvas?.() as HTMLCanvasElement | null | undefined;
 
   function activeTransformTool(): Exclude<EditorTransformTool, 'select'> | null {
@@ -115,6 +180,19 @@ export function createBabylonTransformGizmoController(
     return selectedNodeIds.filter(nodeId => !!options.projection.getAttachableRoot(nodeId));
   }
 
+  function getCurrentTransformTargetIds(): string[] {
+    return selectedNodeIds.length > 1
+      ? getBatchTransformTargetIds()
+      : [getActiveTargetId()].filter((nodeId): nodeId is string => !!nodeId);
+  }
+
+  function normalizeConstraintForTool(
+    nextTool: EditorTransformTool,
+    nextConstraint?: EditorTransformConstraint | null,
+  ): EditorTransformCanonicalConstraint | undefined {
+    return normalizeEditorTransformConstraint(nextTool, nextConstraint);
+  }
+
   function ensurePivotProxy(): any | null {
     if (pivotProxy) return pivotProxy;
     const TransformNode = (options.babylon as any).TransformNode;
@@ -127,12 +205,15 @@ export function createBabylonTransformGizmoController(
     return pivotProxy;
   }
 
-  function setPivotProxyTransform(pivot: EditorTransformPivot): any | null {
+  function setPivotProxyTransform(
+    pivot: EditorTransformPivot,
+    rotation: EditorTransformVec3 = { x: 0, y: 0, z: 0 },
+  ): any | null {
     const proxy = ensurePivotProxy();
     const Vector3 = options.babylon.Vector3;
     if (!proxy || !Vector3) return null;
     proxy.position = new Vector3(pivot.position.x, pivot.position.y, pivot.position.z);
-    proxy.rotation = new Vector3(0, 0, 0);
+    proxy.rotation = new Vector3(rotation.x, rotation.y, rotation.z);
     proxy.scaling = new Vector3(1, 1, 1);
     return proxy;
   }
@@ -150,19 +231,24 @@ export function createBabylonTransformGizmoController(
     });
   }
 
-  function registerDragObserversFor(gizmo: any): void {
-    const axisGizmos = [
-      gizmo?.xGizmo,
-      gizmo?.yGizmo,
-      gizmo?.zGizmo,
-      gizmo?.uniformScaleGizmo,
-      gizmo?.xPlaneGizmo,
-      gizmo?.yPlaneGizmo,
-      gizmo?.zPlaneGizmo,
+  function registerDragObserversFor(
+    activeTool: Exclude<EditorTransformTool, 'select'>,
+    gizmo: any,
+  ): void {
+    const handleKeys: BabylonTransformGizmoHandleKey[] = [
+      'xGizmo',
+      'yGizmo',
+      'zGizmo',
+      'uniformScaleGizmo',
+      'xPlaneGizmo',
+      'yPlaneGizmo',
+      'zPlaneGizmo',
     ];
-    for (const axis of axisGizmos) {
-      const behavior = axis?.dragBehavior;
-      addObserver(behavior?.onDragStartObservable, beginDrag);
+    for (const handleKey of handleKeys) {
+      const activeConstraint = resolveBabylonTransformHandleConstraint(activeTool, handleKey);
+      if (!activeConstraint) continue;
+      const behavior = gizmo?.[handleKey]?.dragBehavior;
+      addObserver(behavior?.onDragStartObservable, () => beginDrag(activeConstraint));
       addObserver(behavior?.onDragObservable, updateDrag);
       addObserver(behavior?.onDragEndObservable, endDrag);
     }
@@ -170,9 +256,9 @@ export function createBabylonTransformGizmoController(
 
   function registerDragObservers(): void {
     clearDragObservers();
-    registerDragObserversFor(manager.gizmos?.positionGizmo);
-    registerDragObserversFor(manager.gizmos?.rotationGizmo);
-    registerDragObserversFor(manager.gizmos?.scaleGizmo);
+    registerDragObserversFor('move', manager.gizmos?.positionGizmo);
+    registerDragObserversFor('rotate', manager.gizmos?.rotationGizmo);
+    registerDragObserversFor('scale', manager.gizmos?.scaleGizmo);
   }
 
   function applySpacePreference(): void {
@@ -188,7 +274,15 @@ export function createBabylonTransformGizmoController(
           gizmo.updateGizmoRotationToMatchAttachedMesh = matchAttachedMesh;
         }
       } catch {}
-      for (const axis of [gizmo?.xGizmo, gizmo?.yGizmo, gizmo?.zGizmo]) {
+      for (const axis of [
+        gizmo?.xGizmo,
+        gizmo?.yGizmo,
+        gizmo?.zGizmo,
+        gizmo?.xPlaneGizmo,
+        gizmo?.yPlaneGizmo,
+        gizmo?.zPlaneGizmo,
+        gizmo?.uniformScaleGizmo,
+      ]) {
         try {
           if ('updateGizmoRotationToMatchAttachedMesh' in (axis ?? {})) {
             axis.updateGizmoRotationToMatchAttachedMesh = matchAttachedMesh;
@@ -198,48 +292,113 @@ export function createBabylonTransformGizmoController(
     }
   }
 
+  function applyHandlePreference(): void {
+    const positionGizmo = manager.gizmos?.positionGizmo;
+    if (positionGizmo) {
+      try { positionGizmo.planarGizmoEnabled = tool === 'move'; } catch {}
+    }
+  }
+
   function attachCurrentSelection(): void {
     const activeTool = activeTransformTool();
-    const viewPlaneMove = activeTool === 'move' && constraint === 'view-plane';
-    manager.positionGizmoEnabled = activeTool === 'move' && !viewPlaneMove;
+    manager.positionGizmoEnabled = activeTool === 'move';
     manager.rotationGizmoEnabled = activeTool === 'rotate';
     manager.scaleGizmoEnabled = activeTool === 'scale';
+    applyHandlePreference();
     applySpacePreference();
     registerDragObservers();
 
     let target: any | null = null;
-    if (activeTool && !viewPlaneMove) {
-      const batchTransformTargetIds = getBatchTransformTargetIds();
-      if (batchTransformTargetIds.length > 1) {
-        const pivot = options.projection.getSelectionPivot(batchTransformTargetIds);
-        target = pivot ? setPivotProxyTransform(pivot) : null;
-      } else {
-        const activeTargetId = getActiveTargetId();
-        target = activeTargetId ? options.projection.getAttachableRoot(activeTargetId) : null;
-      }
+    if (activeTool) {
+      target = attachNativeTransformProxy(getCurrentTransformTargetIds());
     }
     try { manager.attachToNode?.(target ?? null); } catch (error) {
       options.logger?.warn?.('[BabylonTransformGizmoController] failed to attach gizmo', error);
     }
+    updateFreeMoveHandle();
   }
 
-  function beginDrag(): void {
+  function beginDrag(activeConstraint: EditorTransformCanonicalConstraint = constraint): void {
     if (activeDrag) return;
     const activeTool = activeTransformTool();
     if (!activeTool) return;
-    const targetIds = selectedNodeIds.length > 1
-      ? getBatchTransformTargetIds()
-      : [getActiveTargetId()].filter((nodeId): nodeId is string => !!nodeId);
-    const drag = createActiveDrag(activeTool, targetIds, activeTool === 'move' ? constraint : 'axis');
+    const duplicate = pendingDuplicateDrag;
+    pendingDuplicateDrag = false;
+    const targetIds = resolveDragTargetIds(activeTool, getCurrentTransformTargetIds(), activeConstraint, duplicate);
+    const drag = createActiveDrag(activeTool, targetIds, activeConstraint, duplicate);
     if (!drag) return;
     activeDrag = drag;
     options.onDragStart?.(activeDrag);
   }
 
+  function resolveDragTargetIds(
+    activeTool: Exclude<EditorTransformTool, 'select'>,
+    targetIds: string[],
+    activeConstraint: EditorTransformCanonicalConstraint,
+    duplicate: boolean,
+  ): string[] {
+    if (!duplicate || targetIds.length === 0) return targetIds;
+    const beforeTransforms = options.projection.readNodeTransforms(targetIds);
+    const validTargetIds = targetIds.filter(nodeId => !!beforeTransforms[nodeId]);
+    if (validTargetIds.length === 0) return [];
+    const duplicateResult = options.onDuplicateDragStart?.({
+      targetIds: validTargetIds,
+      activeId: selectedNodeId && validTargetIds.includes(selectedNodeId) ? selectedNodeId : validTargetIds[validTargetIds.length - 1] ?? null,
+      tool: activeTool,
+      space,
+      constraint: activeConstraint,
+      beforeTransforms,
+    });
+    if (!duplicateResult?.targetIds.length) return [];
+    selectedNodeIds = [...duplicateResult.targetIds];
+    selectedNodeId = duplicateResult.activeId && selectedNodeIds.includes(duplicateResult.activeId)
+      ? duplicateResult.activeId
+      : selectedNodeIds[selectedNodeIds.length - 1] ?? null;
+    if (!attachDragTargetIds(selectedNodeIds)) return [];
+    return selectedNodeIds;
+  }
+
+  function attachDragTargetIds(targetIds: string[]): boolean {
+    const target = attachNativeTransformProxy(targetIds);
+    if (!target) return false;
+    try {
+      manager.attachToNode?.(target);
+      updateFreeMoveHandle();
+      return true;
+    } catch (error) {
+      options.logger?.warn?.('[BabylonTransformGizmoController] failed to attach duplicate drag target', error);
+      return false;
+    }
+  }
+
+  function attachNativeTransformProxy(targetIds: string[]): any | null {
+    const validTargetIds = targetIds.filter(nodeId => !!options.projection.getAttachableRoot(nodeId));
+    if (validTargetIds.length === 0) return null;
+    const pivot = validTargetIds.length > 1
+      ? options.projection.getSelectionPivot(validTargetIds)
+      : createSingleTargetPivot(validTargetIds[0]!);
+    if (!pivot) return null;
+    const rotation = validTargetIds.length === 1 && space === 'local'
+      ? options.projection.readNodeTransform(validTargetIds[0]!)?.rotation ?? { x: 0, y: 0, z: 0 }
+      : { x: 0, y: 0, z: 0 };
+    return setPivotProxyTransform(pivot, rotation);
+  }
+
+  function createSingleTargetPivot(nodeId: string): EditorTransformPivot | null {
+    const transform = options.projection.readNodeTransform(nodeId);
+    return transform
+      ? {
+          mode: 'selection-center',
+          position: transform.position,
+        }
+      : null;
+  }
+
   function createActiveDrag(
     activeTool: Exclude<EditorTransformTool, 'select'>,
     targetIds: string[],
-    activeConstraint: EditorTransformConstraint,
+    activeConstraint: EditorTransformCanonicalConstraint,
+    duplicate = false,
   ): ActiveDrag | null {
     if (targetIds.length === 0) return null;
     const beforeTransforms = options.projection.readNodeTransforms(targetIds);
@@ -263,52 +422,32 @@ export function createBabylonTransformGizmoController(
       pivot,
       before,
       beforeTransforms,
+      duplicate,
+      proxyStart: readNativeProxyTransform(pivot),
     };
   }
 
   function updateDrag(): void {
     if (!activeDrag) return;
-    if (activeDrag.targetIds.length > 1) {
-      const currentTransforms = previewBatchTransform(activeDrag);
-      const current = activeDrag.activeId
-        ? currentTransforms[activeDrag.activeId] ?? Object.values(currentTransforms)[0] ?? null
-        : Object.values(currentTransforms)[0] ?? null;
-      if (!current) return;
-      options.onDragUpdate?.({ ...activeDrag, current });
-      return;
-    }
-    if (!activeDrag.nodeId) return;
-    const current = options.projection.readNodeTransform(activeDrag.nodeId);
+    const currentTransforms = previewBatchTransform(activeDrag);
+    const current = activeDrag.activeId
+      ? currentTransforms[activeDrag.activeId] ?? Object.values(currentTransforms)[0] ?? null
+      : Object.values(currentTransforms)[0] ?? null;
     if (!current) return;
+    if (activeDrag.tool === 'move') {
+      const pivotPosition = resolvePreviewPivotPosition(activeDrag, currentTransforms);
+      if (pivotPosition) setFreeMoveHandlePosition(pivotPosition);
+    }
     options.onDragUpdate?.({ ...activeDrag, current });
   }
 
   function endDrag(): void {
     const drag = activeDrag;
     if (!drag) return;
+    const afterTransforms = previewBatchTransform(drag);
     activeDrag = null;
-    if (drag.targetIds.length > 1) {
-      const afterTransforms = previewBatchTransform(drag);
-      emitTransformCommit(drag, afterTransforms);
-      attachCurrentSelection();
-      return;
-    }
-    if (!drag.nodeId || !drag.before) {
-      options.onDragCancel?.(drag);
-      return;
-    }
-    const after = options.projection.readNodeTransform(drag.nodeId);
-    if (!after) {
-      options.onDragCancel?.(drag);
-      return;
-    }
-    options.onDragEnd?.({
-      nodeId: drag.nodeId,
-      tool: drag.tool,
-      space: drag.space,
-      before: drag.before,
-      after,
-    });
+    emitTransformCommit(drag, afterTransforms);
+    attachCurrentSelection();
   }
 
   function emitTransformCommit(
@@ -327,6 +466,7 @@ export function createBabylonTransformGizmoController(
         nodeId,
         tool: drag.tool,
         space: drag.space,
+        constraint: drag.constraint,
         before,
         after,
       });
@@ -355,14 +495,19 @@ export function createBabylonTransformGizmoController(
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
     });
+    const proxyStart = drag.proxyStart ?? {
+      position: drag.pivot.position,
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    };
     if (drag.tool === 'move') {
-      return previewMoveWithDelta(drag, subtractVec3(pivotTransform.position, drag.pivot.position));
+      return previewMoveWithDelta(drag, subtractVec3(pivotTransform.position, proxyStart.position));
     }
     if (drag.tool === 'rotate') {
-      return previewRotateWithDelta(drag, pivotTransform.rotation);
+      return previewRotateWithDelta(drag, subtractVec3(pivotTransform.rotation, proxyStart.rotation));
     }
     if (drag.tool === 'scale') {
-      return previewScaleWithDelta(drag, pivotTransform.scale);
+      return previewScaleWithDelta(drag, divideVec3(pivotTransform.scale, proxyStart.scale));
     }
     return {};
   }
@@ -375,7 +520,7 @@ export function createBabylonTransformGizmoController(
     for (const nodeId of drag.targetIds) {
       const before = drag.beforeTransforms[nodeId];
       if (!before) continue;
-      transforms[nodeId] = translateTransform(before, delta);
+      transforms[nodeId] = applySnapToTransform(drag, nodeId, translateTransform(before, delta));
     }
     options.projection.setNodeTransformsPreview(transforms);
     return transforms;
@@ -406,6 +551,7 @@ export function createBabylonTransformGizmoController(
         rotation: addVec3(before.rotation, rotationDelta),
         scale: before.scale,
       };
+      transforms[nodeId] = applySnapToTransform(drag, nodeId, transforms[nodeId]!);
     }
     options.projection.setNodeTransformsPreview(transforms);
     return transforms;
@@ -430,9 +576,29 @@ export function createBabylonTransformGizmoController(
         rotation: before.rotation,
         scale: multiplyVec3(before.scale, safeScale),
       };
+      transforms[nodeId] = applySnapToTransform(drag, nodeId, transforms[nodeId]!);
     }
     options.projection.setNodeTransformsPreview(transforms);
     return transforms;
+  }
+
+  function applySnapToTransform(
+    drag: ActiveDrag,
+    nodeId: string,
+    after: EditorTransformSnapshot,
+  ): EditorTransformSnapshot {
+    if (!operationSettings.snap.enabled) return after;
+    const before = drag.beforeTransforms[nodeId];
+    if (!before) return after;
+    return snapEditorTransformSnapshot(before, after, drag.tool, operationSettings.snap);
+  }
+
+  function readNativeProxyTransform(pivot: EditorTransformPivot): EditorTransformSnapshot {
+    return readProjectionLikeTransform(pivotProxy, {
+      position: pivot.position,
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    });
   }
 
   function readProjectionLikeTransform(
@@ -492,6 +658,14 @@ export function createBabylonTransformGizmoController(
     };
   }
 
+  function divideVec3(left: EditorTransformVec3, right: EditorTransformVec3): EditorTransformVec3 {
+    return {
+      x: Math.abs(right.x) > 0.000001 ? left.x / right.x : 1,
+      y: Math.abs(right.y) > 0.000001 ? left.y / right.y : 1,
+      z: Math.abs(right.z) > 0.000001 ? left.z / right.z : 1,
+    };
+  }
+
   function rotateVec3Euler(value: EditorTransformVec3, rotation: EditorTransformVec3): EditorTransformVec3 {
     return rotateZ(rotateY(rotateX(value, rotation.x), rotation.y), rotation.z);
   }
@@ -527,11 +701,11 @@ export function createBabylonTransformGizmoController(
   }
 
   function isViewPlaneMoveCandidate(event: PointerEvent): boolean {
-    if (disposed || activeDrag || tool !== 'move' || constraint !== 'view-plane' || event.button !== 0) return false;
-    const targetIds = selectedNodeIds.length > 1
-      ? getBatchTransformTargetIds()
-      : [getActiveTargetId()].filter((nodeId): nodeId is string => !!nodeId);
+    if (disposed || activeDrag || tool !== 'move' || event.button !== 0) return false;
+    const targetIds = getCurrentTransformTargetIds();
     if (targetIds.length === 0) return false;
+    if (pickFreeMoveHandleAt(event.clientX, event.clientY)) return true;
+    if (constraint !== 'free') return false;
     const pickedId = options.projection.pickNodeIdAt(event.clientX, event.clientY);
     return !!pickedId && targetIds.includes(pickedId);
   }
@@ -539,17 +713,19 @@ export function createBabylonTransformGizmoController(
   function isGizmoDragCandidate(event: PointerEvent): boolean {
     if (disposed || activeDrag || event.button !== 0) return false;
     const activeTool = activeTransformTool();
-    if (!activeTool || (activeTool === 'move' && constraint === 'view-plane')) return false;
+    if (!activeTool) return false;
     const picked = pickGizmoMeshAt(event.clientX, event.clientY);
-    return !!picked && isGizmoNode(picked);
+    if (isFreeMoveHandleNode(picked)) return false;
+    const candidate = !!picked && isGizmoNode(picked);
+    if (candidate) pendingDuplicateDrag = isDuplicateDragModifier(event);
+    return candidate;
   }
 
   function beginViewPlaneMove(event: PointerEvent): boolean {
     if (!isViewPlaneMoveCandidate(event)) return false;
-    const targetIds = selectedNodeIds.length > 1
-      ? getBatchTransformTargetIds()
-      : [getActiveTargetId()].filter((nodeId): nodeId is string => !!nodeId);
-    const drag = createActiveDrag('move', targetIds, 'view-plane');
+    const duplicate = isDuplicateDragModifier(event);
+    const targetIds = resolveDragTargetIds('move', getCurrentTransformTargetIds(), 'free', duplicate);
+    const drag = createActiveDrag('move', targetIds, 'free', duplicate);
     if (!drag) return false;
     const startPoint = projectPointerToViewPlane(event.clientX, event.clientY, drag.pivot.position);
     if (!startPoint) return false;
@@ -562,12 +738,18 @@ export function createBabylonTransformGizmoController(
     return true;
   }
 
+  function isDuplicateDragModifier(event: PointerEvent): boolean {
+    return event.altKey === true;
+  }
+
   function updateViewPlaneMove(event: PointerEvent): boolean {
     const drag = activeDrag;
     if (!drag?.viewPlane || drag.viewPlane.pointerId !== event.pointerId || disposed) return false;
     const currentPoint = projectPointerToViewPlane(event.clientX, event.clientY, drag.pivot.position);
     if (!currentPoint) return false;
-    const transforms = previewMoveWithDelta(drag, subtractVec3(currentPoint, drag.viewPlane.startPoint));
+    const delta = subtractVec3(currentPoint, drag.viewPlane.startPoint);
+    const transforms = previewMoveWithDelta(drag, delta);
+    setFreeMoveHandlePosition(resolvePreviewPivotPosition(drag, transforms) ?? addVec3(drag.pivot.position, delta));
     const current = drag.activeId
       ? transforms[drag.activeId] ?? Object.values(transforms)[0] ?? null
       : Object.values(transforms)[0] ?? null;
@@ -586,6 +768,19 @@ export function createBabylonTransformGizmoController(
     emitTransformCommit(drag, transforms);
     attachCurrentSelection();
     return true;
+  }
+
+  function resolvePreviewPivotPosition(
+    drag: ActiveDrag,
+    transforms: Record<string, EditorTransformSnapshot>,
+  ): EditorTransformVec3 | null {
+    for (const nodeId of drag.targetIds) {
+      const before = drag.beforeTransforms[nodeId];
+      const after = transforms[nodeId];
+      if (!before || !after) continue;
+      return addVec3(drag.pivot.position, subtractVec3(after.position, before.position));
+    }
+    return null;
   }
 
   function projectPointerToViewPlane(
@@ -619,6 +814,112 @@ export function createBabylonTransformGizmoController(
     return readVec3Like(camera.getDirection(new Vector3(0, 0, forwardZ)));
   }
 
+  function pickPlacementHit(
+    clientX: number,
+    clientY: number,
+    mode: EditorPlacementMode,
+  ): EditorPlacementHit | null {
+    if (mode === 'off') return null;
+    if (mode === 'ground') return pickGroundPlacementHit(clientX, clientY);
+    return pickSurfacePlacementHit(clientX, clientY);
+  }
+
+  function pickGroundPlacementHit(clientX: number, clientY: number): EditorPlacementHit | null {
+    const ray = createScenePointerRay(clientX, clientY);
+    const origin = readVec3Like(ray?.origin);
+    const direction = readVec3Like(ray?.direction);
+    if (!origin || !direction || Math.abs(direction.y) < 0.000001) return null;
+    const t = -origin.y / direction.y;
+    if (!Number.isFinite(t) || t < 0) return null;
+    return {
+      mode: 'ground',
+      position: addVec3(origin, scaleVec3(direction, t)),
+      normal: { x: 0, y: 1, z: 0 },
+      nodeId: null,
+    };
+  }
+
+  function pickSurfacePlacementHit(clientX: number, clientY: number): EditorPlacementHit | null {
+    if (!canvas || typeof options.scene.pick !== 'function') return null;
+    const rect = canvas.getBoundingClientRect();
+    const pick = options.scene.pick(clientX - rect.left, clientY - rect.top, (mesh: any) => !isPlacementPickIgnored(mesh));
+    const point = readVec3Like(pick?.pickedPoint);
+    if (!pick?.hit || !point) return null;
+    const normal = readVec3Like(pick?.getNormal?.(true)) ?? readVec3Like(pick?.normal);
+    return {
+      mode: 'surface',
+      position: point,
+      normal: normal ?? undefined,
+      nodeId: options.projection.resolveProjectionNodeId(pick.pickedMesh ?? null),
+    };
+  }
+
+  function isPlacementPickIgnored(node: any): boolean {
+    let current = node;
+    while (current) {
+      if (current.metadata?.editorProjectionHelper) return true;
+      if (current.metadata?.editorTransformFreeMoveHandle) return true;
+      if (current.metadata?.editorPlacementMarker) return true;
+      current = current.parent ?? null;
+    }
+    return false;
+  }
+
+  function createScenePointerRay(clientX: number, clientY: number): any | null {
+    const camera = options.scene.activeCamera ?? (options.scene as any).cameraToUseForPointers ?? null;
+    const Matrix = (options.babylon as any).Matrix;
+    if (!canvas || !camera || !Matrix?.Identity || !options.scene.createPickingRay) return null;
+    const rect = canvas.getBoundingClientRect();
+    return options.scene.createPickingRay(clientX - rect.left, clientY - rect.top, Matrix.Identity(), camera);
+  }
+
+  function ensurePlacementMarker(): any | null {
+    if (placementMarker) return placementMarker;
+    const MeshBuilder = (options.babylon as any).MeshBuilder;
+    const StandardMaterial = (options.babylon as any).StandardMaterial;
+    const Color3 = options.babylon.Color3 as any;
+    const utilityScene = manager.utilityLayer?.utilityLayerScene;
+    if (!MeshBuilder?.CreateSphere || !utilityScene) return null;
+    placementMarker = MeshBuilder.CreateSphere(
+      'editor.placement.marker',
+      { diameter: 0.32, segments: 16 },
+      utilityScene,
+    );
+    placementMarker.metadata = {
+      ...(placementMarker.metadata ?? {}),
+      editorProjectionHelper: true,
+      editorPlacementMarker: true,
+    };
+    placementMarker.isPickable = false;
+    if (StandardMaterial && Color3) {
+      placementMarkerMaterial = new StandardMaterial('editor.placement.marker.material', utilityScene);
+      placementMarkerMaterial.diffuseColor = new Color3(0.18, 0.86, 0.78);
+      placementMarkerMaterial.emissiveColor = new Color3(0.1, 0.62, 0.56);
+      placementMarkerMaterial.specularColor = new Color3(0.04, 0.18, 0.16);
+      placementMarker.material = placementMarkerMaterial;
+    }
+    setPlacementMarkerVisible(false);
+    return placementMarker;
+  }
+
+  function setPlacementMarkerVisible(visible: boolean): void {
+    if (!placementMarker) return;
+    placementMarker.isVisible = visible;
+    try { placementMarker.setEnabled?.(visible); } catch {}
+  }
+
+  function setPlacementMarker(hit: EditorPlacementHit | null): void {
+    if (!hit) {
+      setPlacementMarkerVisible(false);
+      return;
+    }
+    const marker = ensurePlacementMarker();
+    const Vector3 = options.babylon.Vector3;
+    if (!marker || !Vector3) return;
+    marker.position = new Vector3(hit.position.x, hit.position.y, hit.position.z);
+    setPlacementMarkerVisible(true);
+  }
+
   function pickGizmoMeshAt(clientX: number, clientY: number): any | null {
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
@@ -631,15 +932,102 @@ export function createBabylonTransformGizmoController(
     return scenePick?.hit ? scenePick.pickedMesh ?? null : null;
   }
 
+  function pickFreeMoveHandleAt(clientX: number, clientY: number): any | null {
+    if (!canvas || !freeMoveHandle) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const utilityScene = manager.utilityLayer?.utilityLayerScene;
+    const pick = typeof utilityScene?.pick === 'function'
+      ? utilityScene.pick(x, y, (mesh: any) => isFreeMoveHandleNode(mesh))
+      : null;
+    return pick?.hit && isFreeMoveHandleNode(pick.pickedMesh) ? pick.pickedMesh : null;
+  }
+
+  function ensureFreeMoveHandle(): any | null {
+    if (freeMoveHandle) return freeMoveHandle;
+    const MeshBuilder = (options.babylon as any).MeshBuilder;
+    const StandardMaterial = (options.babylon as any).StandardMaterial;
+    const Color3 = options.babylon.Color3 as any;
+    const utilityScene = manager.utilityLayer?.utilityLayerScene;
+    if (!MeshBuilder?.CreateSphere || !utilityScene) return null;
+    freeMoveHandle = MeshBuilder.CreateSphere(
+      'editor.transform.freeMoveHandle',
+      { diameter: 0.22, segments: 12 },
+      utilityScene,
+    );
+    freeMoveHandle.metadata = {
+      ...(freeMoveHandle.metadata ?? {}),
+      editorProjectionHelper: true,
+      editorTransformFreeMoveHandle: true,
+    };
+    freeMoveHandle.isPickable = true;
+    if (StandardMaterial && Color3) {
+      freeMoveHandleMaterial = new StandardMaterial('editor.transform.freeMoveHandle.material', utilityScene);
+      freeMoveHandleMaterial.diffuseColor = new Color3(1, 0.82, 0.28);
+      freeMoveHandleMaterial.emissiveColor = new Color3(1, 0.68, 0.18);
+      freeMoveHandleMaterial.specularColor = new Color3(0.2, 0.18, 0.08);
+      freeMoveHandle.material = freeMoveHandleMaterial;
+    }
+    setFreeMoveHandleVisible(false);
+    return freeMoveHandle;
+  }
+
+  function setFreeMoveHandleVisible(visible: boolean): void {
+    if (!freeMoveHandle) return;
+    freeMoveHandle.isVisible = visible;
+    try { freeMoveHandle.setEnabled?.(visible); } catch {}
+  }
+
+  function setFreeMoveHandlePosition(position: EditorTransformVec3): void {
+    const handle = ensureFreeMoveHandle();
+    const Vector3 = options.babylon.Vector3;
+    if (!handle || !Vector3) return;
+    handle.position = new Vector3(position.x, position.y, position.z);
+    setFreeMoveHandleVisible(true);
+  }
+
+  function updateFreeMoveHandle(): void {
+    if (tool !== 'move' || activeDrag) {
+      setFreeMoveHandleVisible(false);
+      return;
+    }
+    const targetIds = getCurrentTransformTargetIds();
+    if (targetIds.length === 0) {
+      setFreeMoveHandleVisible(false);
+      return;
+    }
+    const pivot = targetIds.length > 1
+      ? options.projection.getSelectionPivot(targetIds)
+      : null;
+    const position = pivot?.position
+      ?? (targetIds[0] ? options.projection.readNodeTransform(targetIds[0])?.position : null);
+    if (!position) {
+      setFreeMoveHandleVisible(false);
+      return;
+    }
+    setFreeMoveHandlePosition(position);
+  }
+
   function isGizmoNode(node: any): boolean {
     let current = node;
     const roots = collectCurrentGizmoRoots();
     while (current) {
+      if (isFreeMoveHandleNode(current)) return false;
       if (roots.has(current)) return true;
       if (current.metadata?.editorProjection?.nodeId) return false;
       if (current.metadata?.editorProjectionHelper) return false;
       const name = String(current.name ?? current.id ?? '').toLowerCase();
       if (name.includes('gizmo')) return true;
+      current = current.parent ?? null;
+    }
+    return false;
+  }
+
+  function isFreeMoveHandleNode(node: any): boolean {
+    let current = node;
+    while (current) {
+      if (current.metadata?.editorTransformFreeMoveHandle) return true;
       current = current.parent ?? null;
     }
     return false;
@@ -685,6 +1073,7 @@ export function createBabylonTransformGizmoController(
       if (tool === nextTool) return;
       controller.cancelDrag();
       tool = nextTool;
+      constraint = normalizeConstraintForTool(tool, constraint) ?? 'axis';
       attachCurrentSelection();
     },
     setSpace(nextSpace) {
@@ -696,10 +1085,20 @@ export function createBabylonTransformGizmoController(
     },
     setConstraint(nextConstraint) {
       if (disposed) return;
-      if (constraint === nextConstraint) return;
+      const normalized = normalizeConstraintForTool(tool, nextConstraint) ?? 'axis';
+      if (constraint === normalized) return;
       controller.cancelDrag();
-      constraint = nextConstraint;
+      constraint = normalized;
       attachCurrentSelection();
+    },
+    setOperationSettings(settings) {
+      if (disposed) return;
+      operationSettings = cloneOperationSettings(settings);
+      if (activeDrag) updateDrag();
+    },
+    preparePointerDrag(event) {
+      if (disposed || event.button !== 0) return;
+      pendingDuplicateDrag = isDuplicateDragModifier(event);
     },
     setSelectedNode(nextNodeId) {
       if (disposed) return;
@@ -735,16 +1134,18 @@ export function createBabylonTransformGizmoController(
     beginViewPlaneMove,
     updateViewPlaneMove,
     endViewPlaneMove,
+    pickPlacementHit,
+    setPlacementMarker,
     cancelDrag() {
       const drag = activeDrag;
       if (!drag) return;
       activeDrag = null;
       if (drag.targetIds.length > 1) {
         options.projection.setNodeTransformsPreview(drag.beforeTransforms);
-        attachCurrentSelection();
       } else if (drag.nodeId && drag.before) {
         options.projection.setNodeTransformPreview(drag.nodeId, drag.before);
       }
+      attachCurrentSelection();
       options.onDragCancel?.(drag);
     },
     dispose() {
@@ -754,11 +1155,33 @@ export function createBabylonTransformGizmoController(
       try { manager.attachToNode?.(null); } catch {}
       try { manager.dispose?.(); } catch {}
       try { pivotProxy?.dispose?.(); } catch {}
+      try { freeMoveHandle?.dispose?.(); } catch {}
+      try { freeMoveHandleMaterial?.dispose?.(); } catch {}
+      try { placementMarker?.dispose?.(); } catch {}
+      try { placementMarkerMaterial?.dispose?.(); } catch {}
       pivotProxy = null;
+      freeMoveHandle = null;
+      freeMoveHandleMaterial = null;
+      placementMarker = null;
+      placementMarkerMaterial = null;
       disposed = true;
     },
   };
 
   attachCurrentSelection();
   return controller;
+}
+
+function cloneOperationSettings(
+  settings: EditorTransformOperationSettings,
+): EditorTransformOperationSettings {
+  return {
+    snap: {
+      enabled: settings.snap.enabled,
+      moveStep: settings.snap.moveStep,
+      rotateStepDegrees: settings.snap.rotateStepDegrees,
+      scaleStep: settings.snap.scaleStep,
+    },
+    placementMode: settings.placementMode,
+  };
 }

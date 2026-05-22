@@ -1,5 +1,7 @@
 import type {
   LocalEditorHarnessDocumentAdapter,
+  LocalEditorHarnessDuplicateSelectionInput,
+  LocalEditorHarnessDuplicateSelectionPatch,
   LocalEditorHarnessMultiPropertyInput,
   LocalEditorHarnessPatchResult,
   LocalEditorHarnessPropertyInput,
@@ -117,6 +119,7 @@ export type LabScenePatch =
   }
   | { kind: 'game-object.transform'; id: string; transform: Partial<LabTransform> }
   | { kind: 'game-object.transform-batch'; transforms: Record<string, Partial<LabTransform>> }
+  | { kind: 'game-object.duplicate-selection'; gameObjects: LabGameObject[] }
   | { kind: 'game-object.create-from-asset'; id: string; assetId: string; parentId: string | null; name: string; transform: LabTransform };
 
 export interface LabProjectStore {
@@ -275,6 +278,22 @@ export function createLabDocumentAdapter(): LocalEditorHarnessDocumentAdapter<La
         },
       };
     },
+    createPlacedAssetPatch({ asset, hit }) {
+      const id = createNextObjectId(asset.id);
+      return {
+        label: `Place ${asset.label}`,
+        patch: {
+          kind: 'game-object.create-from-asset',
+          id,
+          assetId: asset.id,
+          parentId: LAB_ROOT_ID,
+          name: asset.label,
+          transform: createLabTransform({ ...hit.position }),
+        },
+        createdId: id,
+        changedIds: [id],
+      };
+    },
     findCreatedId(beforeDocument, afterDocument) {
       const beforeIds = new Set(beforeDocument.scene.gameObjects.map(gameObject => gameObject.id));
       return afterDocument.scene.gameObjects.find(gameObject => !beforeIds.has(gameObject.id))?.id ?? null;
@@ -283,6 +302,7 @@ export function createLabDocumentAdapter(): LocalEditorHarnessDocumentAdapter<La
     createSerializedMultiPropertyPatch: createLabSerializedMultiPropertyPatch,
     createTransformPatch: createLabTransformPatch,
     createTransformBatchPatch: createLabTransformBatchPatch,
+    createDuplicateSelectionPatch: createLabDuplicateSelectionPatch,
     validateSceneGraphDrop: validateLabSceneGraphDrop,
     validateSceneGraphMove: validateLabSceneGraphMove,
     validateSceneGraphGroupSelection: validateLabSceneGraphGroupSelection,
@@ -494,6 +514,21 @@ export function reduceLabSceneDocument(
           }
         : gameObject;
     });
+  }
+
+  if (patch.kind === 'game-object.duplicate-selection') {
+    const existingIds = new Set(document.scene.gameObjects.map(gameObject => gameObject.id));
+    const gameObjects = patch.gameObjects.filter(gameObject => !existingIds.has(gameObject.id));
+    if (gameObjects.length === 0) return document;
+    return {
+      ...document,
+      scene: {
+        gameObjects: [
+          ...document.scene.gameObjects,
+          ...gameObjects,
+        ],
+      },
+    };
   }
 
   if (patch.kind === 'game-object.create-from-asset') {
@@ -933,6 +968,47 @@ function createLabTransformBatchPatch(
   };
 }
 
+function createLabDuplicateSelectionPatch(
+  input: LocalEditorHarnessDuplicateSelectionInput<LabSceneDocument>,
+): LocalEditorHarnessDuplicateSelectionPatch<LabScenePatch> | null {
+  const idMap = new Map<string, string>();
+  const usedIds = new Set(input.document.scene.gameObjects.map(gameObject => gameObject.id));
+  for (const targetId of input.targetIds) {
+    const source = findLabGameObject(input.document, targetId);
+    if (!source || source.id === LAB_ROOT_ID) continue;
+    const duplicateId = createDuplicateLabObjectId(usedIds, source.id);
+    usedIds.add(duplicateId);
+    idMap.set(source.id, duplicateId);
+  }
+  const gameObjects = input.targetIds
+    .map(targetId => findLabGameObject(input.document, targetId))
+    .filter((source): source is LabGameObject => !!source && idMap.has(source.id))
+    .map((source) => {
+      const duplicate = cloneLabGameObject(source);
+      duplicate.id = idMap.get(source.id)!;
+      duplicate.name = `${source.name} Copy`;
+      if (duplicate.parentId && idMap.has(duplicate.parentId)) {
+        duplicate.parentId = idMap.get(duplicate.parentId)!;
+      }
+      return duplicate;
+    });
+  if (gameObjects.length === 0) return null;
+  const createdIds = gameObjects.map(gameObject => gameObject.id);
+  const activeId = input.activeId && idMap.has(input.activeId)
+    ? idMap.get(input.activeId)!
+    : createdIds[createdIds.length - 1] ?? null;
+  return {
+    patch: {
+      kind: 'game-object.duplicate-selection',
+      gameObjects,
+    },
+    label: `Duplicate ${createdIds.length} object${createdIds.length === 1 ? '' : 's'}`,
+    createdIds,
+    activeId,
+    changedIds: createdIds,
+  };
+}
+
 function createLabPropertyPatch(
   document: LabSceneDocument,
   targetId: string,
@@ -1369,6 +1445,12 @@ function createLabTransform(
   return { position, rotation, scale };
 }
 
+function cloneLabGameObject(gameObject: LabGameObject): LabGameObject {
+  return typeof structuredClone === 'function'
+    ? structuredClone(gameObject)
+    : JSON.parse(JSON.stringify(gameObject)) as LabGameObject;
+}
+
 function transformSnapshotToLabTransform(snapshot: EditorTransformSnapshot): LabTransform {
   return {
     position: snapshot.position,
@@ -1620,6 +1702,14 @@ function createNextObjectId(assetId: string): string {
   const cleanAsset = assetId.replace(/^asset_/, '').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
   nextObjectIndex += 1;
   return `lab_${cleanAsset}_${String(nextObjectIndex).padStart(2, '0')}`;
+}
+
+function createDuplicateLabObjectId(usedIds: Set<string>, sourceId: string): string {
+  const base = `${sourceId}_copy`;
+  if (!usedIds.has(base)) return base;
+  let index = 2;
+  while (usedIds.has(`${base}_${index}`)) index += 1;
+  return `${base}_${index}`;
 }
 
 function summarizeLabScene(document: LabSceneDocument): string {
