@@ -178,6 +178,8 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   busy: boolean;
   label?: string;
   status: string;
+  statusTone?: 'default' | 'success' | 'warning' | 'error';
+  statusDetails?: string;
   summary?: string;
   assetFilter: string;
   assets: LocalEditorBrowserUiAssetItem[];

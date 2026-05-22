@@ -9,6 +9,7 @@ const TRANSFORM_TYPES = new Set(rules.transformTypes);
 const ASSET_TYPES = new Set(rules.assetTypes);
 const MATERIAL_SCOPES = new Set(rules.materialScopes);
 const MATERIAL_MODES = new Set(rules.materialModes);
+const HIERARCHY_PARENT_TARGETS = new Set(rules.hierarchy.parentTargets);
 const RUNTIME_ONLY_TOKENS = rules.runtimeOnlyTokens;
 
 export function validateSceneJsonV2(sceneConfig, {
@@ -46,7 +47,6 @@ export function validateSceneJsonV2(sceneConfig, {
 
   const assetIds = new Set();
   const nodeIds = new Set();
-  const groupIds = new Set([scene.rootId]);
   const duplicateAssetIds = new Set();
   const duplicateNodeIds = new Set();
 
@@ -78,7 +78,6 @@ export function validateSceneJsonV2(sceneConfig, {
     else if (nodeIds.has(node.id)) duplicateNodeIds.add(node.id);
     else nodeIds.add(node.id);
     if (!NODE_KINDS.has(node.kind)) add(`${path}.kind`, 'node.kind must be group, instance, or transform');
-    if (node.kind === 'group' && nonEmptyString(node.id)) groupIds.add(node.id);
   });
 
   for (const id of duplicateAssetIds) add('$.scene.assets', `duplicate asset id: ${id}`);
@@ -88,9 +87,7 @@ export function validateSceneJsonV2(sceneConfig, {
     if (!isObject(node)) return;
     const path = `$.scene.nodes[${index}]`;
     const parentId = nonEmptyString(node.parentId) ? node.parentId : scene.rootId;
-    if (!groupIds.has(parentId)) {
-      add(`${path}.parentId`, `parentId must point to root or group: ${parentId}`);
-    }
+    validateNodeParentTarget(parentId, scene.rootId, nodeIds, `${path}.parentId`, add);
     if (nonEmptyString(node.id)) validateNodeParentCycle(node.id, scene, `${path}.parentId`, add);
     validateRuntimeSourceBinding(node.source, `${path}.source`, add);
     validateTransform(node.transform, `${path}.transform`, add);
@@ -111,9 +108,6 @@ export function validateSceneJsonV2(sceneConfig, {
       }
     }
 
-    if ((node.kind === 'instance' || node.kind === 'transform') && scene.nodes.some((child) => child?.parentId === node.id)) {
-      add(path, `${node.kind} nodes must not have authored children`);
-    }
     if (strictNodes.has(node.id)) assertNoRuntimeOnlyFields(node, path, add);
   });
 
@@ -153,6 +147,22 @@ function isObject(value) {
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function validateNodeParentTarget(parentId, rootId, nodeIds, path, add) {
+  if (parentId === rootId) {
+    if (!HIERARCHY_PARENT_TARGETS.has('root')) {
+      add(path, `parentId must point to scene node: ${parentId}`);
+    }
+    return;
+  }
+  if (HIERARCHY_PARENT_TARGETS.has('sceneNode') && nodeIds.has(parentId)) return;
+  const targetDescription = HIERARCHY_PARENT_TARGETS.has('root') && HIERARCHY_PARENT_TARGETS.has('sceneNode')
+    ? 'root or scene node'
+    : HIERARCHY_PARENT_TARGETS.has('sceneNode')
+      ? 'scene node'
+      : 'root';
+  add(path, `parentId must point to ${targetDescription}: ${parentId}`);
 }
 
 function validateGeneratedFrom(generatedFrom, path, add) {

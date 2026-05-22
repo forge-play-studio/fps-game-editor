@@ -6,7 +6,9 @@ import {
 } from '@fps-games/editor-core';
 import {
   mergeLocalEditorHarnessInspectorComponentSections,
+  summarizeLocalEditorAuthoringFailure,
 } from '@fps-games/editor';
+import type { AuthoringCommandResult } from '@fps-games/editor-core';
 
 interface HarnessTestDocument {
   teams: string[];
@@ -129,5 +131,27 @@ describe('local editor harness inspector extensions', () => {
 
     expect(replaced.sections.flatMap(section => section.properties.map(property => property.label)))
       .toEqual(['Extension Team']);
+  });
+
+  it('summarizes authoring save failures with visible status and detailed diagnostics', () => {
+    const result: AuthoringCommandResult = {
+      ok: false,
+      intent: 'commit',
+      saved: false,
+      runtimeApplied: false,
+      reason: 'source_save_failed',
+      diagnostics: [
+        { severity: 'warning', message: 'preflight warning' },
+        { severity: 'error', message: 'scene_json_v2_schema_failed' },
+      ],
+    };
+
+    expect(summarizeLocalEditorAuthoringFailure(result)).toEqual({
+      status: 'scene_json_v2_schema_failed',
+      details: [
+        'Reason: source_save_failed',
+        'Diagnostics: preflight warning; scene_json_v2_schema_failed',
+      ].join('\n'),
+    });
   });
 });

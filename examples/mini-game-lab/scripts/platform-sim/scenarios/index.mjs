@@ -39,6 +39,11 @@ export const scenarios = [
     description: '校验 scene node API 对非法 kind、parent cycle、非法 patch、missing node 等坏输入返回稳定错误码。',
     module: () => import('./scene-node-negative.mjs'),
   },
+  {
+    name: 'scene-node-save-run-nested',
+    description: '创建多层 instance 父子关系，保存后通过 save-and-run 返回游戏模式并保留 parentId。',
+    module: () => import('./scene-node-save-run-nested.mjs'),
+  },
 ];
 
 export function listScenarioNames() {
