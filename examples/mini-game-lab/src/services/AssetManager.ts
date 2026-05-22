@@ -87,6 +87,13 @@ export function planAssetRegistration(params: AssetRegistrationPlanParams): Asse
   return planAssetRegistrationCore(getAssetCatalogSnapshot(), params, ASSET_MANAGER_RULES);
 }
 
+export function planAssetRegistrationWithAssets(
+  assets: SceneAssetConfig[],
+  params: AssetRegistrationPlanParams,
+): AssetRegistrationPlan {
+  return planAssetRegistrationCore({ assets }, params, ASSET_MANAGER_RULES);
+}
+
 export function planAssetUnregistration(params: AssetUnregistrationPlanParams): AssetUnregistrationPlan {
   return planAssetUnregistrationCore(params, ASSET_MANAGER_RULES);
 }

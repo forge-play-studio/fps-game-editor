@@ -242,6 +242,10 @@ function projectAuthoringApiPlugin() {
             const result = cmd.includes('asset:unregister')
               ? await registryCore.unregisterAsset(lumberOrderAssetRegistryConfig, { payload: normalizedPayloadPath }, errorCodes)
               : await registryCore.registerAsset(lumberOrderAssetRegistryConfig, { payload: normalizedPayloadPath }, errorCodes);
+            invalidateViteFileModules(server, [
+              lumberOrderAssetRegistryConfig.registryPath,
+              resolve(__dirname, 'src/assets/index.ts'),
+            ]);
             sendJson(res, 200, { ok: true, cmd, result });
             return;
           }
