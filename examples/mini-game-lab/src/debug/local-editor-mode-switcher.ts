@@ -11,6 +11,7 @@ import type {
   BabylonEditorProjectionImportContext,
   BabylonEditorProjectionImportResult,
   BabylonEditorProjectionNode,
+  BabylonSceneCameraPreviewRig,
 } from '@fps-games/editor-babylon';
 import baseSceneConfig from '../config/scene.json';
 import type { SceneConfig } from '../config/types';
@@ -33,6 +34,8 @@ import {
   createEditorScenePlacedAssetPatch,
   createEditorSceneRenamePatch,
   createEditorSceneReparentPatch,
+  DEFAULT_EDITOR_SCENE_CAMERA,
+  ensureEditorSceneEnvironmentDefaults,
   getEditorSceneHierarchyItems,
   getEditorSceneInspectorMultiObject,
   getEditorSceneInspectorObject,
@@ -41,6 +44,8 @@ import {
   getEditorSceneSerializedMultiObject,
   getEditorSceneGameObjectWorldTransform,
   normalizeEditorSceneHierarchyDocument,
+  isEditorSceneCameraGameObject,
+  isEditorSceneLightGameObject,
   reduceEditorSceneDocument,
   toEditorSceneLocalTransformFromWorld,
   validateEditorSceneGroupSelection,
@@ -79,7 +84,9 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
     root: options.root,
     authoringHost,
     documentAdapter: {
-      prepareDocument: (document, assets) => normalizeEditorSceneHierarchyDocument(enrichEditorSceneDocumentAssets(document, assets)),
+      prepareDocument: (document, assets) => normalizeEditorSceneHierarchyDocument(
+        ensureEditorSceneEnvironmentDefaults(enrichEditorSceneDocumentAssets(document, assets)),
+      ),
       reduceDocument: reduceEditorSceneDocument,
       getSerializedObject: getEditorSceneSerializedObject,
       getSerializedMultiObject: getEditorSceneSerializedMultiObject,
@@ -92,6 +99,7 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
         const gameObject = document.scene.gameObjects.find((entry) => entry.id === id);
         return gameObject ? createProjectionNode(document, gameObject) : null;
       },
+      getSceneCameraPreviewRig: createSceneCameraPreviewRig,
       isSelectable: (_document, id) => id !== 'mvp_root',
       isLocked: () => false,
       createPatchFromAsset: (assetItem) => ({
@@ -204,11 +212,11 @@ function createEditorGrid(BABYLON: BabylonModule, scene: any): void {
   }
 }
 
-function createProjectionNodes(editorScene: EditorSceneDocument): BabylonEditorProjectionNode[] {
+export function createProjectionNodes(editorScene: EditorSceneDocument): BabylonEditorProjectionNode[] {
   return editorScene.scene.gameObjects.map((gameObject) => createProjectionNode(editorScene, gameObject));
 }
 
-function createProjectionNode(
+export function createProjectionNode(
   editorScene: EditorSceneDocument,
   gameObject: EditorSceneGameObject,
 ): BabylonEditorProjectionNode {
@@ -218,11 +226,19 @@ function createProjectionNode(
   const asset = renderer
     ? editorScene.assets.find((entry) => entry.id === renderer.assetId)
     : undefined;
+  const runtimeKind = isEditorSceneCameraGameObject(gameObject)
+    ? 'camera'
+    : isEditorSceneLightGameObject(gameObject)
+      ? 'light'
+      : undefined;
   return {
     id: gameObject.id,
     name: gameObject.name ?? gameObject.id,
     parentId: gameObject.parentId ?? null,
     active: gameObject.active,
+    ...(runtimeKind ? { runtimeKind } : {}),
+    ...(gameObject.camera ? { camera: structuredClone(gameObject.camera) } : {}),
+    ...(gameObject.light ? { light: structuredClone(gameObject.light) } : {}),
     transform: transform && worldTransform
       ? {
           position: worldTransform.position,
@@ -238,6 +254,20 @@ function createProjectionNode(
           metadata: asset.metadata,
         }
       : null,
+  };
+}
+
+export function createSceneCameraPreviewRig(
+  editorScene: EditorSceneDocument,
+): BabylonSceneCameraPreviewRig | null {
+  const camera = editorScene.scene.gameObjects.find(isEditorSceneCameraGameObject);
+  if (!camera || camera.active === false) return null;
+  return {
+    target: { x: 0, y: 0, z: 0 },
+    settings: {
+      ...DEFAULT_EDITOR_SCENE_CAMERA,
+      ...(camera.camera ?? {}),
+    },
   };
 }
 
@@ -266,7 +296,7 @@ async function importEditorProjectionModel(
 
 function createEditorSceneSerializedPropertyPatch(
   input: LocalEditorHarnessPropertyInput<EditorSceneDocument>,
-): { patch: EditorSceneDocumentPatch; label: string; changedId: string; changedIds: string[] } | null {
+): { patch: EditorSceneDocumentPatch; label: string; changedId: string; changedIds: string[]; reprojectIds?: string[] } | null {
   return createEditorSceneInspectorPropertyPatch(input);
 }
 

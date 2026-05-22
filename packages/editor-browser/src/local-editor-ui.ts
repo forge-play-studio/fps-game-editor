@@ -497,8 +497,21 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneQuickActions.appendChild(redoButton);
   sceneQuickActions.appendChild(dirtyBadge);
   sceneQuickActions.appendChild(sceneHelpButton);
+  const cameraPreviewGroup = doc.createElement('div');
+  cameraPreviewGroup.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'gap:4px',
+    'padding-left:8px',
+    'border-left:1px solid var(--fps-editor-divider)',
+  ].join(';');
+  const sceneCameraButton = LocalEditorShared.createButton(doc, 'Scene Camera');
+  sceneCameraButton.dataset.sceneCameraPreviewToggle = 'true';
+  sceneCameraButton.title = '从 Main Camera 查看当前场景';
+  cameraPreviewGroup.appendChild(sceneCameraButton);
   sceneToolOverlay.appendChild(sceneTitle);
   sceneToolOverlay.appendChild(sceneQuickActions);
+  sceneToolOverlay.appendChild(cameraPreviewGroup);
   sceneToolOverlay.appendChild(toolGroup);
   sceneToolOverlay.appendChild(spaceGroup);
   sceneToolOverlay.appendChild(handleGroup);
@@ -532,6 +545,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   discardRunButton.addEventListener('click', () => callbacks.onDiscardAndRunGame?.());
   undoButton.addEventListener('click', () => callbacks.onUndo?.());
   redoButton.addEventListener('click', () => callbacks.onRedo?.());
+  sceneCameraButton.addEventListener('click', () => {
+    const enabled = currentState?.sceneCameraPreview?.enabled ?? false;
+    callbacks.onSceneCameraPreviewToggle?.(!enabled);
+  });
   const setShortcutHelpOpen = (open: boolean): void => {
     if (open) contextMenu.close();
     helpOpen = open;
@@ -817,7 +834,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!inEditor || disabled) contextMenu.close();
     hostChrome.style.display = inEditor ? 'none' : 'flex';
     enterEditorButton.disabled = disabled;
-    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton]) {
+    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton]) {
       button.style.display = '';
       button.disabled = disabled;
     }
@@ -826,6 +843,13 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const transformTool = state.transformTool ?? null;
     workbench.root.style.display = inEditor ? '' : 'none';
     sceneToolOverlay.style.display = inEditor ? 'flex' : 'none';
+    const sceneCameraPreview = state.sceneCameraPreview ?? { enabled: false, available: false };
+    cameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
+    sceneCameraButton.disabled = disabled || !sceneCameraPreview.available;
+    sceneCameraButton.title = sceneCameraPreview.available
+      ? '从 Main Camera 查看当前场景'
+      : '当前场景没有可预览的 Main Camera';
+    LocalEditorShared.applyButtonActiveState(sceneCameraButton, sceneCameraPreview.enabled);
     for (const [tool, button] of toolButtons) {
       button.disabled = disabled;
       LocalEditorShared.applyButtonActiveState(button, transformTool?.activeTool === tool);

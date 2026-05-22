@@ -115,6 +115,20 @@ export function validateSceneJsonV2(
     if (node.kind === 'transform' && node.transformType != null && !TRANSFORM_TYPES.has(node.transformType)) {
       add(`${path}.transformType`, 'transformType must be plain, light, camera, or groundDecal');
     }
+    if (node.kind === 'transform') {
+      if (node.camera != null) {
+        if (node.transformType != null && node.transformType !== 'camera') {
+          add(`${path}.camera`, 'camera settings require transformType camera');
+        }
+        validateSceneCameraRig(node.camera, `${path}.camera`, add);
+      }
+      if (node.light != null) {
+        if (node.transformType != null && node.transformType !== 'light') {
+          add(`${path}.light`, 'light settings require transformType light');
+        }
+        validateSceneDirectionalLight(node.light, `${path}.light`, add);
+      }
+    }
     if (node.kind === 'transform' && node.transformType === 'groundDecal') {
       validateGroundDecal(node.groundDecal, `${path}.groundDecal`, add);
     }
@@ -424,6 +438,32 @@ function validateGroundDecal(value: unknown, path: string, add: (path: string, m
   }
 }
 
+function validateSceneCameraRig(value: unknown, path: string, add: (path: string, message: string) => void): void {
+  if (!isRecord(value)) {
+    add(path, 'camera must be an object');
+    return;
+  }
+  validateFiniteNumber(value.alpha, 'alpha', `${path}.alpha`, add);
+  validateFiniteNumber(value.beta, 'beta', `${path}.beta`, add);
+  validatePositiveFiniteNumber(value.radius, 'radius', `${path}.radius`, add);
+  validatePositiveFiniteNumber(value.orthoSize, 'orthoSize', `${path}.orthoSize`, add);
+}
+
+function validateSceneDirectionalLight(value: unknown, path: string, add: (path: string, message: string) => void): void {
+  if (!isRecord(value)) {
+    add(path, 'light must be an object');
+    return;
+  }
+  if (value.type !== 'directional') add(`${path}.type`, 'light.type must be directional');
+  validateNonNegativeFiniteNumber(value.intensity, 'intensity', `${path}.intensity`, add);
+  if (value.direction == null) {
+    add(`${path}.direction`, 'light.direction must be a vector object');
+  } else {
+    validateVec3(value.direction, `${path}.direction`, add);
+  }
+  validateColor(value.diffuseColor, `${path}.diffuseColor`, add);
+}
+
 function validateMaterialProperties(value: Record<string, any>, path: string, add: (path: string, message: string) => void): void {
   if (Object.keys(value).length === 0) {
     add(path, 'material properties must contain at least one override field');
@@ -504,6 +544,28 @@ function validateFiniteNumber(
   add: (path: string, message: string) => void,
 ): void {
   if (typeof value !== 'number' || !Number.isFinite(value)) add(path, `${key} must be a finite number`);
+}
+
+function validatePositiveFiniteNumber(
+  value: unknown,
+  key: string,
+  path: string,
+  add: (path: string, message: string) => void,
+): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    add(path, `${key} must be a positive finite number`);
+  }
+}
+
+function validateNonNegativeFiniteNumber(
+  value: unknown,
+  key: string,
+  path: string,
+  add: (path: string, message: string) => void,
+): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    add(path, `${key} must be a non-negative finite number`);
+  }
 }
 
 function validateBoolean(

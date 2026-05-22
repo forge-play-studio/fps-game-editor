@@ -31,7 +31,9 @@ import {
 import type {
   EditorSceneAsset,
   EditorSceneAssetLibraryItem,
+  EditorSceneCameraRig,
   EditorSceneDocument,
+  EditorSceneDirectionalLight,
   EditorSceneGameObject,
   EditorSceneVec3,
 } from './editor-scene-document';
@@ -125,6 +127,23 @@ type EditorSceneHierarchyMovePatchEntry = {
   transform: EditorTransformSnapshot;
 };
 
+export const EDITOR_SCENE_MAIN_CAMERA_ID = 'main_camera';
+export const EDITOR_SCENE_SUN_LIGHT_ID = 'sun_light';
+
+export const DEFAULT_EDITOR_SCENE_CAMERA: EditorSceneCameraRig = {
+  alpha: 3.9269908169872414,
+  beta: 0.8,
+  radius: 14,
+  orthoSize: 6,
+};
+
+export const DEFAULT_EDITOR_SCENE_SUN_LIGHT: EditorSceneDirectionalLight = {
+  type: 'directional',
+  intensity: 2,
+  direction: { x: -0.3, y: -1, z: -0.2 },
+  diffuseColor: { r: 1, g: 1, b: 1 },
+};
+
 export function reduceEditorSceneDocument(
   document: EditorSceneDocument,
   command: DocumentCommand<EditorSceneDocument, EditorSceneDocumentPatch>,
@@ -135,6 +154,7 @@ export function reduceEditorSceneDocument(
     return applyEditorSceneSerializedPropertyPatch(document, patch);
   }
   if (patch.kind === 'game-object.field') {
+    if (isBlockedEditorSceneCameraFieldPatch(document, patch.targetId, patch.path, patch.value)) return document;
     return patchEditorSceneGameObjectField(document, patch.targetId, patch.path, patch.value);
   }
   if (patch.kind === 'game-object.create-from-asset') {
@@ -169,7 +189,9 @@ export function reduceEditorSceneDocument(
   }
   if (patch.kind === 'game-object.duplicate-selection') {
     const existingIds = new Set(document.scene.gameObjects.map((gameObject) => gameObject.id));
-    const gameObjects = patch.gameObjects.filter((gameObject) => !existingIds.has(gameObject.id));
+    const gameObjects = patch.gameObjects.filter((gameObject) => (
+      !existingIds.has(gameObject.id) && !isEditorSceneCameraGameObject(gameObject)
+    ));
     if (gameObjects.length === 0) return document;
     return {
       ...document,
@@ -206,6 +228,9 @@ export function reduceEditorSceneDocument(
   if (patch.kind === 'game-object.delete-subtree') {
     const deleteIds = collectEditorSceneSubtreeIds(document, patch.targetIds);
     if (deleteIds.size === 0) return document;
+    if (document.scene.gameObjects.some((gameObject) => deleteIds.has(gameObject.id) && isEditorSceneCameraGameObject(gameObject))) {
+      return document;
+    }
     return {
       ...document,
       scene: {
@@ -308,6 +333,60 @@ export function canEditorSceneGameObjectHaveChildren(gameObject: EditorSceneGame
   return !!findEditorSceneTransform(gameObject);
 }
 
+export function isEditorSceneCameraGameObject(gameObject: EditorSceneGameObject): boolean {
+  return readEditorSceneNodeKind(gameObject) === 'transform'
+    && (gameObject.transformType === 'camera' || !!gameObject.camera);
+}
+
+export function isEditorSceneLightGameObject(gameObject: EditorSceneGameObject): boolean {
+  return readEditorSceneNodeKind(gameObject) === 'transform'
+    && (gameObject.transformType === 'light' || !!gameObject.light);
+}
+
+export function ensureEditorSceneEnvironmentDefaults(document: EditorSceneDocument): EditorSceneDocument {
+  const rootId = resolveEditorSceneRootContainerId(document);
+  let cameraSeen = false;
+  let changed = false;
+  const gameObjects = document.scene.gameObjects.map((gameObject) => {
+    if (isEditorSceneCameraGameObject(gameObject)) {
+      if (!cameraSeen) {
+        cameraSeen = true;
+        const next = normalizeEditorSceneCameraGameObject(gameObject);
+        changed = changed || next !== gameObject;
+        return next;
+      }
+      changed = true;
+      return normalizeEditorScenePlainTransformGameObject(gameObject);
+    }
+    if (isEditorSceneLightGameObject(gameObject)) {
+      const next = normalizeEditorSceneLightGameObject(gameObject);
+      changed = changed || next !== gameObject;
+      return next;
+    }
+    return gameObject;
+  });
+
+  const usedIds = new Set(gameObjects.map((gameObject) => gameObject.id));
+  if (!cameraSeen) {
+    changed = true;
+    gameObjects.push(createDefaultEditorSceneCameraGameObject(rootId, usedIds));
+  }
+  if (!gameObjects.some(isEditorSceneLightGameObject)) {
+    changed = true;
+    gameObjects.push(createDefaultEditorSceneSunLightGameObject(rootId, usedIds));
+  }
+
+  return changed
+    ? {
+        ...document,
+        scene: {
+          ...document.scene,
+          gameObjects,
+        },
+      }
+    : document;
+}
+
 export function getEditorSceneHierarchyItems(document: EditorSceneDocument): SceneGraphTreeItem[] {
   return document.scene.gameObjects.map((gameObject) => ({
     id: gameObject.id,
@@ -319,7 +398,7 @@ export function getEditorSceneHierarchyItems(document: EditorSceneDocument): Sce
     protected: gameObject.id === 'mvp_root',
     canHaveChildren: canEditorSceneGameObjectHaveChildren(gameObject),
     renamable: gameObject.id !== 'mvp_root',
-    deletable: gameObject.id !== 'mvp_root',
+    deletable: gameObject.id !== 'mvp_root' && !isEditorSceneCameraGameObject(gameObject),
     draggable: gameObject.id !== 'mvp_root',
   }));
 }
@@ -417,6 +496,9 @@ export function createEditorSceneDeleteSubtreePatch(
 ): { patch: EditorSceneDocumentPatch; label: string; deletedIds: string[]; fallbackSelectionId: string | null } | null {
   const deletedIds = [...collectEditorSceneSubtreeIds(document, intent.ids)];
   if (deletedIds.length === 0) return null;
+  if (document.scene.gameObjects.some((gameObject) => deletedIds.includes(gameObject.id) && isEditorSceneCameraGameObject(gameObject))) {
+    return null;
+  }
   const fallbackSelectionId = resolveDeleteFallbackSelectionId(document, deletedIds, intent.activeId ?? null);
   return {
     label: `Delete ${deletedIds.length} GameObject${deletedIds.length === 1 ? '' : 's'}`,
@@ -656,7 +738,7 @@ export function createEditorSceneDuplicateSelectionPatch(input: {
   const usedIds = new Set(input.document.scene.gameObjects.map((gameObject) => gameObject.id));
   for (const targetId of input.targetIds) {
     const source = findEditorSceneGameObject(input.document, targetId);
-    if (!source || source.id === 'mvp_root') continue;
+    if (!source || source.id === 'mvp_root' || isEditorSceneCameraGameObject(source)) continue;
     const duplicateId = createUniqueEditorSceneId([...usedIds], `${source.id}_copy`);
     usedIds.add(duplicateId);
     idMap.set(source.id, duplicateId);
@@ -1820,16 +1902,18 @@ function isObjectRecord(value: unknown): value is Record<string, any> {
  */
 export function createEditorSceneInspectorPropertyPatch(
   input: EditorSceneInspectorPropertyPatchInput,
-): { patch: EditorSceneDocumentPatch; label: string; changedId: string; changedIds: string[] } | null {
+): { patch: EditorSceneDocumentPatch; label: string; changedId: string; changedIds: string[]; reprojectIds?: string[] } | null {
   const gameObject = findEditorSceneGameObject(input.document, input.targetId);
   if (!gameObject) return null;
   const path = input.path;
   const value = normalizeEditorSceneInspectorValue(path, input.value);
   if (!validateEditorSceneInspectorValue(input.document, gameObject, path, value).ok) return null;
+  if (isBlockedEditorSceneCameraFieldPatch(input.document, input.targetId, path, value)) return null;
   if (isUnsafeGroupRotationOrScale(input.document, input.targetId, path)) return null;
   const changedIds = path.startsWith('transform.')
     ? collectEditorSceneSubtreeIdList(input.document, [input.targetId])
     : [input.targetId];
+  const reprojectIds = isEditorSceneProjectionShapePath(path) ? [input.targetId] : undefined;
   return {
     label: `Patch ${input.targetId} ${path}`,
     patch: {
@@ -1840,6 +1924,7 @@ export function createEditorSceneInspectorPropertyPatch(
     },
     changedId: input.targetId,
     changedIds,
+    ...(reprojectIds ? { reprojectIds } : {}),
   };
 }
 
@@ -2207,7 +2292,31 @@ function createEditorSceneInspectorSections(
       properties: createGroundDecalInspectorProperties(nodeKind, gameObject.groundDecal),
     });
   }
-  if (nodeKind === 'instance' || nodeKind === 'transform') {
+  if (nodeKind === 'transform' && isEditorSceneCameraGameObject(gameObject)) {
+    sections.push({
+      id: 'camera',
+      title: 'Camera',
+      order: 42,
+      placement: 'body',
+      summary: 'ArcRotate Orthographic',
+      persistence: 'document',
+      collapsedByDefault: false,
+      properties: createCameraInspectorProperties(nodeKind, gameObject.camera),
+    });
+  }
+  if (nodeKind === 'transform' && isEditorSceneLightGameObject(gameObject)) {
+    sections.push({
+      id: 'light',
+      title: 'Sun Light',
+      order: 44,
+      placement: 'body',
+      summary: 'Directional',
+      persistence: 'document',
+      collapsedByDefault: false,
+      properties: createSunLightInspectorProperties(nodeKind, gameObject.light),
+    });
+  }
+  if (nodeKind === 'instance' || (nodeKind === 'transform' && !isEditorSceneCameraGameObject(gameObject) && !isEditorSceneLightGameObject(gameObject))) {
     sections.push(...createMaterialOverrideInspectorSections(nodeKind, gameObject.overrides?.material));
     sections.push({
       id: 'outline',
@@ -2618,6 +2727,119 @@ function createGroundDecalInspectorProperties(
     path: 'groundDecal.raw',
     label: 'Raw Ground Decal',
     value: groundDecal ?? 'not configured',
+    order: properties.length,
+    source: 'Document',
+    tags: ['Raw'],
+  });
+  return properties;
+}
+
+function createCameraInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  camera: EditorSceneGameObject['camera'],
+): InspectorProperty<EditorSceneDocument>[] {
+  const rig = mergeEditorSceneCameraDefaults(camera);
+  const properties: InspectorProperty<EditorSceneDocument>[] = [
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'camera.alpha',
+      label: 'Alpha',
+      valueType: 'number',
+      control: 'number',
+      value: rig.alpha,
+      commitMode: 'live',
+      order: 0,
+      step: 0.01,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'camera.beta',
+      label: 'Beta',
+      valueType: 'number',
+      control: 'number',
+      value: rig.beta,
+      commitMode: 'live',
+      order: 1,
+      step: 0.01,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'camera.radius',
+      label: 'Radius',
+      valueType: 'number',
+      control: 'number',
+      value: rig.radius,
+      commitMode: 'live',
+      order: 2,
+      min: 0.001,
+      step: 0.1,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'camera.orthoSize',
+      label: 'Ortho Size',
+      valueType: 'number',
+      control: 'number',
+      value: rig.orthoSize,
+      commitMode: 'live',
+      order: 3,
+      min: 0.001,
+      step: 0.1,
+    }),
+  ];
+  appendReadonlyInspectorProperty(properties, {
+    path: 'camera.raw',
+    label: 'Raw Camera',
+    value: camera ?? 'defaults',
+    order: properties.length,
+    source: 'Document',
+    tags: ['Raw'],
+  });
+  return properties;
+}
+
+function createSunLightInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  light: EditorSceneGameObject['light'],
+): InspectorProperty<EditorSceneDocument>[] {
+  const sun = mergeEditorSceneLightDefaults(light);
+  const properties: InspectorProperty<EditorSceneDocument>[] = [
+    createReadonlyInspectorProperty('light.type', 'Type', sun.type, 0),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'light.intensity',
+      label: 'Intensity',
+      valueType: 'number',
+      control: 'number',
+      value: sun.intensity,
+      commitMode: 'live',
+      order: 1,
+      min: 0,
+      step: 0.05,
+    }),
+  ];
+  let order = 2;
+  for (const axis of ['x', 'y', 'z'] as const) {
+    properties.push(createDocumentInspectorProperty(null, nodeKind, {
+      path: `light.direction.${axis}`,
+      label: `Direction.${axis}`,
+      valueType: 'number',
+      control: 'number',
+      value: sun.direction[axis],
+      commitMode: 'live',
+      order,
+      step: 0.05,
+    }));
+    order += 1;
+  }
+  properties.push(createDocumentInspectorProperty(null, nodeKind, {
+    path: 'light.diffuseColor',
+    label: 'Diffuse Color',
+    valueType: 'color',
+    control: 'color',
+    value: sun.diffuseColor ?? { r: 1, g: 1, b: 1 },
+    commitMode: 'immediate',
+    order,
+  }));
+  appendReadonlyInspectorProperty(properties, {
+    path: 'light.raw',
+    label: 'Raw Light',
+    value: light ?? 'defaults',
     order: properties.length,
     source: 'Document',
     tags: ['Raw'],
@@ -3259,6 +3481,7 @@ export function patchEditorSceneGameObjectField(
   if (!gameObject) return document;
   const normalizedValue = normalizeEditorSceneInspectorValue(path, value);
   if (!validateEditorSceneInspectorValue(document, gameObject, path, normalizedValue).ok) return document;
+  if (isBlockedEditorSceneCameraFieldPatch(document, targetId, path, normalizedValue)) return document;
   return {
     ...document,
     scene: {
@@ -3295,6 +3518,10 @@ function patchEditorSceneGameObject(
     if (value === 'plain' || value === 'light' || value === 'camera' || value === 'groundDecal') {
       next.kind = 'transform';
       next.transformType = value;
+      if (value === 'camera') next.camera = mergeEditorSceneCameraDefaults(next.camera);
+      else delete next.camera;
+      if (value === 'light') next.light = mergeEditorSceneLightDefaults(next.light);
+      else delete next.light;
       if (value === 'groundDecal' && !next.groundDecal) next.groundDecal = createDefaultGroundDecal();
       else if (value !== 'groundDecal') delete next.groundDecal;
     }
@@ -3315,6 +3542,24 @@ function patchEditorSceneGameObject(
     next.kind = 'transform';
     next.transformType = next.transformType ?? 'groundDecal';
     next.groundDecal = mergeGroundDecalDefaults(next.groundDecal);
+    applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
+    return next;
+  }
+  if (path.startsWith('camera.')) {
+    next.kind = 'transform';
+    next.transformType = 'camera';
+    next.camera = mergeEditorSceneCameraDefaults(next.camera);
+    delete next.light;
+    delete next.groundDecal;
+    applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
+    return next;
+  }
+  if (path.startsWith('light.')) {
+    next.kind = 'transform';
+    next.transformType = 'light';
+    next.light = mergeEditorSceneLightDefaults(next.light);
+    delete next.camera;
+    delete next.groundDecal;
     applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
     return next;
   }
@@ -3401,6 +3646,170 @@ function mergeGroundDecalDefaults(
       ? { ...defaults.color, ...groundDecal.color }
       : defaults.color,
   };
+}
+
+function createDefaultEditorSceneCameraGameObject(
+  rootId: string | undefined,
+  usedIds: Set<string>,
+): EditorSceneGameObject {
+  const id = reserveEditorSceneDefaultId(usedIds, EDITOR_SCENE_MAIN_CAMERA_ID);
+  return {
+    id,
+    name: 'Main Camera',
+    kind: 'transform',
+    ...(rootId ? { parentId: rootId } : {}),
+    active: true,
+    transformType: 'camera',
+    camera: mergeEditorSceneCameraDefaults(undefined),
+    components: [{
+      type: 'Transform',
+      position: { x: 0, y: 5, z: -8 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    }],
+  };
+}
+
+function createDefaultEditorSceneSunLightGameObject(
+  rootId: string | undefined,
+  usedIds: Set<string>,
+): EditorSceneGameObject {
+  const id = reserveEditorSceneDefaultId(usedIds, EDITOR_SCENE_SUN_LIGHT_ID);
+  return {
+    id,
+    name: 'Sun Light',
+    kind: 'transform',
+    ...(rootId ? { parentId: rootId } : {}),
+    active: true,
+    transformType: 'light',
+    light: mergeEditorSceneLightDefaults(undefined),
+    components: [{
+      type: 'Transform',
+      position: { x: 0, y: 4, z: -3 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    }],
+  };
+}
+
+function reserveEditorSceneDefaultId(usedIds: Set<string>, preferredId: string): string {
+  const id = createUniqueEditorSceneId([...usedIds], preferredId);
+  usedIds.add(id);
+  return id;
+}
+
+function normalizeEditorSceneCameraGameObject(gameObject: EditorSceneGameObject): EditorSceneGameObject {
+  const next = ensureTransformComponent({
+    ...gameObject,
+    kind: 'transform',
+    transformType: 'camera',
+    camera: mergeEditorSceneCameraDefaults(gameObject.camera),
+  });
+  delete next.light;
+  delete next.groundDecal;
+  return shallowEditorSceneGameObjectsEqual(next, gameObject) ? gameObject : next;
+}
+
+function normalizeEditorSceneLightGameObject(gameObject: EditorSceneGameObject): EditorSceneGameObject {
+  const next = ensureTransformComponent({
+    ...gameObject,
+    kind: 'transform',
+    transformType: 'light',
+    light: mergeEditorSceneLightDefaults(gameObject.light),
+  });
+  delete next.camera;
+  delete next.groundDecal;
+  return shallowEditorSceneGameObjectsEqual(next, gameObject) ? gameObject : next;
+}
+
+function normalizeEditorScenePlainTransformGameObject(gameObject: EditorSceneGameObject): EditorSceneGameObject {
+  const next = ensureTransformComponent({
+    ...gameObject,
+    kind: 'transform',
+    transformType: 'plain',
+  });
+  delete next.camera;
+  delete next.light;
+  delete next.groundDecal;
+  return shallowEditorSceneGameObjectsEqual(next, gameObject) ? gameObject : next;
+}
+
+function ensureTransformComponent(gameObject: EditorSceneGameObject): EditorSceneGameObject {
+  if (findEditorSceneTransform(gameObject)) return gameObject;
+  return {
+    ...gameObject,
+    components: [
+      {
+        type: 'Transform',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+      ...gameObject.components,
+    ],
+  };
+}
+
+function mergeEditorSceneCameraDefaults(
+  camera: EditorSceneGameObject['camera'],
+): EditorSceneCameraRig {
+  return {
+    ...DEFAULT_EDITOR_SCENE_CAMERA,
+    ...(camera ?? {}),
+  };
+}
+
+function mergeEditorSceneLightDefaults(
+  light: EditorSceneGameObject['light'],
+): EditorSceneDirectionalLight {
+  const defaults = DEFAULT_EDITOR_SCENE_SUN_LIGHT;
+  return {
+    ...defaults,
+    ...(light ?? {}),
+    type: 'directional',
+    direction: {
+      ...defaults.direction,
+      ...(light?.direction ?? {}),
+    },
+    diffuseColor: light?.diffuseColor
+      ? { ...defaults.diffuseColor, ...light.diffuseColor }
+      : defaults.diffuseColor,
+  };
+}
+
+function shallowEditorSceneGameObjectsEqual(
+  left: EditorSceneGameObject,
+  right: EditorSceneGameObject,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isBlockedEditorSceneCameraFieldPatch(
+  document: EditorSceneDocument,
+  targetId: string,
+  path: string,
+  value: unknown,
+): boolean {
+  const target = findEditorSceneGameObject(document, targetId);
+  if (!target) return false;
+  const targetIsCamera = isEditorSceneCameraGameObject(target);
+  if (path.startsWith('camera.') && !targetIsCamera) return true;
+  if (path.startsWith('light.') && !isEditorSceneLightGameObject(target)) return true;
+  if (path === 'transformType') {
+    if (targetIsCamera && value !== 'camera') return true;
+    if (value === 'camera' && !targetIsCamera && hasEditorSceneCamera(document, targetId)) return true;
+  }
+  return false;
+}
+
+function isEditorSceneProjectionShapePath(path: string): boolean {
+  return path === 'transformType' || path.startsWith('camera.') || path.startsWith('light.');
+}
+
+function hasEditorSceneCamera(document: EditorSceneDocument, exceptId?: string): boolean {
+  return document.scene.gameObjects.some((gameObject) => (
+    gameObject.id !== exceptId && isEditorSceneCameraGameObject(gameObject)
+  ));
 }
 
 export function applyEditorSceneSerializedPropertyPatch(

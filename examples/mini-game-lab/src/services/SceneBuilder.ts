@@ -32,10 +32,13 @@ import { applyMaterialDebugAdjustments } from '../utils/materialDebugAdjust';
 import renderingConfig from '../config/rendering.json';
 import {
   configService,
+  type ColorRGB,
   type MaterialOverrideConfig,
   type OutlineOverrideConfig,
   type SceneAssetConfig,
   type SceneAssetMaterialMode,
+  type SceneCameraRigConfig,
+  type SceneDirectionalLightConfig,
   type SceneInstanceNode,
   type SceneSharedMaterialConfig,
   type SceneNodeConfig,
@@ -68,6 +71,7 @@ export class SceneBuilder {
   readonly sceneNodeRuntimes = new Map<string, TransformNode>();
   private sceneNodeCleanup = new Map<string, (() => void) | null>();
   private sceneAssetConfigs = new Map<string, SceneAssetConfig>();
+  private selectedCameraRig: SceneCameraRigConfig | null = null;
 
   constructor(scene: Scene, assetLoader: AssetLoader, modelPool?: ModelPool) {
     this.scene = scene;
@@ -126,28 +130,26 @@ export class SceneBuilder {
   }
 
   private createCamera(): ArcRotateCamera {
-    const camCfg = (renderingConfig as any).globalVolume?.camera ?? {};
-    const target = camCfg.target ? new Vector3(camCfg.target.x, camCfg.target.y, camCfg.target.z) : new Vector3(0, 0, 0);
-    const alpha = camCfg.alpha ?? Math.PI / 4;
-    const beta = camCfg.beta ?? Math.PI / 4;
-    const radius = camCfg.radius ?? 14;
+    const cameraRig = this.resolveCameraRig();
+    this.selectedCameraRig = cameraRig;
+    const target = this.resolveFallbackCameraTarget();
 
     const camera = new ArcRotateCamera(
       'mainCamera',
-      alpha,
-      beta,
-      radius,
+      cameraRig.alpha,
+      cameraRig.beta,
+      cameraRig.radius,
       target,
       this.scene
     );
 
     camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
-    camera.lowerAlphaLimit = alpha;
-    camera.upperAlphaLimit = alpha;
-    camera.lowerBetaLimit = beta;
-    camera.upperBetaLimit = beta;
-    camera.lowerRadiusLimit = radius;
-    camera.upperRadiusLimit = radius;
+    camera.lowerAlphaLimit = cameraRig.alpha;
+    camera.upperAlphaLimit = cameraRig.alpha;
+    camera.lowerBetaLimit = cameraRig.beta;
+    camera.upperBetaLimit = cameraRig.beta;
+    camera.lowerRadiusLimit = cameraRig.radius;
+    camera.upperRadiusLimit = cameraRig.radius;
 
     this.updateCameraProjection(camera);
 
@@ -157,8 +159,7 @@ export class SceneBuilder {
   updateCameraProjection(camera: ArcRotateCamera): void {
     if (camera.mode !== Camera.ORTHOGRAPHIC_CAMERA) return;
 
-    const camCfg = (renderingConfig as any).globalVolume?.camera ?? {};
-    const orthoSize = (camCfg.orthoSizeDesktop ?? 10) as number;
+    const orthoSize = this.getSelectedCameraOrthoSize();
     const engine = this.scene.getEngine();
     const width = Math.max(1, engine.getRenderWidth());
     const height = Math.max(1, engine.getRenderHeight());
@@ -168,6 +169,11 @@ export class SceneBuilder {
     camera.orthoRight = halfW;
     camera.orthoBottom = -halfH;
     camera.orthoTop = halfH;
+  }
+
+  getSelectedCameraOrthoSize(): number {
+    const cameraRig = this.selectedCameraRig ?? this.resolveCameraRig();
+    return cameraRig.orthoSize;
   }
 
   private enforceMainCamera(camera: ArcRotateCamera): void {
@@ -189,15 +195,64 @@ export class SceneBuilder {
       hemi.diffuse = new Color3(hemiDiffuse.r, hemiDiffuse.g, hemiDiffuse.b);
     }
 
-    const dir = new DirectionalLight('dirLight', new Vector3(-0.3, -1, -0.2), this.scene);
-    dir.intensity = lightsCfg.directional?.intensity ?? 1.2;
-
-    const d = lightsCfg.directional?.direction;
-    if (d) {
-      dir.direction = new Vector3(d.x, d.y, d.z);
+    const sun = this.resolveDirectionalLight();
+    const dir = new DirectionalLight(
+      'dirLight',
+      new Vector3(sun.direction.x, sun.direction.y, sun.direction.z),
+      this.scene,
+    );
+    dir.intensity = sun.intensity;
+    if (sun.diffuseColor) {
+      dir.diffuse = new Color3(sun.diffuseColor.r, sun.diffuseColor.g, sun.diffuseColor.b);
     }
 
     return { hemisphericLight: hemi, directionalLight: dir };
+  }
+
+  private resolveCameraRig(): SceneCameraRigConfig {
+    return configService.getSceneCameraRig() ?? this.resolveFallbackCameraRig();
+  }
+
+  private resolveFallbackCameraRig(): SceneCameraRigConfig {
+    const camCfg = (renderingConfig as any).globalVolume?.camera ?? {};
+    return {
+      alpha: readFiniteNumber(camCfg.alpha, Math.PI / 4),
+      beta: readFiniteNumber(camCfg.beta, Math.PI / 4),
+      radius: readPositiveFiniteNumber(camCfg.radius, 14),
+      orthoSize: readPositiveFiniteNumber(camCfg.orthoSizeDesktop, 10),
+    };
+  }
+
+  private resolveFallbackCameraTarget(): Vector3 {
+    const camCfg = (renderingConfig as any).globalVolume?.camera ?? {};
+    const target = camCfg.target;
+    if (!target) return new Vector3(0, 0, 0);
+    return new Vector3(
+      readFiniteNumber(target.x, 0),
+      readFiniteNumber(target.y, 0),
+      readFiniteNumber(target.z, 0),
+    );
+  }
+
+  private resolveDirectionalLight(): SceneDirectionalLightConfig {
+    return configService.getSceneDirectionalLight() ?? this.resolveFallbackDirectionalLight();
+  }
+
+  private resolveFallbackDirectionalLight(): SceneDirectionalLightConfig {
+    const lightsCfg = (renderingConfig as any).globalVolume?.lights ?? {};
+    const directional = lightsCfg.directional ?? {};
+    const direction = directional.direction ?? {};
+    const diffuseColor = readColorRGB(directional.diffuseColor);
+    return {
+      type: 'directional',
+      intensity: readNonNegativeFiniteNumber(directional.intensity, 1.2),
+      direction: {
+        x: readFiniteNumber(direction.x, -0.3),
+        y: readFiniteNumber(direction.y, -1),
+        z: readFiniteNumber(direction.z, -0.2),
+      },
+      ...(diffuseColor ? { diffuseColor } : {}),
+    };
   }
 
   private buildDefaultGround(): void {
@@ -1060,4 +1115,32 @@ export class SceneBuilder {
     this.clearSceneRuntime();
     this.root.dispose();
   }
+}
+
+function readFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function readPositiveFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function readNonNegativeFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function readColorRGB(value: unknown): ColorRGB | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.r !== 'number'
+    || !Number.isFinite(record.r)
+    || typeof record.g !== 'number'
+    || !Number.isFinite(record.g)
+    || typeof record.b !== 'number'
+    || !Number.isFinite(record.b)
+  ) {
+    return undefined;
+  }
+  return { r: record.r, g: record.g, b: record.b };
 }

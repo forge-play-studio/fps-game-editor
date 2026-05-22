@@ -123,6 +123,8 @@ function compileGameObject(
         ...base,
         kind: 'transform',
         ...(gameObject.transformType ? { transformType: gameObject.transformType } : {}),
+        ...(gameObject.camera ? { camera: structuredClone(gameObject.camera) } : {}),
+        ...(gameObject.light ? { light: structuredClone(gameObject.light) } : {}),
         ...(gameObject.groundDecal ? { groundDecal: structuredClone(gameObject.groundDecal) } : {}),
         ...(visualOverrides ? { overrides: visualOverrides } : {}),
       } satisfies SceneTransformNode;
