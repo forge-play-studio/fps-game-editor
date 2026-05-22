@@ -27,9 +27,7 @@
     "release:check": "node scripts/release-version.mjs check",
     "release:check:beta": "node scripts/release-version.mjs check --channel beta",
     "release:check:stable": "node scripts/release-version.mjs check --channel stable",
-    "release:verify": "npm run release:check && npm run check && npm run build && npm run build:editor-lab && npm run test:browser && npm run test:pack && npm run pack:dry-run",
-    "publish:beta": "npm run release:check:beta && npm run release:verify && npm publish --workspace @fps-games/editor --access public --tag beta",
-    "publish:stable": "npm run release:check:stable && npm run release:verify && npm publish --workspace @fps-games/editor --access public --tag latest"
+    "release:verify": "npm run release:check && npm run check && npm run build && npm run build:editor-lab && npm run test:browser && npm run test:pack && npm run pack:dry-run"
   },
   "devDependencies": {
     "@babylonjs/core": "^8.0.0",

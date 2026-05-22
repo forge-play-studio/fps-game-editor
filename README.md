@@ -451,20 +451,27 @@ npm run release:version -- 0.1.1
 npm run release:check:stable
 ```
 
-`release:version` 会同步根包、所有 workspace 包、内部 `@fps-games/editor-*` 依赖声明和 `package-lock.json` 中的 workspace 版本。合并 release PR 后，通过 GitHub Actions 的 `Publish Package` workflow 发包：
+`release:version` 会同步根包、所有 workspace 包、内部 `@fps-games/editor-*` 依赖声明和 `package-lock.json` 中的 workspace 版本。合并 release PR 后，使用 tag 驱动 `Publish Package` workflow 发包：
 
-- 手动触发并选择 `beta`，发布到 `@fps-games/editor@beta`。
-- 手动触发并选择 `stable`，发布到 `@fps-games/editor@latest`。
-- 推送 tag `v0.1.1-beta.0` 会自动走 beta 校验。
-- 推送 tag `v0.1.1` 会自动走 stable 校验。
+- 在 main 的 release commit 上推送 tag `v0.1.1-beta.0`，自动发布到 `@fps-games/editor@beta` 并创建 GitHub prerelease。
+- 在 main 的 release commit 上推送 tag `v0.1.1`，自动发布到 `@fps-games/editor@latest` 并创建 GitHub release。
+- 不通过 `workflow_dispatch` 手动选择发布通道，不在本地直接执行 `npm publish`。
+- npm publish 成功后，workflow 才创建 GitHub Release；如果 npm 发布失败，不生成 release 记录。
 
 GitHub/npm 发布环境要求：
 
 - npm 上为 `@fps-games/editor` 配置 Trusted Publisher，仓库指向 `forge-play-studio/fps-game-editor`，workflow 文件使用 `.github/workflows/publish.yml`。
 - GitHub Environments 建议配置 `npm-beta` 和 `npm-stable`，其中 `npm-stable` 需要 required reviewers。
-- workflow 使用 OIDC 和 provenance 发布，不依赖长期 `NPM_TOKEN`。
+- workflow 使用 OIDC 和 provenance 发布，不依赖长期 `NPM_TOKEN`。npm Trusted Publisher 的 Environment name 可以留空，让同一个 trusted publisher 覆盖 `npm-beta` 和 `npm-stable` 两个 GitHub environment。
 - `@fps-games/editor-*` 分层包继续保持 private，只作为 bundled dependencies 进入 `@fps-games/editor` tarball。
 - 如果发包流程、版本规则、CI 发布入口或包边界发生变化，必须在同一个 PR 中同步更新 `README.md` 和 `agent.md`。
+
+tag 发布前必须确认：
+
+- release PR 已合入 main，且 main CI 通过。
+- tag 指向的 main commit 中 package version 与 tag 完全一致，例如 `v0.1.1-beta.0` 对应 package version `0.1.1-beta.0`。
+- npm 上还不存在同名版本。npm 不允许覆盖已经发布过的版本。
+- beta 版本 tag 只能用于 `-beta.N` 版本；stable tag 不能包含 prerelease 后缀。
 
 发布前必须确认：
 

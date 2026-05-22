@@ -1,21 +1,12 @@
 name: Publish Package
 
 on:
-  workflow_dispatch:
-    inputs:
-      channel:
-        description: npm release channel
-        required: true
-        type: choice
-        options:
-          - beta
-          - stable
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 concurrency:
@@ -27,7 +18,7 @@ jobs:
     name: Publish @fps-games/editor
     runs-on: ubuntu-latest
     environment:
-      name: ${{ format('npm-{0}', github.event_name == 'workflow_dispatch' && inputs.channel || (contains(github.ref_name, '-beta.') && 'beta' || 'stable')) }}
+      name: ${{ format('npm-{0}', contains(github.ref_name, '-beta.') && 'beta' || 'stable') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -49,38 +40,32 @@ jobs:
         id: release
         shell: bash
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            channel="${{ inputs.channel }}"
-            tag=""
-          else
-            tag="$GITHUB_REF_NAME"
-            if [[ "$tag" == *"-beta."* ]]; then
-              channel="beta"
-            else
-              channel="stable"
-            fi
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+
+          if [[ "$tag" != v* ]]; then
+            echo "Publish Package only supports v* tags, got: $tag" >&2
+            exit 1
           fi
 
-          if [[ "$channel" == "stable" ]]; then
-            npm_tag="latest"
-          else
+          if [[ "$tag" == *"-beta."* ]]; then
+            channel="beta"
             npm_tag="beta"
+            prerelease="true"
+          else
+            channel="stable"
+            npm_tag="latest"
+            prerelease="false"
           fi
 
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
       - name: Check release metadata
-        env:
-          RELEASE_CHANNEL: ${{ steps.release.outputs.channel }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          if [[ -n "$RELEASE_TAG" ]]; then
-            npm run "release:check:$RELEASE_CHANNEL" -- --tag "$RELEASE_TAG"
-          else
-            npm run "release:check:$RELEASE_CHANNEL"
-          fi
+        run: npm run "release:check:${{ steps.release.outputs.channel }}" -- --tag "${{ steps.release.outputs.tag }}"
 
       - name: Check package boundaries, types, and unit tests
         run: npm run check
@@ -105,3 +90,42 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
           NPM_TAG: ${{ steps.release.outputs.npm_tag }}
         run: npm publish --workspace @fps-games/editor --access public --tag "$NPM_TAG"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          NPM_TAG: ${{ steps.release.outputs.npm_tag }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+        shell: bash
+        run: |
+          cat > release-notes.md <<EOF
+          ## npm
+
+          \`\`\`bash
+          npm install @fps-games/editor@$RELEASE_VERSION
+          \`\`\`
+
+          - npm dist-tag: \`$NPM_TAG\`
+          - Package: \`@fps-games/editor@$RELEASE_VERSION\`
+
+          ## Verification
+
+          This release was published by the tag-driven \`Publish Package\` workflow after:
+
+          - release metadata check
+          - package boundary check, typecheck, and unit tests
+          - package build
+          - editor-lab build
+          - browser smoke
+          - packed consumer smoke
+          - tarball dry run
+          EOF
+
+          release_flags=(--verify-tag --title "$RELEASE_TAG" --notes-file release-notes.md)
+          if [[ "$PRERELEASE" == "true" ]]; then
+            release_flags+=(--prerelease)
+          fi
+
+          gh release create "$RELEASE_TAG" "${release_flags[@]}"

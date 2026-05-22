@@ -30,9 +30,11 @@
 - 对外只发布 `@fps-games/editor`。`@fps-games/editor-*` 分层包保持 private，只作为 bundled dependencies 进入聚合包 tarball。
 - 发布渠道分为 `beta` 和 `stable`：`beta` 使用 npm dist-tag `beta`，版本格式为 `X.Y.Z-beta.N`；`stable` 使用 npm dist-tag `latest`，版本格式为 `X.Y.Z`。
 - 版本号必须进入 Git。使用 `npm run release:version -- <version>` 同步根包、所有 workspace 包、内部依赖声明和 `package-lock.json`，不要在 CI 中临时改版本。
-- 发包入口是 GitHub Actions 的 `Publish Package` workflow。除非用户明确要求，不在本地直接执行 `npm publish`。
+- 发包入口是 tag 驱动的 GitHub Actions `Publish Package` workflow。release PR 合入 main 后，在对应 main commit 上推送 `vX.Y.Z-beta.N` 或 `vX.Y.Z` tag 触发发布。除非用户明确要求，不通过 `workflow_dispatch` 手动选择通道，不在本地直接执行 `npm publish`。
 - `npm-beta` 和 `npm-stable` GitHub Environments 是发布保护边界；`npm-stable` 应要求 reviewer 审批。
-- npm 侧优先使用 Trusted Publishing / OIDC / provenance，不依赖长期 `NPM_TOKEN`。
+- npm 侧优先使用 Trusted Publishing / OIDC / provenance，不依赖长期 `NPM_TOKEN`。npm Trusted Publisher 的 Environment name 可以留空，让同一个 trusted publisher 覆盖 `npm-beta` 和 `npm-stable` 两个 GitHub environment。
 - 发包前至少确认 `npm run release:check`、`npm run check`、`npm run build`、`npm run build:editor-lab`、`npm run test:browser`、`npm run test:pack` 和 `npm run pack:dry-run` 通过。
+- tag 发布前必须确认 release PR 已合入 main、main CI 通过、tag 指向 main 上的 release commit、package version 与 tag 一致，且 npm 上不存在同名版本。
+- npm publish 成功后，workflow 会自动创建 GitHub Release；`-beta.N` 创建 prerelease，稳定版创建正式 release。
 - 游戏项目升级编辑器包时使用精确版本，并提交项目侧 lockfile。
 - 如果发包流程、版本规则、CI 发布入口或包边界发生变化，必须及时同步更新 `README.md` 和 `agent.md`。不要只改 workflow、脚本或 package metadata。
