@@ -24,3 +24,15 @@
 - 创建后必须单独设置 GitHub 右侧 `Fields`。当前仓库至少需要设置 `Priority`；如任务规模明确，也设置 `Effort`。
 - 对开发工具、框架能力补齐、非紧急基础设施任务，默认使用 `Priority: Medium`、`Effort: Medium`；如果用户明确指定，以用户指定为准。
 - 使用 `gh issue create` 后，要用 GitHub GraphQL 或页面确认右侧面板里的 `Type` 和 `Fields` 已真实生效。不要把正文中的字段描述误认为已经完成设置。
+
+## 发包与版本管理规则
+
+- 对外只发布 `@fps-games/editor`。`@fps-games/editor-*` 分层包保持 private，只作为 bundled dependencies 进入聚合包 tarball。
+- 发布渠道分为 `beta` 和 `stable`：`beta` 使用 npm dist-tag `beta`，版本格式为 `X.Y.Z-beta.N`；`stable` 使用 npm dist-tag `latest`，版本格式为 `X.Y.Z`。
+- 版本号必须进入 Git。使用 `npm run release:version -- <version>` 同步根包、所有 workspace 包、内部依赖声明和 `package-lock.json`，不要在 CI 中临时改版本。
+- 发包入口是 GitHub Actions 的 `Publish Package` workflow。除非用户明确要求，不在本地直接执行 `npm publish`。
+- `npm-beta` 和 `npm-stable` GitHub Environments 是发布保护边界；`npm-stable` 应要求 reviewer 审批。
+- npm 侧优先使用 Trusted Publishing / OIDC / provenance，不依赖长期 `NPM_TOKEN`。
+- 发包前至少确认 `npm run release:check`、`npm run check`、`npm run build`、`npm run build:editor-lab`、`npm run test:browser`、`npm run test:pack` 和 `npm run pack:dry-run` 通过。
+- 游戏项目升级编辑器包时使用精确版本，并提交项目侧 lockfile。
+- 如果发包流程、版本规则、CI 发布入口或包边界发生变化，必须及时同步更新 `README.md` 和 `agent.md`。不要只改 workflow、脚本或 package metadata。

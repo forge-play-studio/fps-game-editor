@@ -428,24 +428,55 @@ npm run typecheck:mini-game-lab
 npm run pack:dry-run
 ```
 
-### 发布前检查
+### GitHub 发包流程
 
-当前发布脚本：
+发布渠道：
+
+| 渠道 | npm dist-tag | 版本格式 | 用途 |
+| --- | --- | --- | --- |
+| beta | `beta` | `0.1.1-beta.0` | 给真实项目提前验证，允许继续迭代 |
+| stable | `latest` | `0.1.1` | 真实项目默认安装的稳定版本 |
+
+版本号必须进入 Git，不在 CI 中临时改版本。准备发布时先开 release PR：
 
 ```bash
-npm run publish:next
+npm run release:version -- 0.1.1-beta.0
+npm run release:check:beta
 ```
+
+稳定版使用：
+
+```bash
+npm run release:version -- 0.1.1
+npm run release:check:stable
+```
+
+`release:version` 会同步根包、所有 workspace 包、内部 `@fps-games/editor-*` 依赖声明和 `package-lock.json` 中的 workspace 版本。合并 release PR 后，通过 GitHub Actions 的 `Publish Package` workflow 发包：
+
+- 手动触发并选择 `beta`，发布到 `@fps-games/editor@beta`。
+- 手动触发并选择 `stable`，发布到 `@fps-games/editor@latest`。
+- 推送 tag `v0.1.1-beta.0` 会自动走 beta 校验。
+- 推送 tag `v0.1.1` 会自动走 stable 校验。
+
+GitHub/npm 发布环境要求：
+
+- npm 上为 `@fps-games/editor` 配置 Trusted Publisher，仓库指向 `forge-play-studio/fps-game-editor`，workflow 文件使用 `.github/workflows/publish.yml`。
+- GitHub Environments 建议配置 `npm-beta` 和 `npm-stable`，其中 `npm-stable` 需要 required reviewers。
+- workflow 使用 OIDC 和 provenance 发布，不依赖长期 `NPM_TOKEN`。
+- `@fps-games/editor-*` 分层包继续保持 private，只作为 bundled dependencies 进入 `@fps-games/editor` tarball。
+- 如果发包流程、版本规则、CI 发布入口或包边界发生变化，必须在同一个 PR 中同步更新 `README.md` 和 `agent.md`。
 
 发布前必须确认：
 
+- `npm run release:check` 通过。
 - `npm run check` 通过。
+- `npm run build` 通过。
 - `npm run build:editor-lab` 通过。
 - `npm run test:browser` 通过。
 - `npm run test:pack` 通过。
 - `npm run pack:dry-run` 只生成 `@fps-games/editor` tarball。
 - tarball 的 Bundled Dependencies 包含 5 个内部 workspace：protocol、core、browser、Babylon、Forge Play bridge。
 - `@fps-games/editor` 的 `exports` 指向真实存在的 `dist/index.js` 和 `dist/index.d.ts`。
-- 版本号已经同步更新到所有内部 workspace，便于 bundled dependency 元数据保持一致。
 - 游戏项目升级时使用精确版本，并提交 lockfile。
 
 ## 设计文档
