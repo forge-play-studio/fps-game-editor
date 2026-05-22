@@ -26,8 +26,12 @@ import {
   collectEditorSceneSubtreeIdList,
   createEditorSceneCreateGroupPatch,
   createEditorSceneDeleteSubtreePatch,
+  createEditorSceneInspectorPropertyPatch,
+  getEditorSceneRuntimeInspectorSections,
   createEditorSceneRenamePatch,
   createEditorSceneReparentPatch,
+  getEditorSceneInspectorMultiObject,
+  getEditorSceneInspectorObject,
   getEditorSceneSerializedObject,
   getEditorSceneSerializedMultiObject,
   getEditorSceneGameObjectWorldTransform,
@@ -71,6 +75,9 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
       reduceDocument: reduceEditorSceneDocument,
       getSerializedObject: getEditorSceneSerializedObject,
       getSerializedMultiObject: getEditorSceneSerializedMultiObject,
+      getInspectorObject: getEditorSceneInspectorObject,
+      getInspectorMultiObject: getEditorSceneInspectorMultiObject,
+      getRuntimeInspectorSections: getEditorSceneRuntimeInspectorSections,
       getHierarchyItems: (document) => document.scene.gameObjects.map((gameObject) => ({
         id: gameObject.id,
         label: gameObject.name ?? gameObject.id,
@@ -256,25 +263,7 @@ async function importEditorProjectionModel(
 function createEditorSceneSerializedPropertyPatch(
   input: LocalEditorHarnessPropertyInput<EditorSceneDocument>,
 ): { patch: EditorSceneDocumentPatch; label: string; changedId: string; changedIds: string[] } | null {
-  const gameObjectId = input.targetId;
-  const serializedPath = input.path;
-  const value = Number(input.value);
-  if (!gameObjectId || !serializedPath || !Number.isFinite(value)) return null;
-  if (isUnsafeGroupRotationOrScale(input.document, gameObjectId, serializedPath)) return null;
-  const changedIds = serializedPath.startsWith('transform.')
-    ? collectEditorSceneSubtreeIdList(input.document, [gameObjectId])
-    : [gameObjectId];
-  return {
-    label: `Patch ${gameObjectId} ${serializedPath}`,
-    patch: {
-      kind: 'serialized-property',
-      targetId: gameObjectId,
-      path: serializedPath,
-      value,
-    },
-    changedId: gameObjectId,
-    changedIds,
-  };
+  return createEditorSceneInspectorPropertyPatch(input);
 }
 
 function createEditorSceneSerializedMultiPropertyPatch(

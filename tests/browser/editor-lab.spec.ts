@@ -31,3 +31,52 @@ test('editor-lab opens EditorWorld and supports selection, edit, undo, redo, and
   await expect(page.locator('[data-editor-lab-status]')).toContainText('revision=2');
   await expect(page.getByText('未保存', { exact: true })).toBeHidden();
 });
+
+test('editor-lab inspector edits boolean, enum asset, and color fields', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('[data-editor-lab-status]')).toContainText('mode=editor');
+  await page.getByRole('button', { name: 'Blue Box' }).click();
+
+  const activeInput = page.locator('input[data-serialized-path="gameObject.active"]');
+  await expect(activeInput).toBeChecked();
+  await activeInput.uncheck();
+  await expect(page.locator('text=未保存')).toBeVisible();
+  const activeValue = await page.evaluate(() => window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects.find(gameObject => gameObject.id === 'lab_box_01')?.active);
+  expect(activeValue).toBe(false);
+
+  const assetSelect = page.locator('select[data-serialized-path="renderer.assetId"]');
+  await expect(assetSelect).toHaveValue('asset_box');
+  await assetSelect.selectOption('asset_marker');
+  const assetValue = await page.evaluate(() => window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects.find(gameObject => gameObject.id === 'lab_box_01')?.assetId);
+  expect(assetValue).toBe('asset_marker');
+
+  const tintInput = page.locator('input[data-serialized-path="appearance.tint"]');
+  await expect(tintInput).toHaveAttribute('type', 'color');
+  await tintInput.evaluate((element) => {
+    const input = element as HTMLInputElement;
+    input.value = '#ff3366';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  const tintValue = await page.evaluate(() => window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects.find(gameObject => gameObject.id === 'lab_box_01')?.tint);
+  expect(tintValue?.r).toBeCloseTo(1, 3);
+  expect(tintValue?.g).toBeCloseTo(0.2, 3);
+  expect(tintValue?.b).toBeCloseTo(0.4, 3);
+});
+
+test('editor-lab inspector shows mixed values for multi-selection', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('[data-editor-lab-status]')).toContainText('mode=editor');
+
+  await page.getByRole('button', { name: 'Blue Box' }).click();
+  await page.keyboard.down('Shift');
+  await page.getByRole('button', { name: 'Green Sphere' }).click();
+  await page.keyboard.up('Shift');
+
+  await expect(page.getByRole('heading', { name: 'Selection' })).toBeVisible();
+  await expect(page.getByText('Count')).toBeVisible();
+  await expect(page.getByText('2', { exact: true })).toBeVisible();
+
+  const mixedX = page.locator('input[data-serialized-path="transform.position.x"]').first();
+  await expect(mixedX).toHaveValue('');
+  await expect(mixedX).toHaveAttribute('placeholder', '--');
+});

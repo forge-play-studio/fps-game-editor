@@ -13,7 +13,7 @@ test('hierarchy context menu routes actions through EditorWorld input ownership'
   await expect(page.locator('[data-editor-context-menu]')).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Focus in Preview F' })).toBeVisible();
 
-  await expect(page.locator('text=lab_box_01')).toBeVisible();
+  await expect(page.locator('[data-editor-panel-id="inspector"]').getByText('lab_box_01').first()).toBeVisible();
 
   await page.getByRole('menuitem', { name: 'Rename' }).click();
   const renameInput = page.locator('input[data-editor-hierarchy-rename-input="lab_box_01"]');

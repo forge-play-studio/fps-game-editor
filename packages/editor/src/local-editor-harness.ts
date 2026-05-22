@@ -2,6 +2,7 @@ import {
   type AuthoringCommandResult,
   type AuthoringSourceDescriptor,
   createEditorSession,
+  createInspectorRegistry,
   type DocumentCommand,
   type EditorSelectionState,
   type EditorSession,
@@ -19,10 +20,25 @@ import {
   type SceneGraphDropIntent,
   type SceneGraphRenameIntent,
   type SceneGraphValidationResult,
+  createInspectorEditPayload,
   type SerializedMultiObject,
   type SerializedObject,
+  type InspectorControlKind,
+  type InspectorCommitMode,
+  type InspectorComponentRegistration,
+  type InspectorEditPayload,
+  type InspectorObject,
+  type InspectorPersistenceMode,
+  type InspectorProperty,
+  type InspectorRegistry,
+  type InspectorRegistryConflictStrategy,
+  type InspectorSection,
+  type InspectorSelectionContext,
   type EditorHostServices,
+  mergeInspectorSections,
   type ProjectAuthoringHost,
+  serializedMultiObjectToInspectorObject,
+  serializedObjectToInspectorObject,
   validateSceneGraphDelete,
   validateSceneGraphDrop,
   validateSceneGraphRename,
@@ -32,6 +48,7 @@ import {
   type LocalEditorBrowserUi,
   type LocalEditorBrowserUiAssetItem,
   type LocalEditorBrowserHierarchySelectionInput,
+  type LocalEditorBrowserInspectorOptions,
   type LocalEditorBrowserUiPropertyInput,
   type LocalEditorBrowserUiHierarchyItem,
   type LocalEditorBrowserUiState,
@@ -75,7 +92,12 @@ export interface LocalEditorHarnessPropertyInput<TDocument = unknown> {
   targetId: string;
   targetIds?: string[];
   path: string;
-  value: number | string | boolean;
+  value: unknown;
+  control?: InspectorControlKind;
+  valueType?: InspectorProperty['valueType'];
+  commitMode?: InspectorCommitMode;
+  persistence?: InspectorPersistenceMode;
+  source?: InspectorEditPayload['source'];
 }
 
 export interface LocalEditorHarnessMultiPropertyInput<TDocument = unknown> {
@@ -83,7 +105,36 @@ export interface LocalEditorHarnessMultiPropertyInput<TDocument = unknown> {
   targetIds: string[];
   activeId: string | null;
   path: string;
-  value: number | string | boolean;
+  value: unknown;
+  control?: InspectorControlKind;
+  valueType?: InspectorProperty['valueType'];
+  commitMode?: InspectorCommitMode;
+  persistence?: InspectorPersistenceMode;
+  source?: InspectorEditPayload['source'];
+}
+
+export interface LocalEditorHarnessRuntimeInspectorContext<TDocument = unknown> {
+  document: TDocument;
+  targetIds: string[];
+  activeId: string | null;
+  inspectorObject: InspectorObject<TDocument>;
+  projectionNode?: BabylonEditorProjectionNode | null;
+  projectedRoot?: unknown;
+}
+
+export interface LocalEditorHarnessInspectorOptions<TDocument = unknown>
+  extends LocalEditorBrowserInspectorOptions<TDocument> {
+  components?: InspectorRegistry<TDocument> | readonly InspectorComponentRegistration<TDocument>[];
+  componentConflict?: InspectorRegistryConflictStrategy;
+  propertyConflict?: InspectorRegistryConflictStrategy;
+}
+
+export interface LocalEditorHarnessInspectorComponentMergeInput<TDocument = unknown> {
+  inspectorObject: InspectorObject<TDocument>;
+  components?: InspectorRegistry<TDocument> | readonly InspectorComponentRegistration<TDocument>[];
+  context?: InspectorSelectionContext<TDocument>;
+  componentConflict?: InspectorRegistryConflictStrategy;
+  propertyConflict?: InspectorRegistryConflictStrategy;
 }
 
 export interface LocalEditorHarnessTransformInput<TDocument = unknown> {
@@ -97,6 +148,14 @@ export interface LocalEditorHarnessTransformInput<TDocument = unknown> {
 
 export interface LocalEditorHarnessTransformBatchInput<TDocument = unknown> extends EditorTransformBatchCommit {
   document: TDocument;
+}
+
+export interface LocalEditorHarnessPatchResult<TPatch> {
+  patch: TPatch;
+  label?: string;
+  changedId?: string;
+  changedIds?: string[];
+  reprojectIds?: string[];
 }
 
 export interface LocalEditorHarnessSceneGraphRenamePatch<TPatch> {
@@ -131,6 +190,9 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   reduceDocument(document: TDocument, command: DocumentCommand<TDocument, TPatch>): TDocument;
   getSerializedObject(document: TDocument, activeId: string): SerializedObject<TDocument> | null;
   getSerializedMultiObject?(document: TDocument, selectedIds: string[], activeId: string | null): SerializedMultiObject<TDocument> | null;
+  getInspectorObject?(document: TDocument, activeId: string): InspectorObject<TDocument> | null;
+  getInspectorMultiObject?(document: TDocument, selectedIds: string[], activeId: string | null): InspectorObject<TDocument> | null;
+  getRuntimeInspectorSections?(context: LocalEditorHarnessRuntimeInspectorContext<TDocument>): InspectorSection<TDocument>[];
   getHierarchyItems(document: TDocument): LocalEditorBrowserUiHierarchyItem[];
   getProjectionNodes(document: TDocument): BabylonEditorProjectionNode[];
   getProjectionNode(document: TDocument, id: string): BabylonEditorProjectionNode | null;
@@ -138,10 +200,10 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   isLocked?(document: TDocument, id: string): boolean;
   createPatchFromAsset(asset: TAsset): { patch: TPatch; label?: string };
   findCreatedId?(beforeDocument: TDocument, afterDocument: TDocument): string | null;
-  createSerializedPropertyPatch(input: LocalEditorHarnessPropertyInput<TDocument>): { patch: TPatch; label?: string; changedId?: string; changedIds?: string[] } | null;
-  createSerializedMultiPropertyPatch?(input: LocalEditorHarnessMultiPropertyInput<TDocument>): { patch: TPatch; label?: string; changedIds?: string[] } | null;
-  createTransformPatch?(input: LocalEditorHarnessTransformInput<TDocument>): { patch: TPatch; label?: string; changedId?: string; changedIds?: string[] } | null;
-  createTransformBatchPatch?(input: LocalEditorHarnessTransformBatchInput<TDocument>): { patch: TPatch; label?: string; changedIds?: string[] } | null;
+  createSerializedPropertyPatch(input: LocalEditorHarnessPropertyInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
+  createSerializedMultiPropertyPatch?(input: LocalEditorHarnessMultiPropertyInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
+  createTransformPatch?(input: LocalEditorHarnessTransformInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
+  createTransformBatchPatch?(input: LocalEditorHarnessTransformBatchInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
   validateSceneGraphDrop?(document: TDocument, intent: SceneGraphDropIntent): SceneGraphValidationResult;
   createSceneGraphRenamePatch?(document: TDocument, intent: SceneGraphRenameIntent): LocalEditorHarnessSceneGraphRenamePatch<TPatch> | null;
   createSceneGraphCreateGroupPatch?(document: TDocument, intent: SceneGraphCreateGroupIntent): LocalEditorHarnessSceneGraphCreateGroupPatch<TPatch> | null;
@@ -194,6 +256,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     clearColor?: { r: number; g: number; b: number; a: number };
     useRightHandedSystem?: boolean;
   };
+  inspector?: LocalEditorHarnessInspectorOptions<TDocument>;
   createGrid?: (babylon: BabylonRuntimeGlobal & Record<string, any>, scene: unknown) => void;
 }
 
@@ -263,6 +326,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
   let harness: LocalEditorHarness<TDocument>;
   const ui: LocalEditorBrowserUi<TDocument> = createLocalEditorBrowserUi<TDocument>({
     root,
+    inspector: options.inspector,
     callbacks: {
       onEnterEditor: () => {
         void runExclusive(state, harness.render, () => harness.enterEditor());
@@ -308,7 +372,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         harness.render();
       },
       onPropertyInput: (input) => {
-        if (patchSerializedProperty(state, options, input)) harness.render();
+        const previousStatus = state.status;
+        const patched = patchSerializedProperty(state, options, input);
+        if (patched || state.status !== previousStatus) harness.render();
       },
       onTransformToolChange: (tool) => {
         state.transformTool = tool;
@@ -438,6 +504,33 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
 
   harness.render();
   return harness;
+}
+
+export function mergeLocalEditorHarnessInspectorComponentSections<TDocument>(
+  input: LocalEditorHarnessInspectorComponentMergeInput<TDocument>,
+): InspectorObject<TDocument> {
+  const components = input.components;
+  if (!components) return input.inspectorObject;
+  const context = {
+    ...input.inspectorObject.selection,
+    ...input.context,
+    targetIds: input.context?.targetIds ?? input.inspectorObject.targetIds,
+    activeId: input.context?.activeId ?? input.inspectorObject.activeId,
+    document: input.context?.document ?? input.inspectorObject.document ?? input.inspectorObject.selection.document,
+  };
+  const componentSections = getInspectorComponentSections({
+    components,
+    context,
+    componentConflict: input.componentConflict,
+    propertyConflict: input.propertyConflict,
+  });
+  if (componentSections.length === 0) return input.inspectorObject;
+  return {
+    ...input.inspectorObject,
+    sections: mergeInspectorSections(input.inspectorObject.sections, componentSections, {
+      propertyConflict: input.propertyConflict,
+    }),
+  };
 }
 
 async function createEditorWorld<TDocument, TPatch, TAsset>(
@@ -965,44 +1058,138 @@ function patchSerializedProperty<TDocument, TPatch, TAsset>(
   if (!state.session) return false;
   const document = state.session.getState().workingDocument;
   const targetIds = input.targetIds && input.targetIds.length > 0 ? input.targetIds : [input.targetId];
+  const transaction = createInspectorEditTransaction(state, options, document, input, targetIds);
+  if (!transaction.ok) {
+    state.status = transaction.message;
+    return false;
+  }
+  const payload = transaction.payload;
   if (targetIds.length > 1) {
     const patch = options.documentAdapter.createSerializedMultiPropertyPatch?.({
       document,
       targetIds,
       activeId: state.session.getState().selection.activeId,
-      path: input.path,
-      value: input.value,
+      path: payload.path,
+      value: payload.value,
+      control: payload.control,
+      valueType: payload.valueType,
+      commitMode: payload.commitMode,
+      persistence: payload.persistence,
+      source: payload.source,
     });
     if (!patch) return false;
     const result = state.session.dispatch({
       type: 'document.patch',
-      label: patch.label ?? `Patch ${input.path} on ${targetIds.length} objects`,
+      label: patch.label ?? `Patch ${payload.path} on ${targetIds.length} objects`,
       patch: patch.patch,
       targetId: state.session.getState().selection.activeId ?? undefined,
     });
     if (!result.documentChanged) return false;
     const changedIds = patch.changedIds ?? targetIds;
     const workingDocument = result.workingDocument;
-    syncProjectionForChangedIds(state, options, workingDocument, changedIds);
+    if (patch.reprojectIds?.length) reprojectProjectionForChangedIds(state, options, workingDocument, patch.reprojectIds);
+    else syncProjectionForChangedIds(state, options, workingDocument, changedIds);
     state.summary = summarizeDocument(options, workingDocument, state.session.getSource());
-    state.status = patch.label ?? `Patch ${input.path} on ${targetIds.length} objects`;
+    state.status = patch.label ?? `Patch ${payload.path} on ${targetIds.length} objects`;
     return true;
   }
   const patch = options.documentAdapter.createSerializedPropertyPatch({
-    ...input,
     document,
+    targetId: payload.targetId,
+    targetIds: payload.targetIds,
+    path: payload.path,
+    value: payload.value,
+    control: payload.control,
+    valueType: payload.valueType,
+    commitMode: payload.commitMode,
+    persistence: payload.persistence,
+    source: payload.source,
   });
   if (!patch) return false;
   const result = state.session.dispatch({
     type: 'document.patch',
-    label: patch.label ?? `Patch ${input.path}`,
+    label: patch.label ?? `Patch ${payload.path}`,
     patch: patch.patch,
   });
-  if (patch.changedIds) syncProjectionForChangedIds(state, options, result.workingDocument, patch.changedIds);
-  else syncProjectionForDispatchResult(state, options, result, patch.changedId ?? input.targetId);
+  if (patch.reprojectIds?.length) reprojectProjectionForChangedIds(state, options, result.workingDocument, patch.reprojectIds);
+  else if (patch.changedIds) syncProjectionForChangedIds(state, options, result.workingDocument, patch.changedIds);
+  else syncProjectionForDispatchResult(state, options, result, patch.changedId ?? payload.targetId);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
-  state.status = patch.label ?? `Patched ${input.path}`;
+  state.status = patch.label ?? `Patched ${payload.path}`;
   return true;
+}
+
+function createInspectorEditTransaction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  input: LocalEditorBrowserUiPropertyInput,
+  targetIds: string[],
+): { ok: true; payload: InspectorEditPayload } | { ok: false; message: string } {
+  const property = findInspectorPropertyForEdit(state, options, document, input, targetIds);
+  if (!property) {
+    return { ok: false, message: `Inspector property not found: ${input.path}.` };
+  }
+  const result = createInspectorEditPayload(property, {
+    targetId: input.targetId,
+    targetIds: input.targetIds,
+    path: input.path,
+    value: input.value,
+    control: input.control as InspectorControlKind | undefined,
+    valueType: input.valueType as InspectorProperty['valueType'] | undefined,
+    commitMode: input.commitMode as InspectorCommitMode | undefined,
+    persistence: input.persistence as InspectorPersistenceMode | undefined,
+    source: input.source,
+  });
+  if (!result.ok) return { ok: false, message: result.message };
+  return { ok: true, payload: result.value };
+}
+
+function findInspectorPropertyForEdit<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  input: LocalEditorBrowserUiPropertyInput,
+  targetIds: string[],
+): InspectorProperty<TDocument> | null {
+  const inspector = createInspectorObjectForEdit(state, options, document, input, targetIds);
+  if (!inspector) return null;
+  return findInspectorPropertyByPath(inspector, input.path);
+}
+
+function createInspectorObjectForEdit<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  input: LocalEditorBrowserUiPropertyInput,
+  targetIds: string[],
+): InspectorObject<TDocument> | null {
+  if (targetIds.length > 1) {
+    const activeId = state.session?.getState().selection.activeId ?? input.targetId ?? null;
+    const inspector = options.documentAdapter.getInspectorMultiObject?.(document, targetIds, activeId) ?? null;
+    if (inspector) return withInspectorComponentSections(state, options, document, inspector);
+    const serializedMultiObject = options.documentAdapter.getSerializedMultiObject?.(document, targetIds, activeId) ?? null;
+    return serializedMultiObject
+      ? withInspectorComponentSections(state, options, document, serializedMultiObjectToInspectorObject(serializedMultiObject, document))
+      : null;
+  }
+  const inspector = options.documentAdapter.getInspectorObject?.(document, input.targetId) ?? null;
+  if (inspector) return withInspectorComponentSections(state, options, document, inspector);
+  const serializedObject = options.documentAdapter.getSerializedObject(document, input.targetId);
+  return serializedObject
+    ? withInspectorComponentSections(state, options, document, serializedObjectToInspectorObject(serializedObject, document))
+    : null;
+}
+
+function findInspectorPropertyByPath<TDocument>(
+  inspector: InspectorObject<TDocument>,
+  path: string,
+): InspectorProperty<TDocument> | null {
+  for (const section of inspector.sections) {
+    const property = section.properties.find(candidate => candidate.path === path);
+    if (property) return property;
+  }
+  return null;
 }
 
 function commitGizmoTransform<TDocument, TPatch, TAsset>(
@@ -1202,6 +1389,21 @@ function syncProjectionForChangedIds<TDocument, TPatch, TAsset>(
   syncSelectionToProjection(state, selection);
 }
 
+function reprojectProjectionForChangedIds<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  changedIds: string[],
+): void {
+  for (const changedId of changedIds) {
+    const projectedNode = options.documentAdapter.getProjectionNode(document, changedId);
+    if (projectedNode) state.projection?.projectNode(projectedNode);
+  }
+  const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
+  syncSelectionToProjection(state, selection);
+  state.gizmo?.refreshSelection();
+}
+
 function createUiState<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -1210,6 +1412,24 @@ function createUiState<TDocument, TPatch, TAsset>(
   const document = sessionState?.workingDocument ?? null;
   const selectedIds = sessionState?.selection.selectedIds ?? [];
   const activeId = sessionState?.selection.activeId ?? null;
+  const serializedObject = document && activeId && selectedIds.length === 1
+    ? options.documentAdapter.getSerializedObject(document, activeId)
+    : null;
+  const serializedMultiObject = document && selectedIds.length > 1
+    ? options.documentAdapter.getSerializedMultiObject?.(document, selectedIds, activeId) ?? null
+    : null;
+  const inspectorObjectBase = document && activeId && selectedIds.length === 1
+    ? options.documentAdapter.getInspectorObject?.(document, activeId) ?? (serializedObject ? serializedObjectToInspectorObject(serializedObject, document) : null)
+    : null;
+  const inspectorMultiObjectBase = document && selectedIds.length > 1
+    ? options.documentAdapter.getInspectorMultiObject?.(document, selectedIds, activeId) ?? (serializedMultiObject ? serializedMultiObjectToInspectorObject(serializedMultiObject, document) : null)
+    : null;
+  const inspectorObject = document && inspectorObjectBase
+    ? withRuntimeInspectorSections(state, options, document, inspectorObjectBase)
+    : inspectorObjectBase;
+  const inspectorMultiObject = document && inspectorMultiObjectBase
+    ? withRuntimeInspectorSections(state, options, document, inspectorMultiObjectBase)
+    : inspectorMultiObjectBase;
   return {
     mode: state.mode,
     busy: state.busy,
@@ -1227,12 +1447,10 @@ function createUiState<TDocument, TPatch, TAsset>(
       count: selectedIds.length,
       activeId,
     },
-    serializedObject: document && activeId && selectedIds.length === 1
-      ? options.documentAdapter.getSerializedObject(document, activeId)
-      : null,
-    serializedMultiObject: document && selectedIds.length > 1
-      ? options.documentAdapter.getSerializedMultiObject?.(document, selectedIds, activeId) ?? null
-      : null,
+    serializedObject,
+    serializedMultiObject,
+    inspectorObject,
+    inspectorMultiObject,
     boxSelection: state.boxSelection,
     transformTool: {
       activeTool: state.gizmo?.getState().tool ?? state.transformTool,
@@ -1251,6 +1469,174 @@ function createUiState<TDocument, TPatch, TAsset>(
         }
       : null,
   };
+}
+
+function withRuntimeInspectorSections<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  inspectorObject: InspectorObject<TDocument>,
+): InspectorObject<TDocument> {
+  const baseInspectorObject = withInspectorComponentSections(state, options, document, inspectorObject);
+  const activeId = inspectorObject.activeId;
+  const projectionNode = activeId ? options.documentAdapter.getProjectionNode(document, activeId) : null;
+  const projectedRoot = activeId ? state.projection?.getProjectedNode(activeId)?.root ?? null : null;
+  const context: LocalEditorHarnessRuntimeInspectorContext<TDocument> = {
+    document,
+    targetIds: baseInspectorObject.targetIds,
+    activeId,
+    inspectorObject: baseInspectorObject,
+    projectionNode,
+    projectedRoot,
+  };
+  const runtimeSections = [
+    ...createDefaultRuntimeInspectorSections(context),
+    ...(options.documentAdapter.getRuntimeInspectorSections?.(context) ?? []),
+  ];
+  const sections = mergeInspectorSections(baseInspectorObject.sections, runtimeSections, {
+    propertyConflict: options.inspector?.propertyConflict,
+  });
+  return {
+    ...baseInspectorObject,
+    sections,
+  };
+}
+
+function withInspectorComponentSections<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  inspectorObject: InspectorObject<TDocument>,
+): InspectorObject<TDocument> {
+  const context = createHarnessInspectorSelectionContext(state, document, inspectorObject);
+  return mergeLocalEditorHarnessInspectorComponentSections({
+    inspectorObject,
+    components: options.inspector?.components,
+    context,
+    componentConflict: options.inspector?.componentConflict,
+    propertyConflict: options.inspector?.propertyConflict,
+  });
+}
+
+function getInspectorComponentSections<TDocument>(input: {
+  components: InspectorRegistry<TDocument> | readonly InspectorComponentRegistration<TDocument>[];
+  context: InspectorSelectionContext<TDocument>;
+  componentConflict?: InspectorRegistryConflictStrategy;
+  propertyConflict?: InspectorRegistryConflictStrategy;
+}): InspectorSection<TDocument>[] {
+  if (isInspectorRegistry(input.components)) return input.components.getSections(input.context);
+  const registry = createInspectorRegistry<TDocument>({
+    onConflict: input.componentConflict,
+    propertyConflict: input.propertyConflict,
+  });
+  for (const component of input.components) registry.register(component);
+  return registry.getSections(input.context);
+}
+
+function createHarnessInspectorSelectionContext<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  inspectorObject: InspectorObject<TDocument>,
+): InspectorSelectionContext<TDocument> {
+  const activeId = inspectorObject.activeId;
+  const projectedRoot = activeId ? state.projection?.getProjectedNode(activeId)?.root ?? null : null;
+  return {
+    ...inspectorObject.selection,
+    targetIds: inspectorObject.targetIds,
+    activeId,
+    document,
+    runtimeTarget: inspectorObject.selection.runtimeTarget ?? projectedRoot ?? undefined,
+  };
+}
+
+function isInspectorRegistry<TDocument>(
+  components: InspectorRegistry<TDocument> | readonly InspectorComponentRegistration<TDocument>[],
+): components is InspectorRegistry<TDocument> {
+  return !Array.isArray(components)
+    && typeof (components as InspectorRegistry<TDocument>).getSections === 'function';
+}
+
+function createDefaultRuntimeInspectorSections<TDocument>(
+  context: LocalEditorHarnessRuntimeInspectorContext<TDocument>,
+): InspectorSection<TDocument>[] {
+  if (context.targetIds.length !== 1) return [];
+  const root = context.projectedRoot;
+  const projectionNode = context.projectionNode;
+  if (!root && !projectionNode) return [];
+  const properties: InspectorProperty<TDocument>[] = [];
+  if (projectionNode) {
+    properties.push(createRuntimeInspectorProperty('runtime.projection.nodeId', 'Projected ID', projectionNode.id, properties.length));
+    const assetSource = projectionNode.asset?.sourceId ?? projectionNode.asset?.id ?? '';
+    if (assetSource) properties.push(createRuntimeInspectorProperty('runtime.projection.assetSource', 'Asset Source', assetSource, properties.length));
+  }
+  const runtimeClass = readRuntimeClassName(root);
+  if (runtimeClass) properties.push(createRuntimeInspectorProperty('runtime.root.className', 'Runtime Class', runtimeClass, properties.length));
+  const runtimeName = readRuntimeStringProperty(root, 'name');
+  if (runtimeName) properties.push(createRuntimeInspectorProperty('runtime.root.name', 'Runtime Name', runtimeName, properties.length));
+  const childCount = readRuntimeChildCount(root);
+  if (childCount != null) properties.push(createRuntimeInspectorProperty('runtime.root.children', 'Runtime Children', childCount, properties.length));
+  if (properties.length === 0) return [];
+  return [{
+    id: 'runtimeDiagnostics',
+    title: 'Runtime Diagnostics',
+    order: 900,
+    placement: 'body',
+    persistence: 'runtime',
+    runtimeOnly: true,
+    properties,
+  }];
+}
+
+function createRuntimeInspectorProperty<TDocument>(
+  path: string,
+  label: string,
+  value: unknown,
+  order: number,
+): InspectorProperty<TDocument> {
+  return {
+    path,
+    label,
+    valueType: typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : typeof value === 'object' ? 'object' : 'string',
+    control: 'readonly',
+    value,
+    readOnly: true,
+    persistence: 'runtime',
+    commitMode: 'blur',
+    order,
+  };
+}
+
+function readRuntimeClassName(value: unknown): string | null {
+  const record = isObjectRecord(value) ? value : null;
+  const getter = record?.getClassName;
+  if (typeof getter === 'function') {
+    const className = getter.call(value);
+    if (typeof className === 'string' && className.trim()) return className;
+  }
+  const constructorName = record?.constructor && typeof record.constructor === 'function'
+    ? record.constructor.name
+    : '';
+  return constructorName && constructorName !== 'Object' ? constructorName : null;
+}
+
+function readRuntimeStringProperty(value: unknown, key: string): string | null {
+  if (!isObjectRecord(value)) return null;
+  const raw = value[key];
+  return typeof raw === 'string' && raw.trim() ? raw : null;
+}
+
+function readRuntimeChildCount(value: unknown): number | null {
+  if (!isObjectRecord(value)) return null;
+  const children = value.getChildren;
+  if (typeof children === 'function') {
+    const result = children.call(value);
+    return Array.isArray(result) ? result.length : null;
+  }
+  return null;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object';
 }
 
 function summarizeDocument<TDocument, TPatch, TAsset>(

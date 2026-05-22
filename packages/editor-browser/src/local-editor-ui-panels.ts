@@ -2,6 +2,15 @@ import type {
   LocalEditorBottomDockTab,
   LocalEditorBrowserHistoryEntry,
   LocalEditorBrowserHistoryView,
+  LocalEditorBrowserInspectorCommitMode,
+  LocalEditorBrowserInspectorConflictStrategy,
+  LocalEditorBrowserInspectorControlBindingOptions,
+  LocalEditorBrowserInspectorControlKind,
+  LocalEditorBrowserInspectorControlRegistration,
+  LocalEditorBrowserInspectorControlRenderContext,
+  LocalEditorBrowserInspectorObject,
+  LocalEditorBrowserInspectorProperty,
+  LocalEditorBrowserInspectorSection,
   LocalEditorBrowserSceneGraphDropIntent,
   LocalEditorBrowserSerializedMultiObject,
   LocalEditorBrowserSerializedObject,
@@ -19,6 +28,11 @@ import {
   createTreeViewItem,
 } from './local-editor-ui-primitives';
 import { clearElement, toTitle } from './local-editor-ui-shared';
+
+export interface LocalEditorBrowserInspectorRenderOptions<TDocument = unknown> {
+  controls?: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[];
+  controlConflict?: LocalEditorBrowserInspectorConflictStrategy;
+}
 
 export function renderHierarchyPanel<TDocument>(
   doc: Document,
@@ -325,6 +339,8 @@ export function renderInspectorPanel<TDocument>(
   doc: Document,
   panel: HTMLElement,
   state: LocalEditorBrowserUiState<TDocument>,
+  filter = '',
+  options: LocalEditorBrowserInspectorRenderOptions<TDocument> = {},
 ): void {
   clearElement(panel);
   const title = doc.createElement('h2');
@@ -332,14 +348,15 @@ export function renderInspectorPanel<TDocument>(
   title.style.cssText = 'font-size:13px;margin:-8px -8px 8px;padding:7px 8px;border-bottom:1px solid var(--fps-editor-divider);background:var(--fps-editor-chrome-dark);font-weight:800;color:var(--fps-editor-text-strong)';
   panel.appendChild(title);
 
-  const selectionCount = state.selectionSummary?.count ?? state.selectedIds.length;
-  if (selectionCount > 1) {
-    appendMultiSelectionInspector(doc, panel, state);
-    return;
-  }
+  const search = createInspectorSearchInput(doc, filter);
+  panel.appendChild(search);
 
-  const serializedObject = state.serializedObject;
-  if (!serializedObject) {
+  const selectionCount = state.selectionSummary?.count ?? state.selectedIds.length;
+  const inspectorObject = selectionCount > 1
+    ? state.inspectorMultiObject
+      ?? (state.serializedMultiObject ? createLegacyInspectorObject(state.serializedMultiObject) : createSelectionSummaryInspectorObject(state))
+    : state.inspectorObject ?? (state.serializedObject ? createLegacyInspectorObject(state.serializedObject) : null);
+  if (!inspectorObject) {
     const empty = doc.createElement('div');
     empty.textContent = '请从层级树或 Scene View 中选择一个 GameObject。';
     empty.style.cssText = 'color:var(--fps-editor-muted);line-height:1.45';
@@ -347,73 +364,120 @@ export function renderInspectorPanel<TDocument>(
     return;
   }
 
-  appendGameObjectHeader(doc, panel, serializedObject);
-  const sections = groupSerializedProperties(
-    serializedObject.properties.filter(property => !property.path.startsWith('gameObject.')),
+  const controlRegistry = createLocalEditorBrowserInspectorControlRegistry(options.controls, options.controlConflict);
+  appendInspectorSummary(doc, panel, inspectorObject, selectionCount);
+  const visibleSections = filterInspectorSections(
+    inspectorObject.sections.filter(section => section.placement !== 'summary'),
+    filter,
   );
-  for (const section of sections) {
-    const block = createInspectorComponentBlock(doc);
-    const sectionTitle = doc.createElement('h3');
-    sectionTitle.textContent = section.title;
-    sectionTitle.style.cssText = 'font-size:12px;margin:0 0 8px;font-weight:900;color:var(--fps-editor-text-strong)';
-    block.appendChild(sectionTitle);
-    for (const group of section.groups) {
-      if (group.kind === 'vec3') appendSerializedVec3Inputs(doc, block, serializedObject, group.label, group.properties);
-      else appendSerializedPropertyRow(doc, block, serializedObject, group.property);
-    }
-    panel.appendChild(block);
+  if (visibleSections.length === 0) {
+    if (!filter.trim() && inspectorObject.sections.length === 0) return;
+    const empty = doc.createElement('div');
+    empty.textContent = '没有匹配的 Inspector 字段。';
+    empty.style.cssText = 'color:var(--fps-editor-muted);line-height:1.45';
+    panel.appendChild(empty);
+    return;
+  }
+
+  for (const section of visibleSections) {
+    panel.appendChild(createInspectorSectionBlock(doc, inspectorObject, section, controlRegistry));
   }
 }
 
-function appendMultiSelectionInspector<TDocument>(
-  doc: Document,
-  panel: HTMLElement,
-  state: LocalEditorBrowserUiState<TDocument>,
-): void {
-  const block = createInspectorComponentBlock(doc);
-  const title = doc.createElement('h3');
-  title.textContent = '多选';
-  title.style.cssText = 'font-size:12px;margin:0 0 8px;font-weight:900;color:var(--fps-editor-text-strong)';
-  block.appendChild(title);
-  appendReadOnlyRow(doc, block, '已选', String(state.selectionSummary?.count ?? state.selectedIds.length));
-  appendReadOnlyRow(doc, block, '活动对象', state.selectionSummary?.activeId ?? state.activeId ?? '无');
-  panel.appendChild(block);
-
-  const serializedMultiObject = state.serializedMultiObject;
-  if (!serializedMultiObject) return;
-  const sections = groupSerializedProperties(
-    serializedMultiObject.properties.filter(property => property.path.startsWith('transform.')),
-  );
-  for (const section of sections) {
-    const sectionBlock = createInspectorComponentBlock(doc);
-    const sectionTitle = doc.createElement('h3');
-    sectionTitle.textContent = section.title;
-    sectionTitle.style.cssText = 'font-size:12px;margin:0 0 8px;font-weight:900;color:var(--fps-editor-text-strong)';
-    sectionBlock.appendChild(sectionTitle);
-    for (const group of section.groups) {
-      if (group.kind === 'vec3') appendSerializedVec3Inputs(doc, sectionBlock, serializedMultiObject, group.label, group.properties);
-      else appendSerializedPropertyRow(doc, sectionBlock, serializedMultiObject, group.property);
-    }
-    panel.appendChild(sectionBlock);
-  }
+function createInspectorSearchInput(doc: Document, value: string): HTMLInputElement {
+  const input = doc.createElement('input');
+  input.dataset.editorInspectorSearch = 'true';
+  input.value = value;
+  input.placeholder = 'Search...';
+  input.style.cssText = [
+    'width:100%',
+    'height:30px',
+    'box-sizing:border-box',
+    'margin:0 0 8px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-field)',
+    'color:var(--fps-editor-text)',
+    'font-size:12px',
+    'padding:0 8px',
+    'outline:none',
+  ].join(';');
+  return input;
 }
 
-function appendGameObjectHeader<TDocument>(
+function appendInspectorSummary<TDocument>(
   doc: Document,
   panel: HTMLElement,
-  serializedObject: LocalEditorBrowserSerializedObject<TDocument>,
+  inspectorObject: LocalEditorBrowserInspectorObject<TDocument>,
+  selectionCount: number,
 ): void {
   const block = createInspectorComponentBlock(doc);
   const title = doc.createElement('h3');
-  title.textContent = 'GameObject';
+  title.textContent = selectionCount > 1 ? 'Selection' : 'GameObject';
   title.style.cssText = 'font-size:12px;margin:0 0 8px;font-weight:900;color:var(--fps-editor-text-strong)';
   block.appendChild(title);
-
-  const nameProperty = serializedObject.properties.find(property => property.path === 'gameObject.name');
-  const idProperty = serializedObject.properties.find(property => property.path === 'gameObject.id');
-  appendReadOnlyRow(doc, block, '名称', String(nameProperty?.value ?? serializedObject.label ?? serializedObject.targetId));
-  appendReadOnlyRow(doc, block, 'ID', String(idProperty?.value ?? serializedObject.targetId));
+  appendReadOnlyRow(doc, block, selectionCount > 1 ? 'Selected' : 'Name', inspectorObject.label ?? inspectorObject.activeId ?? inspectorObject.targetIds[0] ?? '无');
+  appendReadOnlyRow(doc, block, 'Active ID', inspectorObject.activeId ?? '无');
+  if (selectionCount > 1) appendReadOnlyRow(doc, block, 'Count', String(selectionCount));
   panel.appendChild(block);
+}
+
+function filterInspectorSections<TDocument>(
+  sections: LocalEditorBrowserInspectorSection<TDocument>[],
+  filter: string,
+): LocalEditorBrowserInspectorSection<TDocument>[] {
+  const needle = filter.trim().toLowerCase();
+  if (!needle) return sections;
+  return sections
+    .map(section => ({
+      ...section,
+      properties: section.properties.filter(property => inspectorPropertyMatches(section, property, needle)),
+    }))
+    .filter(section => section.properties.length > 0 || inspectorSectionMatches(section, needle));
+}
+
+function inspectorSectionMatches<TDocument>(
+  section: LocalEditorBrowserInspectorSection<TDocument>,
+  needle: string,
+): boolean {
+  return [section.id, section.title, ...(section.tags ?? [])]
+    .some(value => value.toLowerCase().includes(needle));
+}
+
+function inspectorPropertyMatches<TDocument>(
+  section: LocalEditorBrowserInspectorSection<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+  needle: string,
+): boolean {
+  return inspectorSectionMatches(section, needle)
+    || [property.path, property.label, property.control, property.valueType, ...(property.tags ?? [])]
+      .some(value => String(value).toLowerCase().includes(needle));
+}
+
+function createInspectorSectionBlock<TDocument>(
+  doc: Document,
+  inspectorObject: LocalEditorBrowserInspectorObject<TDocument>,
+  section: LocalEditorBrowserInspectorSection<TDocument>,
+  controlRegistry: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[],
+): HTMLDivElement {
+  const block = createInspectorComponentBlock(doc);
+  const sectionTitle = doc.createElement('h3');
+  sectionTitle.style.cssText = 'font-size:12px;margin:0 0 8px;font-weight:900;color:var(--fps-editor-text-strong);display:flex;justify-content:space-between;gap:8px';
+  const label = doc.createElement('span');
+  label.textContent = section.title;
+  sectionTitle.appendChild(label);
+  if (section.persistence === 'runtime' || section.runtimeOnly) {
+    const badge = doc.createElement('span');
+    badge.textContent = 'Runtime';
+    badge.style.cssText = 'color:var(--fps-editor-muted);font-size:10px;text-transform:uppercase;letter-spacing:0';
+    sectionTitle.appendChild(badge);
+  }
+  block.appendChild(sectionTitle);
+  for (const group of groupInspectorProperties(section.properties)) {
+    if (group.kind === 'vector') appendInspectorVectorInputs(doc, block, inspectorObject, group.label, group.properties);
+    else appendInspectorPropertyRow(doc, block, inspectorObject, group.property, controlRegistry);
+  }
+  return block;
 }
 
 function createInspectorComponentBlock(doc: Document): HTMLDivElement {
@@ -428,47 +492,39 @@ function createInspectorComponentBlock(doc: Document): HTMLDivElement {
   return block;
 }
 
-type SerializedPropertyGroup<TDocument> =
-  | { kind: 'property'; property: LocalEditorBrowserSerializedProperty<TDocument> }
-  | { kind: 'vec3'; label: string; properties: LocalEditorBrowserSerializedProperty<TDocument>[] };
+type InspectorPropertyGroup<TDocument> =
+  | { kind: 'property'; property: LocalEditorBrowserInspectorProperty<TDocument> }
+  | { kind: 'vector'; label: string; properties: LocalEditorBrowserInspectorProperty<TDocument>[] };
 
-function groupSerializedProperties<TDocument>(
-  properties: LocalEditorBrowserSerializedProperty<TDocument>[],
-): Array<{ title: string; groups: SerializedPropertyGroup<TDocument>[] }> {
-  const bySection = new Map<string, LocalEditorBrowserSerializedProperty<TDocument>[]>();
-  for (const property of properties) {
-    const sectionName = toTitle(property.path.split('.')[0] ?? 'Properties');
-    const entries = bySection.get(sectionName) ?? [];
-    entries.push(property);
-    bySection.set(sectionName, entries);
-  }
-  return [...bySection.entries()].map(([title, entries]) => ({
-    title,
-    groups: groupVectorProperties(entries),
-  }));
-}
-
-function groupVectorProperties<TDocument>(
-  properties: LocalEditorBrowserSerializedProperty<TDocument>[],
-): SerializedPropertyGroup<TDocument>[] {
-  const groups: SerializedPropertyGroup<TDocument>[] = [];
+function groupInspectorProperties<TDocument>(
+  properties: LocalEditorBrowserInspectorProperty<TDocument>[],
+): InspectorPropertyGroup<TDocument>[] {
+  const groups: InspectorPropertyGroup<TDocument>[] = [];
   const consumed = new Set<string>();
   for (const property of properties) {
     if (consumed.has(property.path)) continue;
-    const match = property.path.match(/^(.*)\.(x|y|z)$/);
+    if (property.control === 'vec2' || property.control === 'vec3') {
+      groups.push({ kind: 'property', property });
+      consumed.add(property.path);
+      continue;
+    }
+    const match = property.path.match(/^(.*)\.(x|y|z|r|g|b)$/);
     if (!match || property.valueType !== 'number') {
       groups.push({ kind: 'property', property });
       consumed.add(property.path);
       continue;
     }
     const basePath = match[1]!;
-    const vector = ['x', 'y', 'z']
+    const axes = ['x', 'y', 'z'].every(axis => properties.some(candidate => candidate.path === `${basePath}.${axis}`))
+      ? ['x', 'y', 'z']
+      : ['r', 'g', 'b'];
+    const vector = axes
       .map(axis => properties.find(candidate => candidate.path === `${basePath}.${axis}` && candidate.valueType === 'number'))
-      .filter((candidate): candidate is LocalEditorBrowserSerializedProperty<TDocument> => !!candidate);
+      .filter((candidate): candidate is LocalEditorBrowserInspectorProperty<TDocument> => !!candidate);
     if (vector.length === 3) {
       for (const entry of vector) consumed.add(entry.path);
       const parts = basePath.split('.');
-      groups.push({ kind: 'vec3', label: toTitle(parts[parts.length - 1] ?? basePath), properties: vector });
+      groups.push({ kind: 'vector', label: toTitle(parts[parts.length - 1] ?? basePath), properties: vector });
     } else {
       groups.push({ kind: 'property', property });
       consumed.add(property.path);
@@ -477,26 +533,167 @@ function groupVectorProperties<TDocument>(
   return groups;
 }
 
-function appendSerializedPropertyRow<TDocument>(
+const builtinInspectorControlRegistrations: readonly LocalEditorBrowserInspectorControlRegistration[] = [
+  {
+    id: 'builtin.readonly',
+    order: 100,
+    control: 'readonly',
+    render: ({ doc, target, property }) => createInspectorReadonlyControl(doc, target, property),
+  },
+  {
+    id: 'builtin.string',
+    order: 100,
+    control: 'string',
+    render: ({ doc, target, property }) => createInspectorTextControl(doc, target, property),
+  },
+  {
+    id: 'builtin.number',
+    order: 100,
+    control: 'number',
+    render: ({ doc, target, property }) => createInspectorNumberControl(doc, target, property),
+  },
+  {
+    id: 'builtin.boolean',
+    order: 100,
+    control: 'boolean',
+    render: ({ doc, target, property }) => createInspectorBooleanControl(doc, target, property),
+  },
+  {
+    id: 'builtin.enum',
+    order: 100,
+    control: 'enum',
+    render: ({ doc, target, property }) => createInspectorEnumControl(doc, target, property),
+  },
+  {
+    id: 'builtin.vec2',
+    order: 100,
+    control: 'vec2',
+    render: ({ doc, target, property }) => createInspectorVectorControl(doc, target, property),
+  },
+  {
+    id: 'builtin.vec3',
+    order: 100,
+    control: 'vec3',
+    render: ({ doc, target, property }) => createInspectorVectorControl(doc, target, property),
+  },
+  {
+    id: 'builtin.color',
+    order: 100,
+    control: 'color',
+    render: ({ doc, target, property }) => createInspectorColorControl(doc, target, property),
+  },
+  {
+    id: 'builtin.asset',
+    order: 100,
+    control: 'asset',
+    render: ({ doc, target, property }) => createInspectorTextControl(doc, target, property),
+  },
+  {
+    id: 'builtin.object',
+    order: 100,
+    control: 'object',
+    render: ({ doc, target, property }) => createInspectorReadonlyControl(doc, target, property),
+  },
+  {
+    id: 'builtin.custom',
+    order: 1000,
+    control: 'custom',
+    render: ({ doc, target, property }) => createInspectorReadonlyControl(doc, target, property),
+  },
+];
+
+function appendInspectorPropertyRow<TDocument>(
   doc: Document,
   parent: HTMLElement,
-  serializedObject: LocalEditorBrowserSerializedObject<TDocument> | LocalEditorBrowserSerializedMultiObject<TDocument>,
-  property: LocalEditorBrowserSerializedProperty<TDocument>,
+  inspectorObject: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+  controlRegistry: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[],
 ): void {
-  if (property.readOnly || property.valueType !== 'number') {
-    appendReadOnlyRow(doc, parent, property.label, String(property.value ?? ''));
-    return;
-  }
-  const input = createPropertyInput(doc, serializedObject, property);
-  parent.appendChild(createPropertyRow(doc, property.label, input));
+  const control = renderInspectorControl(doc, controlRegistry, inspectorObject, property);
+  parent.appendChild(createPropertyRow(doc, property.label, control));
 }
 
-function appendSerializedVec3Inputs<TDocument>(
+export function createLocalEditorBrowserInspectorControlRegistry<TDocument>(
+  controls: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[] = [],
+  conflict: LocalEditorBrowserInspectorConflictStrategy = 'error',
+): LocalEditorBrowserInspectorControlRegistration<TDocument>[] {
+  const registrations = new Map<string, LocalEditorBrowserInspectorControlRegistration<TDocument>>();
+  for (const control of builtinInspectorControlRegistrations as readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[]) {
+    registerInspectorControl(registrations, control, 'error');
+  }
+  for (const control of controls) {
+    registerInspectorControl(registrations, control, conflict);
+  }
+  return [...registrations.values()].sort(compareInspectorControlRegistrations);
+}
+
+function registerInspectorControl<TDocument>(
+  registrations: Map<string, LocalEditorBrowserInspectorControlRegistration<TDocument>>,
+  registration: LocalEditorBrowserInspectorControlRegistration<TDocument>,
+  conflict: LocalEditorBrowserInspectorConflictStrategy,
+): void {
+  const id = registration.id.trim();
+  if (!id) throw new Error('Inspector control id is required.');
+  const normalized = id === registration.id ? registration : { ...registration, id };
+  if (registrations.has(id)) {
+    if (conflict === 'error') throw new Error(`Inspector control "${id}" is already registered.`);
+    if (conflict === 'ignore') return;
+  }
+  registrations.set(id, normalized);
+}
+
+function compareInspectorControlRegistrations<TDocument>(
+  left: LocalEditorBrowserInspectorControlRegistration<TDocument>,
+  right: LocalEditorBrowserInspectorControlRegistration<TDocument>,
+): number {
+  return (left.order ?? 0) - (right.order ?? 0) || left.id.localeCompare(right.id);
+}
+
+function renderInspectorControl<TDocument>(
+  doc: Document,
+  registrations: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[],
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLElement {
+  if (property.readOnly || property.persistence !== 'document') return createInspectorReadonlyControl(doc, target, property);
+  const context: LocalEditorBrowserInspectorControlRenderContext<TDocument> = {
+    doc,
+    target,
+    property,
+    bindInput(element, options) {
+      applyLocalEditorBrowserInspectorControlBinding(element, target, property, options);
+    },
+  };
+  const registration = resolveLocalEditorBrowserInspectorControlRegistration(registrations, context);
+  if (registration) return registration.render(context);
+  return createInspectorReadonlyControl(doc, target, property);
+}
+
+export function resolveLocalEditorBrowserInspectorControlRegistration<TDocument>(
+  registrations: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[],
+  context: LocalEditorBrowserInspectorControlRenderContext<TDocument>,
+): LocalEditorBrowserInspectorControlRegistration<TDocument> | null {
+  for (const registration of registrations) {
+    if (localEditorBrowserInspectorControlSupports(registration, context)) return registration;
+  }
+  return null;
+}
+
+function localEditorBrowserInspectorControlSupports<TDocument>(
+  registration: LocalEditorBrowserInspectorControlRegistration<TDocument>,
+  context: LocalEditorBrowserInspectorControlRenderContext<TDocument>,
+): boolean {
+  if (registration.control && registration.control !== context.property.control) return false;
+  if (registration.customControl && registration.customControl !== context.property.customControl) return false;
+  return registration.supports?.(context) ?? true;
+}
+
+function appendInspectorVectorInputs<TDocument>(
   doc: Document,
   parent: HTMLElement,
-  serializedObject: LocalEditorBrowserSerializedObject<TDocument> | LocalEditorBrowserSerializedMultiObject<TDocument>,
+  inspectorObject: LocalEditorBrowserInspectorObject<TDocument>,
   label: string,
-  properties: LocalEditorBrowserSerializedProperty<TDocument>[],
+  properties: LocalEditorBrowserInspectorProperty<TDocument>[],
 ): void {
   const wrapper = doc.createElement('div');
   wrapper.style.cssText = 'margin:8px 0';
@@ -508,28 +705,162 @@ function appendSerializedVec3Inputs<TDocument>(
   const fields = doc.createElement('div');
   fields.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px';
   for (const property of properties) {
-    fields.appendChild(createPropertyInput(doc, serializedObject, property));
+    fields.appendChild(createInspectorNumberControl(doc, inspectorObject, property));
   }
   wrapper.appendChild(fields);
   parent.appendChild(wrapper);
 }
 
-function createPropertyInput<TDocument>(
+function createInspectorInputBase<TDocument>(
   doc: Document,
-  target: LocalEditorBrowserSerializedObject<TDocument> | LocalEditorBrowserSerializedMultiObject<TDocument>,
-  property: LocalEditorBrowserSerializedProperty<TDocument>,
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
 ): HTMLInputElement {
   const input = doc.createElement('input');
-  input.type = property.valueType === 'number' ? 'number' : 'text';
-  if (property.valueType === 'number') input.step = '0.1';
   input.value = property.mixed ? '' : String(property.value);
   input.placeholder = property.mixed ? '--' : '';
-  input.dataset.serializedTargetId = 'targetId' in target ? target.targetId : target.activeId ?? target.targetIds[0] ?? '';
-  if ('targetIds' in target) input.dataset.serializedTargetIds = target.targetIds.join(',');
-  input.dataset.serializedPath = property.path;
-  input.title = property.label;
-  input.disabled = property.readOnly === true;
-  input.style.cssText = [
+  applyLocalEditorBrowserInspectorControlBinding(input, target, property);
+  input.style.cssText = createInspectorInputStyle();
+  return input;
+}
+
+function createInspectorNumberControl<TDocument>(
+  doc: Document,
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLInputElement {
+  const input = createInspectorInputBase(doc, target, property);
+  input.type = 'number';
+  input.step = String(property.step ?? 0.1);
+  if (property.min != null) input.min = String(property.min);
+  if (property.max != null) input.max = String(property.max);
+  return input;
+}
+
+function createInspectorTextControl<TDocument>(
+  doc: Document,
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLInputElement {
+  const input = createInspectorInputBase(doc, target, property);
+  input.type = 'text';
+  return input;
+}
+
+function createInspectorBooleanControl<TDocument>(
+  doc: Document,
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLInputElement {
+  const input = createInspectorInputBase(doc, target, property);
+  input.type = 'checkbox';
+  input.checked = property.mixed ? false : property.value === true;
+  input.style.cssText = 'width:16px;height:16px;accent-color:var(--fps-editor-accent);justify-self:start';
+  return input;
+}
+
+function createInspectorEnumControl<TDocument>(
+  doc: Document,
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLSelectElement {
+  const select = doc.createElement('select');
+  applyLocalEditorBrowserInspectorControlBinding(select, target, property);
+  select.style.cssText = createInspectorInputStyle();
+  for (const option of property.options ?? []) {
+    const item = doc.createElement('option');
+    item.value = String(option.value);
+    item.dataset.serializedOptionValue = JSON.stringify(option.value);
+    item.textContent = option.label;
+    item.disabled = option.disabled === true;
+    if (!property.mixed && option.value === property.value) item.selected = true;
+    select.appendChild(item);
+  }
+  if (property.mixed) {
+    const mixed = doc.createElement('option');
+    mixed.value = '';
+    mixed.textContent = '--';
+    mixed.selected = true;
+    select.prepend(mixed);
+  }
+  return select;
+}
+
+function createInspectorVectorControl<TDocument>(
+  doc: Document,
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLDivElement {
+  const wrapper = doc.createElement('div');
+  wrapper.dataset.inspectorVectorControl = 'true';
+  wrapper.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%';
+  const axes = property.control === 'vec2' ? ['x', 'y'] : ['x', 'y', 'z'];
+  if (property.control === 'vec2') wrapper.style.gridTemplateColumns = 'repeat(2,minmax(0,1fr))';
+  const value = isRecord(property.value) ? property.value : {};
+  for (const axis of axes) {
+    const input = createInspectorInputBase(doc, target, property);
+    input.type = 'number';
+    input.step = String(property.step ?? 0.1);
+    input.dataset.serializedVectorAxis = axis;
+    input.value = property.mixed ? '' : String(value[axis] ?? 0);
+    input.title = `${property.label}.${axis}`;
+    wrapper.appendChild(input);
+  }
+  return wrapper;
+}
+
+function createInspectorColorControl<TDocument>(
+  doc: Document,
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLInputElement {
+  const input = createInspectorInputBase(doc, target, property);
+  input.type = 'color';
+  input.value = colorValueToHex(property.value);
+  input.style.cssText = 'width:34px;height:26px;border:1px solid var(--fps-editor-border);border-radius:3px;background:transparent;padding:0';
+  return input;
+}
+
+function createInspectorReadonlyControl<TDocument>(
+  doc: Document,
+  _target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLElement {
+  const valueElement = doc.createElement('div');
+  valueElement.textContent = property.mixed ? '--' : formatInspectorValue(property.value);
+  valueElement.style.cssText = [
+    `color:${property.persistence === 'runtime' ? 'var(--fps-editor-muted)' : 'var(--fps-editor-text)'}`,
+    'overflow:hidden',
+    'text-overflow:ellipsis',
+    'white-space:nowrap',
+    property.persistence === 'runtime' ? 'font-style:italic' : '',
+  ].filter(Boolean).join(';');
+  if (property.persistence === 'runtime') valueElement.title = 'Runtime-only context';
+  return valueElement;
+}
+
+export function applyLocalEditorBrowserInspectorControlBinding<TDocument>(
+  element: HTMLElement,
+  target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+  options?: LocalEditorBrowserInspectorControlBindingOptions,
+): void {
+  element.dataset.serializedTargetId = target.activeId ?? target.targetIds[0] ?? '';
+  if (target.targetIds.length > 1) element.dataset.serializedTargetIds = target.targetIds.join(',');
+  element.dataset.serializedPath = property.path;
+  element.dataset.serializedControl = property.control;
+  element.dataset.serializedValueType = property.valueType;
+  element.dataset.serializedCommitMode = property.commitMode;
+  element.dataset.serializedPersistence = property.persistence;
+  if (options?.source) element.dataset.serializedEditSource = options.source;
+  element.title = property.tooltip ?? property.label;
+  if ('disabled' in element) {
+    (element as HTMLInputElement | HTMLSelectElement).disabled = property.readOnly === true || property.persistence !== 'document';
+  }
+}
+
+function createInspectorInputStyle(): string {
+  return [
     'min-width:0',
     'height:28px',
     'border:1px solid var(--fps-editor-border)',
@@ -539,7 +870,6 @@ function createPropertyInput<TDocument>(
     'font-size:12px',
     'padding:0 6px',
   ].join(';');
-  return input;
 }
 
 function appendReadOnlyRow(doc: Document, parent: HTMLElement, label: string, value: string): void {
@@ -547,4 +877,121 @@ function appendReadOnlyRow(doc: Document, parent: HTMLElement, label: string, va
   valueElement.textContent = value;
   valueElement.style.cssText = 'color:var(--fps-editor-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
   parent.appendChild(createPropertyRow(doc, label, valueElement));
+}
+
+function createLegacyInspectorObject<TDocument>(
+  serializedObject: LocalEditorBrowserSerializedObject<TDocument> | LocalEditorBrowserSerializedMultiObject<TDocument>,
+): LocalEditorBrowserInspectorObject<TDocument> {
+  const targetIds = 'targetIds' in serializedObject ? serializedObject.targetIds : [serializedObject.targetId];
+  const activeId = 'targetId' in serializedObject ? serializedObject.targetId : serializedObject.activeId;
+  return {
+    targetIds,
+    activeId,
+    label: serializedObject.label,
+    document: serializedObject.document,
+    selection: {
+      targetIds,
+      activeId,
+      document: serializedObject.document,
+    },
+    sections: createLegacyInspectorSections(serializedObject.properties),
+  };
+}
+
+function createLegacyInspectorSections<TDocument>(
+  properties: LocalEditorBrowserSerializedProperty<TDocument>[],
+): LocalEditorBrowserInspectorSection<TDocument>[] {
+  const sections = new Map<string, { order: number; properties: LocalEditorBrowserInspectorProperty<TDocument>[] }>();
+  for (const [index, property] of properties.entries()) {
+    const id = property.path.split('.')[0] || 'properties';
+    const section = sections.get(id) ?? { order: sections.size, properties: [] };
+    section.properties.push({
+      path: property.path,
+      label: property.label,
+      valueType: property.valueType,
+      control: inferLegacyInspectorControl(property),
+      value: property.value,
+      mixed: property.mixed,
+      readOnly: property.readOnly === true,
+      persistence: property.readOnly === true ? 'readonly' : 'document',
+      commitMode: inferLegacyInspectorCommitMode(property),
+      order: index,
+      document: property.document,
+    });
+    sections.set(id, section);
+  }
+  return [...sections.entries()].map(([id, section]) => ({
+    id,
+    title: toTitle(id),
+    order: section.order,
+    placement: id === 'gameObject' ? 'summary' : 'body',
+    persistence: section.properties.some(property => property.persistence === 'document') ? 'document' : 'readonly',
+    properties: section.properties,
+  }));
+}
+
+function createSelectionSummaryInspectorObject<TDocument>(
+  state: LocalEditorBrowserUiState<TDocument>,
+): LocalEditorBrowserInspectorObject<TDocument> | null {
+  const targetIds = state.selectedIds;
+  if (targetIds.length === 0) return null;
+  const activeId = state.selectionSummary?.activeId ?? state.activeId ?? targetIds[0] ?? null;
+  return {
+    targetIds,
+    activeId,
+    label: `${targetIds.length} objects`,
+    selection: {
+      targetIds,
+      activeId,
+    },
+    sections: [],
+  };
+}
+
+function inferLegacyInspectorControl<TDocument>(
+  property: LocalEditorBrowserSerializedProperty<TDocument>,
+): LocalEditorBrowserInspectorControlKind {
+  if (property.readOnly) return 'readonly';
+  if (property.valueType === 'string') return 'string';
+  if (property.valueType === 'number') return 'number';
+  if (property.valueType === 'boolean') return 'boolean';
+  if (property.valueType === 'enum') return 'enum';
+  if (property.valueType === 'asset') return 'asset';
+  if (property.valueType === 'object') return 'object';
+  return 'readonly';
+}
+
+function inferLegacyInspectorCommitMode<TDocument>(
+  property: LocalEditorBrowserSerializedProperty<TDocument>,
+): LocalEditorBrowserInspectorCommitMode {
+  switch (property.valueType) {
+    case 'number':
+      return 'live';
+    case 'boolean':
+    case 'enum':
+    case 'asset':
+      return 'immediate';
+    default:
+      return 'blur';
+  }
+}
+
+function formatInspectorValue(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function colorValueToHex(value: unknown): string {
+  if (!value || typeof value !== 'object') return '#ffffff';
+  const color = value as { r?: unknown; g?: unknown; b?: unknown };
+  const toHex = (channel: unknown) => {
+    const value = typeof channel === 'number' && Number.isFinite(channel) ? channel : 1;
+    return Math.round(Math.max(0, Math.min(1, value)) * 255).toString(16).padStart(2, '0');
+  };
+  return `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`;
 }

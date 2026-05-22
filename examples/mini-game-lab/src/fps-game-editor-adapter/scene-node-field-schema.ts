@@ -23,6 +23,10 @@ function isOptionalString(value: unknown): value is string | null | undefined {
   return value == null || typeof value === 'string';
 }
 
+function isOptionalNonEmptyString(value: unknown): value is string | null | undefined {
+  return value == null || (typeof value === 'string' && value.trim().length > 0);
+}
+
 function isOptionalBoolean(value: unknown): value is boolean | null | undefined {
   return value == null || typeof value === 'boolean';
 }
@@ -96,7 +100,7 @@ export const SCENE_NODE_FIELD_SCHEMA: ReadonlyArray<SceneNodeFieldSchemaEntry> =
   { path: 'groundDecal.size', appliesTo: ['transform'], validate: (value) => value == null || isPositiveSize(value) },
   { path: 'groundDecal.size.width', appliesTo: ['transform'], validate: (value) => value == null || (isFiniteNumber(value) && value > 0), allowDelete: false },
   { path: 'groundDecal.size.depth', appliesTo: ['transform'], validate: (value) => value == null || (isFiniteNumber(value) && value > 0), allowDelete: false },
-  { path: 'groundDecal.textureId', appliesTo: ['transform'], validate: isOptionalString },
+  { path: 'groundDecal.textureId', appliesTo: ['transform'], validate: isOptionalNonEmptyString },
   { path: 'groundDecal.color', appliesTo: ['transform'], validate: (value) => value == null || isColor(value) },
   { path: 'groundDecal.color.r', appliesTo: ['transform'], validate: (value) => value == null || isFiniteNumber(value), allowDelete: false },
   { path: 'groundDecal.color.g', appliesTo: ['transform'], validate: (value) => value == null || isFiniteNumber(value), allowDelete: false },

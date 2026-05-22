@@ -1,9 +1,13 @@
 import {
   applySerializedPropertyPatch,
   createSerializedObject,
-  type RuntimePatch,
   type DocumentCommand,
   type EditorTransformSnapshot,
+  type InspectorObject,
+  type InspectorProperty,
+  type InspectorSection,
+  type InspectorValidationResult,
+  type RuntimePatch,
   type SceneGraphCreateGroupIntent,
   type SceneGraphDeleteIntent,
   type SceneGraphDropIntent,
@@ -21,6 +25,11 @@ import type {
   EditorSceneGameObject,
   EditorSceneVec3,
 } from './editor-scene-document';
+import type {
+  MaterialOverrideConfig,
+  OutlineOverrideConfig,
+  SceneNodeConfig,
+} from '../config';
 import {
   getEditorSceneAuthoringSourceRef,
   EDITOR_SCENE_SOURCE_ID,
@@ -30,11 +39,19 @@ import {
   findEditorSceneModelRenderer,
   findEditorSceneTransform,
   patchEditorSceneGameObjectTransform,
+  readEditorSceneNodeKind,
 } from './editor-scene-document';
 import { mergeEditorSceneAssetWithLibraryItem } from './editor-asset-library';
+import { resolveSceneNodeFieldSchema } from './scene-node-field-schema';
 
 export type EditorSceneDocumentPatch =
   | ({ kind: 'serialized-property' } & SerializedPropertyPatch)
+  | {
+    kind: 'game-object.field';
+    targetId: string;
+    path: string;
+    value: unknown;
+  }
   | {
     kind: 'game-object.create-from-asset';
     assetItem: EditorSceneAssetLibraryItem;
@@ -79,6 +96,9 @@ export function reduceEditorSceneDocument(
   const patch = command.patch;
   if (patch.kind === 'serialized-property') {
     return applyEditorSceneSerializedPropertyPatch(document, patch);
+  }
+  if (patch.kind === 'game-object.field') {
+    return patchEditorSceneGameObjectField(document, patch.targetId, patch.path, patch.value);
   }
   if (patch.kind === 'game-object.create-from-asset') {
     return addAssetLibraryItemToEditorSceneDocument(document, patch.assetItem).document;
@@ -176,7 +196,7 @@ export function reduceEditorSceneDocument(
 }
 
 export function isEditorSceneGroupLikeGameObject(gameObject: EditorSceneGameObject): boolean {
-  return !findEditorSceneModelRenderer(gameObject);
+  return readEditorSceneNodeKind(gameObject) === 'group';
 }
 
 export function createEditorSceneRenamePatch(
@@ -387,6 +407,133 @@ export function getEditorSceneSerializedMultiObject(
   };
 }
 
+export function getEditorSceneInspectorObject(
+  document: EditorSceneDocument,
+  gameObjectId: string,
+): InspectorObject<EditorSceneDocument> | null {
+  const gameObject = findEditorSceneGameObject(document, gameObjectId);
+  if (!gameObject) return null;
+  return {
+    targetIds: [gameObject.id],
+    activeId: gameObject.id,
+    label: gameObject.name ?? gameObject.id,
+    document,
+    selection: {
+      targetIds: [gameObject.id],
+      activeId: gameObject.id,
+      targetKind: readEditorSceneNodeKind(gameObject),
+      document,
+    },
+    sections: createEditorSceneInspectorSections(document, gameObject),
+  };
+}
+
+export function getEditorSceneInspectorMultiObject(
+  document: EditorSceneDocument,
+  gameObjectIds: string[],
+  activeId: string | null,
+): InspectorObject<EditorSceneDocument> | null {
+  const serialized = getEditorSceneSerializedMultiObject(document, gameObjectIds, activeId);
+  if (!serialized) return null;
+  return {
+    targetIds: serialized.targetIds,
+    activeId,
+    label: serialized.label,
+    document,
+    selection: {
+      targetIds: serialized.targetIds,
+      activeId,
+      document,
+    },
+    sections: [{
+      id: 'transform',
+      title: 'Transform',
+      order: 20,
+      placement: 'body',
+      persistence: 'document',
+      properties: serialized.properties.map((property, order) => ({
+        path: property.path,
+        label: property.label,
+        valueType: property.valueType,
+        control: 'number',
+        value: property.value,
+        mixed: property.mixed,
+        readOnly: false,
+        persistence: 'document',
+        commitMode: 'live',
+        order,
+        step: property.path.startsWith('transform.rotation.') ? 1 : 0.1,
+        validate: createEditorSceneInspectorValidator('group', property.path),
+      })),
+    }],
+  };
+}
+
+export interface EditorSceneInspectorPropertyPatchInput {
+  document: EditorSceneDocument;
+  targetId: string;
+  path: string;
+  value: unknown;
+}
+
+export interface EditorSceneRuntimeInspectorContext {
+  document: EditorSceneDocument;
+  activeId: string | null;
+  projectedRoot?: unknown;
+}
+
+export function getEditorSceneRuntimeInspectorSections(
+  context: EditorSceneRuntimeInspectorContext,
+): InspectorSection<EditorSceneDocument>[] {
+  if (!context.activeId) return [];
+  const gameObject = findEditorSceneGameObject(context.document, context.activeId);
+  if (!gameObject) return [];
+  const renderer = findEditorSceneModelRenderer(gameObject);
+  const sourceRef = getEditorSceneAuthoringSourceRef(context.document);
+  const properties: InspectorProperty<EditorSceneDocument>[] = [
+    createRuntimeInspectorProperty('runtime.binding.sourceId', 'Source ID', sourceRef.sourceId, 0),
+    createRuntimeInspectorProperty('runtime.binding.sourceType', 'Source Type', sourceRef.sourceType, 1),
+    createRuntimeInspectorProperty('runtime.binding.objectId', 'Object ID', gameObject.id, 2),
+    createRuntimeInspectorProperty('runtime.binding.component', 'Component', renderer ? 'ModelRenderer' : readEditorSceneNodeKind(gameObject) === 'transform' ? 'Transform' : 'GameObject', 3),
+  ];
+  const materialKind = resolveProjectedMaterialRuntimeKind(context.projectedRoot);
+  if (materialKind) properties.push(createRuntimeInspectorProperty('runtime.material.kind', 'Material Kind', materialKind, properties.length));
+  return [{
+    id: 'runtimeBinding',
+    title: 'Runtime Binding',
+    order: 910,
+    placement: 'body',
+    persistence: 'runtime',
+    runtimeOnly: true,
+    properties,
+  }];
+}
+
+export function createEditorSceneInspectorPropertyPatch(
+  input: EditorSceneInspectorPropertyPatchInput,
+): { patch: EditorSceneDocumentPatch; label: string; changedId: string; changedIds: string[] } | null {
+  const gameObject = findEditorSceneGameObject(input.document, input.targetId);
+  if (!gameObject) return null;
+  const path = input.path;
+  const value = normalizeEditorSceneInspectorValue(path, input.value);
+  if (!validateEditorSceneInspectorValue(input.document, gameObject, path, value).ok) return null;
+  if (isUnsafeGroupRotationOrScale(input.document, input.targetId, path)) return null;
+  const changedIds = path.startsWith('transform.')
+    ? collectEditorSceneSubtreeIdList(input.document, [input.targetId])
+    : [input.targetId];
+  return {
+    label: `Patch ${input.targetId} ${path}`,
+    patch: {
+      kind: 'game-object.field',
+      targetId: input.targetId,
+      path,
+      value,
+    },
+    changedId: input.targetId,
+    changedIds,
+  };
+}
+
 function isEditorTransformSnapshot(value: unknown): value is EditorTransformSnapshot {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<EditorTransformSnapshot>;
@@ -584,6 +731,624 @@ function isVec3(value: unknown): value is EditorSceneVec3 {
     && Number.isFinite(candidate.y)
     && typeof candidate.z === 'number'
     && Number.isFinite(candidate.z);
+}
+
+function createEditorSceneInspectorSections(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
+): InspectorSection<EditorSceneDocument>[] {
+  const nodeKind = readEditorSceneNodeKind(gameObject);
+  const sections: InspectorSection<EditorSceneDocument>[] = [
+    {
+      id: 'common',
+      title: 'Common',
+      order: 10,
+      placement: 'body',
+      persistence: 'document',
+      properties: createCommonInspectorProperties(document, gameObject, nodeKind),
+    },
+  ];
+  const transform = findEditorSceneTransform(gameObject);
+  if (transform) {
+    sections.push({
+      id: 'transform',
+      title: 'Transform',
+      order: 20,
+      placement: 'body',
+      persistence: 'document',
+      properties: createTransformInspectorProperties(nodeKind, transform),
+    });
+  }
+  const renderer = findEditorSceneModelRenderer(gameObject);
+  if (renderer) {
+    sections.push({
+      id: 'renderer',
+      title: 'Renderer / Asset',
+      order: 30,
+      placement: 'body',
+      persistence: 'document',
+      properties: createRendererInspectorProperties(document, gameObject, renderer.assetId),
+    });
+  }
+  if (nodeKind === 'transform' && (gameObject.transformType === 'groundDecal' || gameObject.groundDecal)) {
+    sections.push({
+      id: 'groundDecal',
+      title: 'Ground Decal',
+      order: 40,
+      placement: 'body',
+      persistence: 'document',
+      properties: createGroundDecalInspectorProperties(nodeKind, gameObject.groundDecal),
+    });
+  }
+  if (nodeKind === 'instance' || nodeKind === 'transform') {
+    sections.push({
+      id: 'materialOverride',
+      title: 'Material Override',
+      order: 50,
+      placement: 'body',
+      persistence: 'document',
+      properties: createMaterialOverrideInspectorProperties(nodeKind, gameObject.overrides?.material),
+    });
+    sections.push({
+      id: 'outline',
+      title: 'Outline',
+      order: 60,
+      placement: 'body',
+      persistence: 'document',
+      properties: createOutlineInspectorProperties(nodeKind, gameObject.overrides?.outline),
+    });
+  }
+  const metadataProperties = createMetadataInspectorProperties(document, gameObject, renderer?.assetId ?? null);
+  if (metadataProperties.length > 0) {
+    sections.push({
+      id: 'metadata',
+      title: 'Metadata',
+      order: 70,
+      placement: 'body',
+      persistence: 'readonly',
+      properties: metadataProperties,
+    });
+  }
+  return sections;
+}
+
+function createCommonInspectorProperties(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
+  nodeKind: SceneNodeConfig['kind'],
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createReadonlyInspectorProperty('id', 'ID', gameObject.id, 0),
+    createDocumentInspectorProperty(document, nodeKind, {
+      path: 'name',
+      label: 'Name',
+      valueType: 'string',
+      control: 'string',
+      value: gameObject.name ?? gameObject.id,
+      commitMode: 'blur',
+      order: 1,
+    }),
+    createDocumentInspectorProperty(document, nodeKind, {
+      path: 'enabled',
+      label: 'Enabled',
+      valueType: 'boolean',
+      control: 'boolean',
+      value: gameObject.active !== false,
+      commitMode: 'immediate',
+      order: 2,
+    }),
+  ];
+}
+
+function createTransformInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  transform: { position: EditorSceneVec3; rotation: EditorSceneVec3; scale?: EditorSceneVec3 },
+): InspectorProperty<EditorSceneDocument>[] {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  let order = 0;
+  for (const vectorName of ['position', 'rotation', 'scale'] as const) {
+    const vector = readTransformVector(transform, vectorName);
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const path = `transform.${vectorName}.${axis}`;
+      properties.push(createDocumentInspectorProperty(null, nodeKind, {
+        path,
+        label: `${vectorName}.${axis}`,
+        valueType: 'number',
+        control: 'number',
+        value: vectorName === 'rotation' ? roundForInspector(radiansToDegrees(vector[axis])) : vector[axis],
+        commitMode: 'live',
+        order,
+        step: vectorName === 'rotation' ? 1 : 0.1,
+      }));
+      order += 1;
+    }
+  }
+  return properties;
+}
+
+function createRendererInspectorProperties(
+  document: EditorSceneDocument,
+  _gameObject: EditorSceneGameObject,
+  assetId: string,
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createDocumentInspectorProperty(document, 'instance', {
+      path: 'instance.assetId',
+      label: 'Asset',
+      valueType: 'enum',
+      control: 'enum',
+      value: assetId,
+      commitMode: 'immediate',
+      order: 0,
+      options: document.assets.map((asset) => ({
+        label: asset.displayName ?? asset.id,
+        value: asset.id,
+      })),
+    }),
+  ];
+}
+
+function createGroundDecalInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  groundDecal: EditorSceneGameObject['groundDecal'],
+): InspectorProperty<EditorSceneDocument>[] {
+  const decal = groundDecal ?? createDefaultGroundDecal();
+  return [
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'groundDecal.size.width',
+      label: 'Width',
+      valueType: 'number',
+      control: 'number',
+      value: decal.size.width,
+      commitMode: 'live',
+      order: 0,
+      min: 0.001,
+      step: 0.1,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'groundDecal.size.depth',
+      label: 'Depth',
+      valueType: 'number',
+      control: 'number',
+      value: decal.size.depth,
+      commitMode: 'live',
+      order: 1,
+      min: 0.001,
+      step: 0.1,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'groundDecal.textureId',
+      label: 'Texture ID',
+      valueType: 'string',
+      control: 'string',
+      value: decal.textureId ?? '',
+      commitMode: 'blur',
+      order: 2,
+      coerce: value => normalizeEditorSceneInspectorValue('groundDecal.textureId', value),
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'groundDecal.color',
+      label: 'Color',
+      valueType: 'color',
+      control: 'color',
+      value: decal.color ?? { r: 1, g: 1, b: 1 },
+      commitMode: 'immediate',
+      order: 3,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'groundDecal.alphaIndex',
+      label: 'Alpha Index',
+      valueType: 'number',
+      control: 'number',
+      value: decal.alphaIndex ?? 0,
+      commitMode: 'live',
+      order: 4,
+      step: 1,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'groundDecal.diffuseTextureLevel',
+      label: 'Diffuse Level',
+      valueType: 'number',
+      control: 'number',
+      value: decal.diffuseTextureLevel ?? 1,
+      commitMode: 'live',
+      order: 5,
+      step: 0.05,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'groundDecal.emissiveTextureLevel',
+      label: 'Emissive Level',
+      valueType: 'number',
+      control: 'number',
+      value: decal.emissiveTextureLevel ?? 0,
+      commitMode: 'live',
+      order: 6,
+      step: 0.05,
+    }),
+  ];
+}
+
+function createMaterialOverrideInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  material: MaterialOverrideConfig | undefined,
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.material.albedoColor',
+      label: 'Albedo',
+      valueType: 'color',
+      control: 'color',
+      value: material?.albedoColor ?? { r: 1, g: 1, b: 1 },
+      commitMode: 'immediate',
+      order: 0,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.material.emissiveColor',
+      label: 'Emissive',
+      valueType: 'color',
+      control: 'color',
+      value: material?.emissiveColor ?? { r: 0, g: 0, b: 0 },
+      commitMode: 'immediate',
+      order: 1,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.material.metallic',
+      label: 'Metallic',
+      valueType: 'number',
+      control: 'number',
+      value: material?.metallic ?? 0,
+      commitMode: 'live',
+      order: 2,
+      min: 0,
+      max: 1,
+      step: 0.05,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.material.roughness',
+      label: 'Roughness',
+      valueType: 'number',
+      control: 'number',
+      value: material?.roughness ?? 1,
+      commitMode: 'live',
+      order: 3,
+      min: 0,
+      max: 1,
+      step: 0.05,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.material.alpha',
+      label: 'Alpha',
+      valueType: 'number',
+      control: 'number',
+      value: material?.alpha ?? 1,
+      commitMode: 'live',
+      order: 4,
+      min: 0,
+      max: 1,
+      step: 0.05,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.material.backFaceCulling',
+      label: 'Back Face Culling',
+      valueType: 'boolean',
+      control: 'boolean',
+      value: material?.backFaceCulling ?? true,
+      commitMode: 'immediate',
+      order: 5,
+    }),
+  ];
+}
+
+function createOutlineInspectorProperties(
+  nodeKind: SceneNodeConfig['kind'],
+  outline: OutlineOverrideConfig | undefined,
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.outline.renderOutline',
+      label: 'Render Outline',
+      valueType: 'boolean',
+      control: 'boolean',
+      value: outline?.renderOutline ?? false,
+      commitMode: 'immediate',
+      order: 0,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.outline.outlineWidth',
+      label: 'Width',
+      valueType: 'number',
+      control: 'number',
+      value: outline?.outlineWidth ?? 0.04,
+      commitMode: 'live',
+      order: 1,
+      min: 0,
+      step: 0.005,
+    }),
+    createDocumentInspectorProperty(null, nodeKind, {
+      path: 'overrides.outline.outlineColor',
+      label: 'Color',
+      valueType: 'color',
+      control: 'color',
+      value: outline?.outlineColor ?? { r: 0.03, g: 0.03, b: 0.03 },
+      commitMode: 'immediate',
+      order: 2,
+    }),
+  ];
+}
+
+function createMetadataInspectorProperties(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
+  assetId: string | null,
+): InspectorProperty<EditorSceneDocument>[] {
+  const properties: InspectorProperty<EditorSceneDocument>[] = [];
+  const asset = assetId ? document.assets.find((entry) => entry.id === assetId) : null;
+  if (asset) {
+    properties.push(createReadonlyInspectorProperty('metadata.assetSource', 'Asset Source', asset.sourceId, 0));
+    properties.push(createReadonlyInspectorProperty('metadata.assetCategory', 'Category', asset.category ?? '', 1));
+    if (asset.materialMode) properties.push(createReadonlyInspectorProperty('metadata.materialMode', 'Material Mode', asset.materialMode, 2));
+    if (asset.metadata) properties.push(createReadonlyInspectorProperty('metadata.asset', 'Asset Metadata', asset.metadata, 3));
+  }
+  if (gameObject.metadata) {
+    properties.push(createReadonlyInspectorProperty('metadata.gameObject', 'GameObject Metadata', gameObject.metadata, properties.length));
+  }
+  return properties;
+}
+
+function createDocumentInspectorProperty(
+  document: EditorSceneDocument | null,
+  nodeKind: SceneNodeConfig['kind'],
+  property: Omit<InspectorProperty<EditorSceneDocument>, 'readOnly' | 'persistence' | 'validate'>,
+): InspectorProperty<EditorSceneDocument> {
+  return {
+    ...property,
+    readOnly: false,
+    persistence: 'document',
+    document: document ?? undefined,
+    validate: createEditorSceneInspectorValidator(nodeKind, property.path, document),
+  };
+}
+
+function createReadonlyInspectorProperty(
+  path: string,
+  label: string,
+  value: unknown,
+  order: number,
+): InspectorProperty<EditorSceneDocument> {
+  return {
+    path,
+    label,
+    valueType: typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : typeof value === 'object' ? 'object' : 'string',
+    control: 'readonly',
+    value,
+    readOnly: true,
+    persistence: 'readonly',
+    commitMode: 'blur',
+    order,
+  };
+}
+
+function createRuntimeInspectorProperty(
+  path: string,
+  label: string,
+  value: unknown,
+  order: number,
+): InspectorProperty<EditorSceneDocument> {
+  return {
+    path,
+    label,
+    valueType: typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : typeof value === 'object' ? 'object' : 'string',
+    control: 'readonly',
+    value,
+    readOnly: true,
+    persistence: 'runtime',
+    commitMode: 'blur',
+    order,
+  };
+}
+
+function createEditorSceneInspectorValidator(
+  nodeKind: SceneNodeConfig['kind'],
+  path: string,
+  document?: EditorSceneDocument | null,
+): (value: unknown) => InspectorValidationResult {
+  return (value) => {
+    const schema = resolveSceneNodeFieldSchema(path, nodeKind);
+    if (!schema) return { ok: false, message: `Unsupported scene node field: ${path}.` };
+    if (value == null && schema.allowDelete === false) {
+      return { ok: false, message: `Scene node field cannot be deleted: ${path}.` };
+    }
+    if (!schema.validate(value)) return { ok: false, message: `Invalid value for scene node field: ${path}.` };
+    if (path === 'instance.assetId' && document && typeof value === 'string' && !document.assets.some((asset) => asset.id === value)) {
+      return { ok: false, message: `Asset not found: ${value}.` };
+    }
+    return { ok: true, value };
+  };
+}
+
+function validateEditorSceneInspectorValue(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
+  path: string,
+  value: unknown,
+): InspectorValidationResult {
+  return createEditorSceneInspectorValidator(readEditorSceneNodeKind(gameObject), path, document)(value);
+}
+
+function normalizeEditorSceneInspectorValue(path: string, value: unknown): unknown {
+  if (path === 'groundDecal.textureId' && typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  return value;
+}
+
+function isUnsafeGroupRotationOrScale(
+  editorScene: EditorSceneDocument,
+  targetId: string,
+  serializedPath: string,
+): boolean {
+  if (!serializedPath.startsWith('transform.rotation.') && !serializedPath.startsWith('transform.scale.')) {
+    return false;
+  }
+  return collectEditorSceneSubtreeIdList(editorScene, [targetId]).length > 1;
+}
+
+export function patchEditorSceneGameObjectField(
+  document: EditorSceneDocument,
+  targetId: string,
+  path: string,
+  value: unknown,
+): EditorSceneDocument {
+  const gameObject = findEditorSceneGameObject(document, targetId);
+  if (!gameObject) return document;
+  const normalizedValue = normalizeEditorSceneInspectorValue(path, value);
+  if (!validateEditorSceneInspectorValue(document, gameObject, path, normalizedValue).ok) return document;
+  return {
+    ...document,
+    scene: {
+      ...document.scene,
+      gameObjects: document.scene.gameObjects.map((entry) => (
+        entry.id === targetId ? patchEditorSceneGameObject(entry, path, normalizedValue) : entry
+      )),
+    },
+  };
+}
+
+function patchEditorSceneGameObject(
+  gameObject: EditorSceneGameObject,
+  path: string,
+  value: unknown,
+): EditorSceneGameObject {
+  const next: EditorSceneGameObject = structuredClone(gameObject);
+  if (path === 'name') {
+    if (typeof value === 'string' && value.trim()) next.name = value.trim();
+    else delete next.name;
+    return next;
+  }
+  if (path === 'enabled') {
+    next.active = value !== false;
+    return next;
+  }
+  if (path === 'instance.assetId') {
+    const renderer = findEditorSceneModelRenderer(next);
+    if (renderer && typeof value === 'string') renderer.assetId = value;
+    next.kind = 'instance';
+    return next;
+  }
+  if (path === 'transformType') {
+    if (value === 'plain' || value === 'light' || value === 'camera' || value === 'groundDecal') {
+      next.kind = 'transform';
+      next.transformType = value;
+      if (value === 'groundDecal' && !next.groundDecal) next.groundDecal = createDefaultGroundDecal();
+    }
+    return next;
+  }
+  const transformMatch = path.match(/^transform\.(position|rotation|scale)\.(x|y|z)$/);
+  if (transformMatch && typeof value === 'number' && Number.isFinite(value)) {
+    const transform = findEditorSceneTransform(next);
+    if (!transform) return next;
+    const vectorName = transformMatch[1] as 'position' | 'rotation' | 'scale';
+    const axis = transformMatch[2] as 'x' | 'y' | 'z';
+    const storedValue = vectorName === 'rotation' ? degreesToRadians(value) : value;
+    if (vectorName === 'scale') transform.scale = { ...readTransformVector(transform, 'scale'), [axis]: storedValue };
+    else transform[vectorName] = { ...transform[vectorName], [axis]: storedValue };
+    return next;
+  }
+  if (path.startsWith('groundDecal.')) {
+    next.kind = 'transform';
+    next.transformType = next.transformType ?? 'groundDecal';
+    next.groundDecal = mergeGroundDecalDefaults(next.groundDecal);
+    applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
+    return next;
+  }
+  if (path.startsWith('overrides.')) {
+    if (readEditorSceneNodeKind(next) === 'group') next.kind = 'instance';
+    applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
+    return next;
+  }
+  return next;
+}
+
+function applyJsonFieldPatch(target: Record<string, unknown>, path: string, value: unknown): void {
+  const segments = path.split('.').filter(Boolean);
+  let cursor = target;
+  for (const segment of segments.slice(0, -1)) {
+    const next = cursor[segment];
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      cursor[segment] = {};
+    }
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+  const leaf = segments[segments.length - 1];
+  if (!leaf) return;
+  if (value == null) delete cursor[leaf];
+  else cursor[leaf] = structuredClone(value);
+}
+
+function createDefaultGroundDecal(): NonNullable<EditorSceneGameObject['groundDecal']> {
+  return {
+    size: { width: 1, depth: 1 },
+    color: { r: 1, g: 1, b: 1 },
+  };
+}
+
+function mergeGroundDecalDefaults(
+  groundDecal: EditorSceneGameObject['groundDecal'],
+): NonNullable<EditorSceneGameObject['groundDecal']> {
+  const defaults = createDefaultGroundDecal();
+  return {
+    ...defaults,
+    ...(groundDecal ?? {}),
+    size: {
+      ...defaults.size,
+      ...(groundDecal?.size ?? {}),
+    },
+    color: groundDecal?.color
+      ? { ...defaults.color, ...groundDecal.color }
+      : defaults.color,
+  };
+}
+
+function resolveProjectedMaterialRuntimeKind(root: unknown): string | null {
+  const material = findProjectedRuntimeMaterial(root);
+  const className = readRuntimeClassName(material);
+  if (!className) return null;
+  if (className.includes('PBR')) return 'pbr';
+  if (className.includes('Standard')) return 'standard';
+  return className;
+}
+
+function findProjectedRuntimeMaterial(root: unknown): unknown {
+  const record = isObjectRecord(root) ? root : null;
+  const directMaterial = record?.material;
+  if (directMaterial) return directMaterial;
+  const getChildMeshes = record?.getChildMeshes;
+  if (typeof getChildMeshes === 'function') {
+    const meshes = getChildMeshes.call(root, false);
+    if (Array.isArray(meshes)) {
+      const mesh = meshes.find((candidate) => isObjectRecord(candidate) && !!candidate.material);
+      if (isObjectRecord(mesh)) return mesh.material;
+    }
+  }
+  return null;
+}
+
+function readRuntimeClassName(value: unknown): string | null {
+  if (!isObjectRecord(value)) return null;
+  const getClassName = value.getClassName;
+  if (typeof getClassName === 'function') {
+    const className = getClassName.call(value);
+    if (typeof className === 'string' && className.trim()) return className;
+  }
+  const constructorName = value.constructor && typeof value.constructor === 'function'
+    ? value.constructor.name
+    : '';
+  return constructorName && constructorName !== 'Object' ? constructorName : null;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object';
 }
 
 export function applyEditorSceneSerializedPropertyPatch(
