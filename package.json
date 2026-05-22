@@ -14,7 +14,7 @@
     "dev:editor-lab": "vite --config examples/editor-lab/vite.config.ts --host 0.0.0.0",
     "dev:mini-game-lab": "npm --prefix examples/mini-game-lab run dev:editor-local --",
     "dev:editor-world": "vite --config examples/babylon-editor-world/vite.config.ts --host 0.0.0.0",
-    "typecheck": "tsc -p packages/editor-protocol/tsconfig.json --noEmit && tsc -p packages/editor-browser/tsconfig.json --noEmit && tsc -p packages/editor-forge-play/tsconfig.json --noEmit && tsc -p packages/editor-core/tsconfig.json --noEmit && tsc -p packages/editor-babylon/tsconfig.json --noEmit && tsc -p packages/editor/tsconfig.json --noEmit && tsc -p examples/editor-lab/tsconfig.json --noEmit && tsc -p examples/babylon-editor-world/tsconfig.json --noEmit",
+    "typecheck": "tsc -b --emitDeclarationOnly && tsc -p examples/editor-lab/tsconfig.json --noEmit && tsc -p examples/babylon-editor-world/tsconfig.json --noEmit",
     "typecheck:mini-game-lab": "npm --prefix examples/mini-game-lab run typecheck",
     "test:unit": "vitest run",
     "test:browser": "playwright test",

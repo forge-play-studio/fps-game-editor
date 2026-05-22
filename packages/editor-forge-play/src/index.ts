@@ -224,7 +224,7 @@ export function installLegacyCommandBypass(
     owner: 'legacy',
     Editor: runtime.Editor,
     Edit: runtime.Edit,
-    async handleCommand(name, params) {
+    async handleCommand(name: string, params: Record<string, unknown>) {
       if (projectOwned.has(name)) return runtime.handleCommand(name, params);
       if (legacySafe.has(name)) return originalLegacy?.handleCommand?.(name, params);
       return originalLegacy?.handleCommand?.(name, params);
