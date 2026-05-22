@@ -1,6 +1,6 @@
 {
   "name": "fps-game-editor",
-  "version": "0.1.1-beta.0",
+  "version": "0.1.1-beta.1",
   "private": true,
   "type": "module",
   "workspaces": [
