@@ -10,6 +10,7 @@
 4. 已保留项目侧 `src/fps-game-editor-adapter`，负责 scene/document/asset/binding 语义
 5. 已保留基础 `economy` 能力
 6. 已强制固定 Babylon 右手坐标系
+7. 已接入平台资产 command 桥接，资产注册、刷新和放置由项目侧写入 `EditorSceneDocument`
 
 ## 本地开发
 
@@ -30,12 +31,14 @@ pnpm build
 优先改这些文件：
 
 1. `src/config/game.json`
-2. `src/config/scene.json`
+2. `src/config/editor-scene.json`
 3. `src/config/types.ts`
 4. `src/config/ConfigService.ts`
 5. `src/core/Game.ts`
 6. `src/fps-game-editor-adapter/*`
 7. `src/services/SceneBuilder.ts`
+
+`src/config/scene.json` 是保存链路从 `editor-scene.json` 编译出的运行时产物。除非是在验证 compiler 输出，否则不要把它作为静态场景编辑入口。
 
 ## 编辑器接入边界
 
@@ -65,13 +68,19 @@ FPS_GAME_EDITOR_ROOT=/absolute/path/to/fps-game-editor pnpm dev
    ```
 
 2. 打开游戏页面，页面顶部会出现 `Game Mode / Editor Mode` 按钮组。
-3. 点击 `Enter Editor`，当前 GameWorld 会被 dispose，随后在同一个 `renderCanvas` 上创建独立 Babylon EditorWorld。第一版 EditorWorld 只显示 camera/light/grid，不投影 `scene.nodes`。
+3. 点击 `Enter Editor`，当前 GameWorld 会被 dispose，随后在同一个 `renderCanvas` 上创建独立 Babylon EditorWorld，投影 `editor-scene.json` 中的 GameObject 和可放置资产。
 4. 点击 `Save Scene`，它会走 `ProjectAuthoringHost.commitSource -> /__fps_editor_authoring/save-editor-scene`，本地 commit 模式会同时写 `src/config/editor-scene.json` 和编译后的 `src/config/scene.json`。
 5. 在 Forge Play `Save & Exit` 链路里，`document.export` 会先以 `prepare-platform-save` 模式写 `editor-scene.json`，只返回编译后的 `sceneJsonText`；随后由平台现有保存 API 写 `scene.json`。
 6. 平台发送 `document.commit` 后，后续 `mode.change(play, save: true)` 不再重复保存 authoring source，只切回 GameWorld。
 7. 如果不想保存本次编辑，点击 `Discard & Run Game`，直接 dispose EditorWorld 并刷新页面。
 
-这个 switcher 只用于本地开发；它不直接改项目 document，也不替代平台编辑按钮。当前第一版先跑通 `GameWorld -> 独立 EditorWorld -> 保存 document -> 重启 GameWorld`，后续再把 `scene.nodes` 投影到 EditorWorld 并接入 selection/gizmo patch。
+这个 switcher 只用于本地开发；它不替代平台编辑按钮。当前主链路是 `GameWorld -> 独立 EditorWorld -> EditorSceneDocument working copy -> 保存 editor-scene.json -> 编译 scene.json -> 重启 GameWorld`。
+
+平台资产库接入时，项目侧只消费 command：
+
+1. `asset.library.refresh`：调用 `LocalEditorHarness.reloadAssets()`，刷新内部资产浏览器。
+2. `asset.import` / `editor.asset.place`：如 payload 带 `assetPath`，先通过 `/__fps_editor_authoring/file` 和 `/__fps_editor_authoring/exec` 注册资产，再刷新资产库，最后调用 `LocalEditorHarness.createAssetFromAssetId()` 在 `EditorSceneDocument` 中创建实例。
+3. 新实例不会直接写旧 runtime scene document 或 `scene.json`。保存时由 `editor-scene.json` 编译出 `scene.json`。
 
 职责入口：
 

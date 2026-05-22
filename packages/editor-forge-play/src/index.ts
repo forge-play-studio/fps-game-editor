@@ -44,7 +44,11 @@ export interface BridgeInspectorLoaderPatchOptions extends ForgePlayBridgeHostOp
   intervalMs?: number;
 }
 
-export const DEFAULT_PROJECT_OWNED_COMMANDS = ['asset.import'] as const;
+export const DEFAULT_PROJECT_OWNED_COMMANDS = [
+  'asset.import',
+  'asset.library.refresh',
+  'editor.asset.place',
+] as const;
 
 export const DEFAULT_LEGACY_SAFE_COMMANDS = [
   'asset.drag.preview',

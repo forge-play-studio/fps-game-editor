@@ -251,6 +251,33 @@ export interface LocalEditorHarnessPlacedAssetPatch<TPatch> {
   reprojectIds?: string[];
 }
 
+export interface LocalEditorHarnessAssetPatchInput<TDocument, TAsset = LocalEditorHarnessAssetItem> {
+  document: TDocument;
+  asset: TAsset;
+  assetId: string;
+  placement?: EditorTransformSnapshot;
+}
+
+export interface LocalEditorHarnessAssetReloadResult {
+  ok: boolean;
+  assetCount: number;
+  status: string;
+  error?: string;
+}
+
+export interface LocalEditorHarnessAssetCreationResult {
+  ok: boolean;
+  assetId: string;
+  changed: boolean;
+  status: string;
+  createdId?: string | null;
+  error?: string;
+}
+
+export interface LocalEditorHarnessAssetCreationOptions {
+  placement?: EditorTransformSnapshot;
+}
+
 export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   cloneDocument?(document: TDocument): TDocument;
   compareDocuments?(left: TDocument, right: TDocument): boolean;
@@ -267,7 +294,7 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   getSceneCameraPreviewRig?(document: TDocument): BabylonSceneCameraPreviewRig | null;
   isSelectable?(document: TDocument, id: string): boolean;
   isLocked?(document: TDocument, id: string): boolean;
-  createPatchFromAsset(asset: TAsset): { patch: TPatch; label?: string };
+  createPatchFromAsset(asset: TAsset, input?: LocalEditorHarnessAssetPatchInput<TDocument, TAsset>): { patch: TPatch; label?: string };
   createPlacedAssetPatch?(input: LocalEditorHarnessPlacedAssetInput<TDocument, TAsset>): LocalEditorHarnessPlacedAssetPatch<TPatch> | null;
   findCreatedId?(beforeDocument: TDocument, afterDocument: TDocument): string | null;
   createSerializedPropertyPatch(input: LocalEditorHarnessPropertyInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
@@ -339,6 +366,8 @@ export interface LocalEditorHarness<TDocument = unknown> {
   render(): void;
   getHostServices(): EditorHostServices | null;
   getWorkingDocument(): TDocument | null;
+  reloadAssets(): Promise<LocalEditorHarnessAssetReloadResult>;
+  createAssetFromAssetId(assetId: string, options?: LocalEditorHarnessAssetCreationOptions): LocalEditorHarnessAssetCreationResult;
   enterEditor(): Promise<void>;
   saveScene(): Promise<boolean>;
   saveAndRunGame(): Promise<boolean>;
@@ -555,6 +584,40 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     },
     getWorkingDocument() {
       return state.session?.getState().workingDocument ?? null;
+    },
+    async reloadAssets() {
+      try {
+        const assets = await options.persistenceAdapter.loadAssets();
+        state.assets = assets;
+        clearArmedPlacement(state);
+        state.status = `Assets reloaded; assets=${assets.length}`;
+        state.statusTone = 'success';
+        state.statusToneStatus = state.status;
+        state.statusDetails = '';
+        harness.render();
+        return {
+          ok: true,
+          assetCount: assets.length,
+          status: state.status,
+        };
+      } catch (error) {
+        state.status = 'Asset reload failed';
+        state.statusTone = 'error';
+        state.statusToneStatus = state.status;
+        state.statusDetails = error instanceof Error ? error.message : String(error);
+        harness.render();
+        return {
+          ok: false,
+          assetCount: state.assets.length,
+          status: state.status,
+          error: state.statusDetails,
+        };
+      }
+    },
+    createAssetFromAssetId(assetId, createOptions) {
+      const result = addAssetToDocument(state, options, assetId, createOptions);
+      harness.render();
+      return result;
     },
     async enterEditor() {
       const loadedSource = options.persistenceAdapter.loadAuthoringSource
@@ -1475,7 +1538,7 @@ function createAssetFromBrowserIntent<TDocument, TPatch, TAsset>(
   assetId: string,
 ): boolean {
   if (state.transformOperationSettings.placementMode === 'off') {
-    return addAssetToDocument(state, options, assetId);
+    return addAssetToDocument(state, options, assetId).ok;
   }
   return armAssetPlacement(state, options, assetId);
 }
@@ -1593,15 +1656,30 @@ function addAssetToDocument<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
   assetId: string,
-): boolean {
-  if (state.mode !== 'editor') return false;
+  createOptions: LocalEditorHarnessAssetCreationOptions = {},
+): LocalEditorHarnessAssetCreationResult {
+  if (state.mode !== 'editor') {
+    state.status = 'Asset creation rejected: editor is not active';
+    return { ok: false, assetId, changed: false, status: state.status, error: 'editor_not_active' };
+  }
   cancelActiveOperation(state);
   const session = state.session;
   const beforeDocument = session?.getState().workingDocument;
-  if (!session || !beforeDocument) return false;
+  if (!session || !beforeDocument) {
+    state.status = 'Asset creation rejected: document is not loaded';
+    return { ok: false, assetId, changed: false, status: state.status, error: 'document_not_loaded' };
+  }
   const asset = state.assets.find(candidate => resolveAssetId(options, candidate) === assetId);
-  if (!asset) return false;
-  const patch = options.documentAdapter.createPatchFromAsset(asset);
+  if (!asset) {
+    state.status = `Asset creation rejected: ${assetId} not found`;
+    return { ok: false, assetId, changed: false, status: state.status, error: 'asset_not_found' };
+  }
+  const patch = options.documentAdapter.createPatchFromAsset(asset, {
+    document: beforeDocument,
+    asset,
+    assetId,
+    placement: createOptions.placement,
+  });
   const result = session.dispatch({
     type: 'document.patch',
     label: patch.label ?? 'Create Object From Asset',
@@ -1619,6 +1697,9 @@ function addAssetToDocument<TDocument, TPatch, TAsset>(
   }
   state.summary = summarizeDocument(options, result.workingDocument, session.getSource());
   state.status = `Added ${assetId}`;
+  state.statusTone = 'success';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
   if (createdId) {
     const projectedNode = options.documentAdapter.getProjectionNode(result.workingDocument, createdId);
     if (projectedNode) {
@@ -1626,7 +1707,13 @@ function addAssetToDocument<TDocument, TPatch, TAsset>(
       if (selectionResult) syncSelectionToProjection(state, selectionResult.selection);
     }
   }
-  return true;
+  return {
+    ok: true,
+    assetId,
+    changed: result.documentChanged,
+    status: state.status,
+    createdId: createdId ?? null,
+  };
 }
 
 function patchSerializedProperty<TDocument, TPatch, TAsset>(

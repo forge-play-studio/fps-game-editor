@@ -295,6 +295,18 @@ if (import.meta.env.DEV) {
 
 项目 adapter 需要保证命令语义是原子的。以 `asset.import` 为例，返回成功应同时代表 authored document 已写入、runtime node 已创建并可选中；如果 runtime 创建失败，应回滚 document 变更并返回失败。
 
+### 平台资产命令桥接
+
+Forge Play 平台资产库不要直接修改项目场景，也不要继续依赖 native HTML5 drag/drop 跨 iframe 投放。平台只发送明确 command，项目侧解释语义：
+
+| 命令 | 语义 |
+| --- | --- |
+| `asset.library.refresh` | 重新调用项目 adapter 的 `loadAssets()`，刷新编辑器资产浏览器。 |
+| `asset.import` | 兼容旧平台导入入口；项目侧可先注册 `assetPath`，再刷新资产库并在当前 `EditorSceneDocument` 创建实例。 |
+| `editor.asset.place` | 新的编辑器放置入口；语义同项目侧放置资产，可携带 `position`、`rotation` / `rotationDeg`、`scale` / `instanceScale`。 |
+
+公共 harness 提供 `reloadAssets()` 和 `createAssetFromAssetId()`，项目 adapter 负责把资产库 item 映射成自己的 document patch。成功放置资产只代表编辑源 `editor-scene.json` 的 working document 已更新；Forge Play `Save & Exit` 仍通过 `document.export -> document.commit -> mode.change(play)` 把 `editor-scene.json` 保存并编译出交给平台 API 写入的 `scene.json`。
+
 ## Forge Play / Inspector 注意事项
 
 - Forge Play 平台侧只负责 transport、意图传输和文件保存，不理解项目 schema。
@@ -369,6 +381,8 @@ http://localhost:5184
 `examples/mini-game-lab` 保留了 lumber_order 的真实资产、GameWorld、SceneBuilder、项目 adapter 和本地 authoring API，但默认关闭 Forge Play bridge。它用于在包仓库内快速模拟真实游戏闭环；`lumber_order + forge-play` 仍然是最终平台沙盒验收环境。
 
 保存链路分为两种语义：本地 `Save Scene` 使用 `local-commit-save`，同时写 `editor-scene.json` 和编译后的 `scene.json`；Forge Play `Save & Exit` 使用 `prepare-platform-save`，先保存 `editor-scene.json` 并导出 `sceneJsonText`，再交给平台现有保存 API 写 `scene.json`。平台随后发送的 `document.commit` 作为提交确认，尾部 `mode.change(play, save: true)` 不再重复保存同一次 authoring source。
+
+平台资产命令在 mini-game-lab 中由 `local-editor-mode-switcher.ts` 接管：`asset.library.refresh` 只刷新内部资产浏览器；`asset.import` / `editor.asset.place` 会按需通过本地 authoring API 注册资产、刷新资产库，再通过 `LocalEditorHarness.createAssetFromAssetId()` 写入 `EditorSceneDocument`。这条链路不走旧 runtime scene document，也不直接写 `scene.json`。
 
 `mini-game-lab` 是 dev-only fixture，不参与 npm 包发布，也不要求提交它自己的 `node_modules` 或 lockfile。它的依赖声明留在 `examples/mini-game-lab/package.json`，不进入根包依赖。
 
