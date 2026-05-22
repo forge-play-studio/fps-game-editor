@@ -32,6 +32,91 @@ export interface LocalEditorBrowserSerializedMultiObject<TDocument = unknown> {
   document?: TDocument;
 }
 
+export type LocalEditorBrowserInspectorPersistenceMode = 'document' | 'runtime' | 'readonly';
+
+export type LocalEditorBrowserInspectorControlKind =
+  | 'readonly'
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'enum'
+  | 'vec2'
+  | 'vec3'
+  | 'color'
+  | 'asset'
+  | 'object'
+  | 'custom';
+
+export type LocalEditorBrowserInspectorCommitMode = 'live' | 'blur' | 'change' | 'immediate';
+
+export type LocalEditorBrowserInspectorEditSource =
+  | 'input'
+  | 'toggle'
+  | 'select'
+  | 'color'
+  | 'asset'
+  | 'custom';
+
+export interface LocalEditorBrowserInspectorEnumOption<TValue = string | number | boolean> {
+  label: string;
+  value: TValue;
+  disabled?: boolean;
+}
+
+export interface LocalEditorBrowserInspectorSelectionContext<TDocument = unknown> {
+  targetIds: string[];
+  activeId: string | null;
+  targetKind?: string;
+  document?: TDocument;
+  runtimeTarget?: unknown;
+  capabilities?: readonly string[];
+}
+
+export interface LocalEditorBrowserInspectorProperty<TDocument = unknown> {
+  id?: string;
+  path: string;
+  label: string;
+  valueType: LocalEditorBrowserSerializedValueType | 'color' | 'vec2' | 'vec3';
+  control: LocalEditorBrowserInspectorControlKind;
+  customControl?: string;
+  controlOptions?: Record<string, unknown>;
+  value: unknown;
+  mixed?: boolean;
+  readOnly: boolean;
+  persistence: LocalEditorBrowserInspectorPersistenceMode;
+  commitMode: LocalEditorBrowserInspectorCommitMode;
+  order?: number;
+  tags?: readonly string[];
+  tooltip?: string;
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: readonly LocalEditorBrowserInspectorEnumOption[];
+  document?: TDocument;
+}
+
+export interface LocalEditorBrowserInspectorSection<TDocument = unknown> {
+  id: string;
+  title: string;
+  order?: number;
+  placement?: 'summary' | 'body';
+  collapsedByDefault?: boolean;
+  persistence?: LocalEditorBrowserInspectorPersistenceMode;
+  runtimeOnly?: boolean;
+  tags?: readonly string[];
+  properties: LocalEditorBrowserInspectorProperty<TDocument>[];
+}
+
+export interface LocalEditorBrowserInspectorObject<TDocument = unknown> {
+  targetIds: string[];
+  activeId: string | null;
+  label?: string;
+  selection: LocalEditorBrowserInspectorSelectionContext<TDocument>;
+  sections: LocalEditorBrowserInspectorSection<TDocument>[];
+  document?: TDocument;
+}
+
 export interface LocalEditorBrowserUiHierarchyItem {
   id: string;
   label: string;
@@ -103,6 +188,8 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   } | null;
   serializedObject: LocalEditorBrowserSerializedObject<TDocument> | null;
   serializedMultiObject?: LocalEditorBrowserSerializedMultiObject<TDocument> | null;
+  inspectorObject?: LocalEditorBrowserInspectorObject<TDocument> | null;
+  inspectorMultiObject?: LocalEditorBrowserInspectorObject<TDocument> | null;
   boxSelection?: {
     active: boolean;
     left: number;
@@ -124,7 +211,46 @@ export interface LocalEditorBrowserUiPropertyInput {
   targetId: string;
   targetIds?: string[];
   path: string;
-  value: number | string | boolean;
+  value: number | string | boolean | Record<string, unknown> | null;
+  control?: LocalEditorBrowserInspectorControlKind;
+  valueType?: LocalEditorBrowserInspectorProperty['valueType'];
+  commitMode?: LocalEditorBrowserInspectorCommitMode;
+  persistence?: LocalEditorBrowserInspectorPersistenceMode;
+  source?: LocalEditorBrowserInspectorEditSource;
+}
+
+export type LocalEditorBrowserInspectorConflictStrategy = 'error' | 'ignore' | 'replace';
+
+export interface LocalEditorBrowserInspectorControlBindingOptions {
+  source?: LocalEditorBrowserInspectorEditSource;
+}
+
+export interface LocalEditorBrowserInspectorControlRenderContext<TDocument = unknown> {
+  doc: Document;
+  target: LocalEditorBrowserInspectorObject<TDocument>;
+  property: LocalEditorBrowserInspectorProperty<TDocument>;
+  bindInput(
+    element: HTMLInputElement | HTMLSelectElement,
+    options?: LocalEditorBrowserInspectorControlBindingOptions,
+  ): void;
+}
+
+export type LocalEditorBrowserInspectorControlRenderer<TDocument = unknown> = (
+  context: LocalEditorBrowserInspectorControlRenderContext<TDocument>,
+) => HTMLElement;
+
+export interface LocalEditorBrowserInspectorControlRegistration<TDocument = unknown> {
+  id: string;
+  order?: number;
+  control?: LocalEditorBrowserInspectorControlKind;
+  customControl?: string;
+  supports?(context: LocalEditorBrowserInspectorControlRenderContext<TDocument>): boolean;
+  render: LocalEditorBrowserInspectorControlRenderer<TDocument>;
+}
+
+export interface LocalEditorBrowserInspectorOptions<TDocument = unknown> {
+  controls?: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[];
+  controlConflict?: LocalEditorBrowserInspectorConflictStrategy;
 }
 
 export interface LocalEditorBrowserHierarchySelectionInput {
@@ -197,10 +323,11 @@ export interface LocalEditorBrowserUiCallbacks {
   onContextAction?: (action: LocalEditorContextAction) => void;
 }
 
-export interface LocalEditorBrowserUiOptions {
+export interface LocalEditorBrowserUiOptions<TDocument = unknown> {
   root?: HTMLElement;
   document?: Document;
   callbacks?: LocalEditorBrowserUiCallbacks;
+  inspector?: LocalEditorBrowserInspectorOptions<TDocument>;
 }
 
 export interface LocalEditorBrowserUi<TDocument = unknown> {

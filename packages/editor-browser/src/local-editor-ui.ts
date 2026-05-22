@@ -18,6 +18,17 @@ import {
 } from './local-editor-ui-workbench';
 import type {
   LocalEditorBottomDockTab,
+  LocalEditorBrowserInspectorCommitMode,
+  LocalEditorBrowserInspectorConflictStrategy,
+  LocalEditorBrowserInspectorControlBindingOptions,
+  LocalEditorBrowserInspectorControlKind,
+  LocalEditorBrowserInspectorControlRegistration,
+  LocalEditorBrowserInspectorControlRenderContext,
+  LocalEditorBrowserInspectorControlRenderer,
+  LocalEditorBrowserInspectorEditSource,
+  LocalEditorBrowserInspectorOptions,
+  LocalEditorBrowserInspectorPersistenceMode,
+  LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserSceneGraphDropIntent,
   LocalEditorBrowserTransformConstraint,
   LocalEditorBrowserTransformSpace,
@@ -25,10 +36,18 @@ import type {
   LocalEditorBrowserUi,
   LocalEditorBrowserUiHierarchyItem,
   LocalEditorBrowserUiOptions,
+  LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
   LocalEditorContextAction,
   LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
+
+export {
+  applyLocalEditorBrowserInspectorControlBinding,
+  createLocalEditorBrowserInspectorControlRegistry,
+  resolveLocalEditorBrowserInspectorControlRegistration,
+} from './local-editor-ui-panels';
+export type { LocalEditorBrowserInspectorRenderOptions } from './local-editor-ui-panels';
 
 export type {
   LocalEditorBottomDockTab,
@@ -36,6 +55,19 @@ export type {
   LocalEditorBrowserHierarchySelectionInput,
   LocalEditorBrowserHistoryEntry,
   LocalEditorBrowserHistoryView,
+  LocalEditorBrowserInspectorCommitMode,
+  LocalEditorBrowserInspectorConflictStrategy,
+  LocalEditorBrowserInspectorControlBindingOptions,
+  LocalEditorBrowserInspectorControlKind,
+  LocalEditorBrowserInspectorControlRegistration,
+  LocalEditorBrowserInspectorControlRenderContext,
+  LocalEditorBrowserInspectorControlRenderer,
+  LocalEditorBrowserInspectorEditSource,
+  LocalEditorBrowserInspectorObject,
+  LocalEditorBrowserInspectorOptions,
+  LocalEditorBrowserInspectorPersistenceMode,
+  LocalEditorBrowserInspectorProperty,
+  LocalEditorBrowserInspectorSection,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
   LocalEditorBrowserSceneGraphDeleteIntent,
   LocalEditorBrowserSceneGraphDropIntent,
@@ -60,8 +92,88 @@ export type {
   LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
 
+function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): number | string | boolean | Record<string, unknown> | null {
+  const control = input.dataset.serializedControl;
+  const valueType = input.dataset.serializedValueType;
+  if ((control === 'vec2' || control === 'vec3') && input instanceof HTMLInputElement) {
+    return readInspectorVectorInputValue(input);
+  }
+  if (control === 'enum' && input instanceof HTMLSelectElement) {
+    const option = input.selectedOptions.item(0);
+    const encoded = option?.dataset.serializedOptionValue;
+    if (encoded != null) {
+      try {
+        return JSON.parse(encoded) as string | number | boolean | Record<string, unknown> | null;
+      } catch {
+        return option?.value ?? input.value;
+      }
+    }
+  }
+  if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
+  if (control === 'boolean' || valueType === 'boolean') return input.value === 'true';
+  if (control === 'number' || valueType === 'number') return Number(input.value);
+  if (control === 'color' && input instanceof HTMLInputElement && input.type === 'color') {
+    const value = input.value.replace('#', '');
+    const numeric = Number.parseInt(value, 16);
+    if (!Number.isFinite(numeric)) return null;
+    return {
+      r: ((numeric >> 16) & 255) / 255,
+      g: ((numeric >> 8) & 255) / 255,
+      b: (numeric & 255) / 255,
+    };
+  }
+  return input.value;
+}
+
+function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, number> {
+  const wrapper = input.closest<HTMLElement>('[data-inspector-vector-control]');
+  const values: Record<string, number> = {};
+  const fields = wrapper
+    ? Array.from(wrapper.querySelectorAll<HTMLInputElement>('input[data-serialized-vector-axis]'))
+    : [input];
+  for (const field of fields) {
+    const axis = field.dataset.serializedVectorAxis;
+    if (!axis) continue;
+    const numeric = Number(field.value);
+    values[axis] = Number.isFinite(numeric) ? numeric : 0;
+  }
+  return values;
+}
+
+function createInspectorPropertyInput(
+  input: HTMLInputElement | HTMLSelectElement,
+  source: LocalEditorBrowserInspectorEditSource,
+): LocalEditorBrowserUiPropertyInput | null {
+  if (!input.dataset.serializedPath || !input.dataset.serializedTargetId) return null;
+  const targetIds = input.dataset.serializedTargetIds
+    ? input.dataset.serializedTargetIds.split(',').filter(Boolean)
+    : undefined;
+  return {
+    targetId: input.dataset.serializedTargetId,
+    targetIds,
+    path: input.dataset.serializedPath,
+    value: readInspectorInputValue(input),
+    control: input.dataset.serializedControl as LocalEditorBrowserInspectorControlKind | undefined,
+    valueType: input.dataset.serializedValueType as LocalEditorBrowserInspectorProperty['valueType'] | undefined,
+    commitMode: input.dataset.serializedCommitMode as LocalEditorBrowserInspectorCommitMode | undefined,
+    persistence: input.dataset.serializedPersistence as LocalEditorBrowserInspectorPersistenceMode | undefined,
+    source: (input.dataset.serializedEditSource as LocalEditorBrowserInspectorEditSource | undefined) ?? source,
+  };
+}
+
+function readInspectorCommitMode(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorCommitMode {
+  return (input.dataset.serializedCommitMode as LocalEditorBrowserInspectorCommitMode | undefined) ?? 'live';
+}
+
+function readInspectorImmediateSource(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorEditSource {
+  if (input instanceof HTMLSelectElement) return 'select';
+  if (input.type === 'checkbox') return 'toggle';
+  if (input.type === 'color') return 'color';
+  return 'input';
+}
+
 export function createLocalEditorBrowserUi<TDocument = unknown>(
-  options: LocalEditorBrowserUiOptions = {},
+  options: LocalEditorBrowserUiOptions<TDocument> = {},
 ): LocalEditorBrowserUi<TDocument> {
   const doc = options.document ?? document;
   const root = options.root ?? doc.body;
@@ -75,6 +187,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   let hierarchyRename: { id: string; value: string } | null = null;
   let hierarchyDrag: { id: string } | null = null;
   let hierarchyDrop: LocalEditorBrowserSceneGraphDropIntent | null = null;
+  let inspectorFilter = '';
   const workbenchLayout = createDefaultLocalEditorWorkbenchLayout();
   const panelRegistry = createLocalEditorPanelRegistry(workbenchLayout);
 
@@ -481,16 +594,36 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
 
   inspectorPanel.addEventListener('input', (event) => {
     const input = event.target instanceof HTMLInputElement ? event.target : null;
+    if (input?.dataset.editorInspectorSearch != null) {
+      inspectorFilter = input.value;
+      if (currentState) render(currentState);
+      return;
+    }
+    if (input?.type === 'checkbox' || input?.type === 'color') return;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
-    const targetIds = input.dataset.serializedTargetIds
-      ? input.dataset.serializedTargetIds.split(',').filter(Boolean)
-      : undefined;
-    callbacks.onPropertyInput?.({
-      targetId: input.dataset.serializedTargetId,
-      targetIds,
-      path: input.dataset.serializedPath,
-      value: input.type === 'number' ? Number(input.value) : input.value,
-    });
+    if (readInspectorCommitMode(input) !== 'live') return;
+    const propertyInput = createInspectorPropertyInput(input, 'input');
+    if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
+  });
+
+  inspectorPanel.addEventListener('change', (event) => {
+    const input = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement
+      ? event.target
+      : null;
+    if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
+    if (input instanceof HTMLInputElement && (input.type === 'text' || input.type === 'number')) {
+      if (readInspectorCommitMode(input) !== 'change') return;
+    }
+    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input));
+    if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
+  });
+
+  inspectorPanel.addEventListener('focusout', (event) => {
+    const input = event.target instanceof HTMLInputElement ? event.target : null;
+    if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
+    if (readInspectorCommitMode(input) !== 'blur') return;
+    const propertyInput = createInspectorPropertyInput(input, 'input');
+    if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -728,6 +861,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
         value: active.value,
       };
     }
+    if (active.dataset.editorInspectorSearch != null) {
+      return { selector: 'input[data-editor-inspector-search]', value: active.value };
+    }
     if (active.dataset.editorAssetFilter != null) {
       return { selector: 'input[data-editor-asset-filter]', value: active.value };
     }
@@ -822,7 +958,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     inspectorPanel.dataset.editorPanelId = inspectorDescriptor?.id ?? 'inspector';
     LocalEditorPanels.renderHierarchyPanel(doc, hierarchyPanel, state, hierarchyRename, hierarchyDrop);
     LocalEditorPanels.renderWorkbenchBottomDockPanel(doc, assetPanel, state, panelRegistry.getBottomDockTab(), panelRegistry.getPanels('bottom'));
-    LocalEditorPanels.renderInspectorPanel(doc, inspectorPanel, state);
+    LocalEditorPanels.renderInspectorPanel(doc, inspectorPanel, state, inspectorFilter, options.inspector);
     restoreEditableFocus(doc, focusSnapshot);
   };
 

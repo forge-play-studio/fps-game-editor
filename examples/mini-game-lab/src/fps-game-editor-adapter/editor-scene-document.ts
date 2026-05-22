@@ -1,4 +1,10 @@
-import type { SceneAssetDefaults, SceneAssetMaterialMode } from '../config';
+import type {
+  SceneAssetDefaults,
+  SceneAssetMaterialMode,
+  SceneNodeConfig,
+  SceneNodeVisualOverrides,
+  SceneTransformNode,
+} from '../config';
 import type { AuthoringSourceRef } from '@fps-games/editor-core';
 
 export interface EditorSceneVec3 {
@@ -49,8 +55,13 @@ export type EditorSceneComponent =
 export interface EditorSceneGameObject {
   id: string;
   name?: string;
+  kind?: SceneNodeConfig['kind'];
   parentId?: string;
   active?: boolean;
+  transformType?: SceneTransformNode['transformType'];
+  groundDecal?: SceneTransformNode['groundDecal'];
+  overrides?: SceneNodeVisualOverrides;
+  metadata?: Record<string, unknown>;
   components: EditorSceneComponent[];
 }
 
@@ -91,6 +102,15 @@ export function findEditorSceneModelRenderer(
   return gameObject.components.find(
     (component): component is EditorSceneModelRendererComponent => component.type === 'ModelRenderer',
   ) ?? null;
+}
+
+export function readEditorSceneNodeKind(gameObject: EditorSceneGameObject): SceneNodeConfig['kind'] {
+  if (gameObject.kind === 'group' || gameObject.kind === 'instance' || gameObject.kind === 'transform') {
+    return gameObject.kind;
+  }
+  if (findEditorSceneModelRenderer(gameObject)) return 'instance';
+  if (gameObject.transformType || gameObject.groundDecal) return 'transform';
+  return 'group';
 }
 
 export function patchEditorSceneGameObjectTransform(

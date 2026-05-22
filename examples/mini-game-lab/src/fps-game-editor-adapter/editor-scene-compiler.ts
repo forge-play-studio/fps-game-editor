@@ -6,6 +6,7 @@ import type {
 import {
   findEditorSceneModelRenderer,
   findEditorSceneTransform,
+  readEditorSceneNodeKind,
 } from './editor-scene-document';
 import type {
   SceneAssetConfig,
@@ -15,6 +16,7 @@ import type {
   SceneInstanceNode,
   SceneNodeConfig,
   SceneRuntimeSourceBinding,
+  SceneTransformNode,
 } from '../config';
 import { getEditorSceneAuthoringSourceRef } from './editor-authoring-source';
 
@@ -87,12 +89,16 @@ function compileGameObject(
 ): SceneNodeConfig {
   const transform = findEditorSceneTransform(gameObject);
   const modelRenderer = findEditorSceneModelRenderer(gameObject);
+  const nodeKind = readEditorSceneNodeKind(gameObject);
+  const visualOverrides = (nodeKind === 'instance' || nodeKind === 'transform') && gameObject.overrides
+    ? structuredClone(gameObject.overrides)
+    : undefined;
   const source: SceneRuntimeSourceBinding = {
     sourceId: sourceRef.sourceId,
     sourceType: sourceRef.sourceType,
     revision: sourceRef.revision,
     objectId: gameObject.id,
-    component: modelRenderer ? 'ModelRenderer' : 'GameObject',
+    component: modelRenderer ? 'ModelRenderer' : nodeKind === 'transform' ? 'Transform' : 'GameObject',
   };
   const base = {
     id: gameObject.id,
@@ -112,6 +118,15 @@ function compileGameObject(
   };
 
   if (!modelRenderer) {
+    if (nodeKind === 'transform') {
+      return {
+        ...base,
+        kind: 'transform',
+        ...(gameObject.transformType ? { transformType: gameObject.transformType } : {}),
+        ...(gameObject.groundDecal ? { groundDecal: structuredClone(gameObject.groundDecal) } : {}),
+        ...(visualOverrides ? { overrides: visualOverrides } : {}),
+      } satisfies SceneTransformNode;
+    }
     return {
       ...base,
       kind: 'group',
@@ -124,5 +139,6 @@ function compileGameObject(
     instance: {
       assetId: modelRenderer.assetId,
     },
+    ...(visualOverrides ? { overrides: visualOverrides } : {}),
   } satisfies SceneInstanceNode;
 }

@@ -177,4 +177,34 @@ describe('editor-lab session and hierarchy fixtures', () => {
     expect(root).toMatchObject({ selectable: false, locked: true, canHaveChildren: true });
     expect(box).toMatchObject({ selectable: true, locked: false, canHaveChildren: false });
   });
+
+  it('creates multi-select transform patches only for shared transform fields', () => {
+    const adapter = createLabDocumentAdapter();
+    const document = createLabSceneDocument();
+    const transformPatch = adapter.createSerializedMultiPropertyPatch!({
+      document,
+      targetIds: ['lab_box_01', 'lab_sphere_01'],
+      activeId: 'lab_box_01',
+      path: 'transform.position.x',
+      value: 4,
+    });
+
+    expect(transformPatch?.patch).toMatchObject({
+      kind: 'game-object.transform-batch',
+      transforms: {
+        lab_box_01: { position: { x: 4, y: 0.5, z: 0 } },
+        lab_sphere_01: { position: { x: 4, y: 0.55, z: 0.3 } },
+      },
+    });
+
+    const renamePatch = adapter.createSerializedMultiPropertyPatch!({
+      document,
+      targetIds: ['lab_box_01', 'lab_sphere_01'],
+      activeId: 'lab_box_01',
+      path: 'gameObject.name',
+      value: 'Shared Name',
+    });
+
+    expect(renamePatch).toBeNull();
+  });
 });

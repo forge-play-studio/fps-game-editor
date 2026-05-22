@@ -13,6 +13,7 @@ export * from './host-services';
 export * from './scene-view-input';
 export * from './scene-graph';
 export * from './serialized-object';
+export * from './inspector';
 export * from './transform-gizmo';
 
 export type MaybePromise<T> = T | Promise<T>;

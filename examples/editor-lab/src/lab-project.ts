@@ -1,6 +1,7 @@
 import type {
   LocalEditorHarnessDocumentAdapter,
   LocalEditorHarnessMultiPropertyInput,
+  LocalEditorHarnessPatchResult,
   LocalEditorHarnessPropertyInput,
   LocalEditorHarnessSceneGraphCreateGroupPatch,
   LocalEditorHarnessSceneGraphDeletePatch,
@@ -20,6 +21,10 @@ import {
   type CompiledArtifact,
   type DocumentCommand,
   type EditorTransformSnapshot,
+  type InspectorEnumOption,
+  type InspectorObject,
+  type InspectorProperty,
+  type InspectorSection,
   type ProjectAuthoringHost,
   type SceneGraphCreateGroupIntent,
   type SceneGraphDeleteIntent,
@@ -39,6 +44,12 @@ export interface LabVec3 {
   x: number;
   y: number;
   z: number;
+}
+
+export interface LabColor {
+  r: number;
+  g: number;
+  b: number;
 }
 
 export interface LabTransform {
@@ -62,6 +73,7 @@ export interface LabGameObject {
   kind: 'root' | 'group' | 'mesh';
   transform: LabTransform;
   assetId?: string;
+  tint?: LabColor;
 }
 
 export interface LabSceneDocument {
@@ -77,6 +89,9 @@ export type LabScenePatch =
   | { kind: 'game-object.create-group'; id: string; parentId: string | null; name: string }
   | { kind: 'game-object.delete-subtree'; ids: string[] }
   | { kind: 'game-object.reparent'; id: string; parentId: string | null }
+  | { kind: 'game-object.active'; id: string; active: boolean }
+  | { kind: 'game-object.asset'; id: string; assetId: string }
+  | { kind: 'game-object.tint'; id: string; tint: LabColor }
   | { kind: 'game-object.transform'; id: string; transform: Partial<LabTransform> }
   | { kind: 'game-object.transform-batch'; transforms: Record<string, Partial<LabTransform>> }
   | { kind: 'game-object.create-from-asset'; id: string; assetId: string; parentId: string | null; name: string; transform: LabTransform };
@@ -92,15 +107,16 @@ export interface LabProjectStore {
 const LAB_SOURCE_ID = 'lab.scene';
 const LAB_SOURCE_TYPE = 'scene';
 const LAB_ROOT_ID = 'lab_root';
+const LAB_DEFAULT_ASSETS: readonly LabAsset[] = [
+  { id: 'asset_box', label: 'Box', meta: 'primitive', kind: 'box', color: '#2f73e6' },
+  { id: 'asset_sphere', label: 'Sphere', meta: 'primitive', kind: 'sphere', color: '#33c875' },
+  { id: 'asset_marker', label: 'Marker', meta: 'primitive', kind: 'cylinder', color: '#efb338' },
+];
 
 export function createLabSceneDocument(): LabSceneDocument {
   return {
     schemaVersion: 1,
-    assets: [
-      { id: 'asset_box', label: 'Box', meta: 'primitive', kind: 'box', color: '#2f73e6' },
-      { id: 'asset_sphere', label: 'Sphere', meta: 'primitive', kind: 'sphere', color: '#33c875' },
-      { id: 'asset_marker', label: 'Marker', meta: 'primitive', kind: 'cylinder', color: '#efb338' },
-    ],
+    assets: LAB_DEFAULT_ASSETS.map(asset => ({ ...asset })),
     scene: {
       gameObjects: [
         createLabGameObject({
@@ -212,6 +228,8 @@ export function createLabDocumentAdapter(): LocalEditorHarnessDocumentAdapter<La
     reduceDocument: reduceLabSceneDocument,
     getSerializedObject: getLabSerializedObject,
     getSerializedMultiObject: getLabSerializedMultiObject,
+    getInspectorObject: getLabInspectorObject,
+    getInspectorMultiObject: getLabInspectorMultiObject,
     getHierarchyItems: getLabHierarchyItems,
     getProjectionNodes: getLabProjectionNodes,
     getProjectionNode(document, id) {
@@ -351,6 +369,28 @@ export function reduceLabSceneDocument(
   if (patch.kind === 'game-object.reparent') {
     return mapLabGameObjects(document, gameObject => (
       gameObject.id === patch.id ? { ...gameObject, parentId: patch.parentId } : gameObject
+    ));
+  }
+
+  if (patch.kind === 'game-object.active') {
+    return mapLabGameObjects(document, gameObject => (
+      gameObject.id === patch.id ? { ...gameObject, active: patch.active } : gameObject
+    ));
+  }
+
+  if (patch.kind === 'game-object.asset') {
+    return mapLabGameObjects(document, gameObject => (
+      gameObject.id === patch.id && gameObject.kind === 'mesh'
+        ? { ...gameObject, assetId: patch.assetId }
+        : gameObject
+    ));
+  }
+
+  if (patch.kind === 'game-object.tint') {
+    return mapLabGameObjects(document, gameObject => (
+      gameObject.id === patch.id && gameObject.kind === 'mesh'
+        ? { ...gameObject, tint: patch.tint }
+        : gameObject
     ));
   }
 
@@ -596,18 +636,19 @@ function createLabSceneGraphDropPatch(
 
 function createLabSerializedPropertyPatch(
   input: LocalEditorHarnessPropertyInput<LabSceneDocument>,
-): { patch: LabScenePatch; label: string; changedId: string; changedIds: string[] } | null {
+): LocalEditorHarnessPatchResult<LabScenePatch> | null {
   return createLabPropertyPatch(input.document, input.targetId, input.path, input.value);
 }
 
 function createLabSerializedMultiPropertyPatch(
   input: LocalEditorHarnessMultiPropertyInput<LabSceneDocument>,
-): { patch: LabScenePatch; label: string; changedIds: string[] } | null {
+): LocalEditorHarnessPatchResult<LabScenePatch> | null {
   const patches = input.targetIds
     .map(targetId => createLabPropertyPatch(input.document, targetId, input.path, input.value))
-    .filter((patch): patch is { patch: LabScenePatch; label: string; changedId: string; changedIds: string[] } => !!patch);
+    .filter((patch): patch is LocalEditorHarnessPatchResult<LabScenePatch> & { changedId: string } => !!patch?.changedId);
   if (patches.length === 0) return null;
   if (patches.length === 1) return patches[0]!;
+  if (!patches.every(patch => patch.patch.kind === 'game-object.transform')) return null;
   return {
     patch: {
       kind: 'game-object.transform-batch',
@@ -623,7 +664,7 @@ function createLabSerializedMultiPropertyPatch(
 
 function createLabTransformPatch(
   input: LocalEditorHarnessTransformInput<LabSceneDocument>,
-): { patch: LabScenePatch; label: string; changedId: string; changedIds: string[] } | null {
+): LocalEditorHarnessPatchResult<LabScenePatch> | null {
   return {
     patch: {
       kind: 'game-object.transform',
@@ -638,7 +679,7 @@ function createLabTransformPatch(
 
 function createLabTransformBatchPatch(
   input: LocalEditorHarnessTransformBatchInput<LabSceneDocument>,
-): { patch: LabScenePatch; label: string; changedIds: string[] } | null {
+): LocalEditorHarnessPatchResult<LabScenePatch> | null {
   const first = input.targets[0];
   if (!first) return null;
   return {
@@ -657,8 +698,8 @@ function createLabPropertyPatch(
   document: LabSceneDocument,
   targetId: string,
   path: string,
-  value: number | string | boolean,
-): { patch: LabScenePatch; label: string; changedId: string; changedIds: string[] } | null {
+  value: unknown,
+): LocalEditorHarnessPatchResult<LabScenePatch> | null {
   const gameObject = findLabGameObject(document, targetId);
   if (!gameObject || gameObject.id === LAB_ROOT_ID) return null;
   if (path === 'gameObject.name' && typeof value === 'string') {
@@ -667,6 +708,34 @@ function createLabPropertyPatch(
       label: `Rename ${targetId}`,
       changedId: targetId,
       changedIds: [targetId],
+    };
+  }
+  if (path === 'gameObject.active' && typeof value === 'boolean') {
+    return {
+      patch: { kind: 'game-object.active', id: targetId, active: value },
+      label: `Toggle ${targetId}`,
+      changedId: targetId,
+      changedIds: [targetId],
+      reprojectIds: [targetId],
+    };
+  }
+  if (path === 'renderer.assetId' && typeof value === 'string' && document.assets.some(asset => asset.id === value)) {
+    return {
+      patch: { kind: 'game-object.asset', id: targetId, assetId: value },
+      label: `Change asset ${targetId}`,
+      changedId: targetId,
+      changedIds: [targetId],
+      reprojectIds: [targetId],
+    };
+  }
+  const tint = path === 'appearance.tint' ? normalizeLabColor(value) : null;
+  if (tint) {
+    return {
+      patch: { kind: 'game-object.tint', id: targetId, tint },
+      label: `Tint ${targetId}`,
+      changedId: targetId,
+      changedIds: [targetId],
+      reprojectIds: [targetId],
     };
   }
   const match = path.match(/^transform\.(position|rotation|scale)\.(x|y|z)$/);
@@ -717,6 +786,183 @@ function getLabSerializedMultiObject(
   };
 }
 
+function getLabInspectorObject(document: LabSceneDocument, targetId: string): InspectorObject<LabSceneDocument> | null {
+  const gameObject = findLabGameObject(document, targetId);
+  if (!gameObject) return null;
+  return {
+    targetIds: [targetId],
+    activeId: targetId,
+    label: gameObject.name,
+    document,
+    selection: {
+      targetIds: [targetId],
+      activeId: targetId,
+      targetKind: gameObject.kind,
+      document,
+    },
+    sections: createLabInspectorSections(document, gameObject, false),
+  };
+}
+
+function getLabInspectorMultiObject(
+  document: LabSceneDocument,
+  targetIds: string[],
+  activeId: string | null,
+): InspectorObject<LabSceneDocument> | null {
+  const gameObjects = targetIds
+    .map(id => findLabGameObject(document, id))
+    .filter((gameObject): gameObject is LabGameObject => !!gameObject && gameObject.id !== LAB_ROOT_ID);
+  if (gameObjects.length === 0) return null;
+  const activeGameObject = activeId
+    ? gameObjects.find(gameObject => gameObject.id === activeId) ?? gameObjects[0]!
+    : gameObjects[0]!;
+  return {
+    targetIds: gameObjects.map(gameObject => gameObject.id),
+    activeId: activeGameObject.id,
+    label: `${gameObjects.length} objects`,
+    document,
+    selection: {
+      targetIds: gameObjects.map(gameObject => gameObject.id),
+      activeId: activeGameObject.id,
+      targetKind: gameObjects.every(gameObject => gameObject.kind === activeGameObject.kind) ? activeGameObject.kind : 'mixed',
+      document,
+    },
+    sections: createLabInspectorSections(document, activeGameObject, true, gameObjects),
+  };
+}
+
+function createLabInspectorSections(
+  document: LabSceneDocument,
+  gameObject: LabGameObject,
+  multi: boolean,
+  gameObjects: LabGameObject[] = [gameObject],
+): InspectorSection<LabSceneDocument>[] {
+  const readonly = gameObject.id === LAB_ROOT_ID;
+  const sections: InspectorSection<LabSceneDocument>[] = [
+    {
+      id: 'common',
+      title: 'Common',
+      order: 0,
+      placement: 'body',
+      persistence: readonly ? 'readonly' : 'document',
+      properties: [
+        createLabInspectorProperty(gameObjects, 'gameObject.name', 'Name', gameObject.name, 'string', 'string', {
+          readOnly: readonly || multi,
+          commitMode: 'blur',
+        }),
+        createLabInspectorProperty(gameObjects, 'gameObject.id', 'ID', gameObject.id, 'string', 'readonly', {
+          readOnly: true,
+          persistence: 'readonly',
+        }),
+        createLabInspectorProperty(gameObjects, 'gameObject.active', 'Active', gameObject.active, 'boolean', 'boolean', {
+          readOnly: readonly,
+          commitMode: 'immediate',
+        }),
+      ],
+    },
+    {
+      id: 'transform',
+      title: 'Transform',
+      order: 10,
+      placement: 'body',
+      persistence: readonly ? 'readonly' : 'document',
+      properties: createLabTransformInspectorProperties(gameObject, gameObjects, readonly),
+    },
+  ];
+  if (gameObjects.every(candidate => candidate.kind === 'mesh')) {
+    sections.push({
+      id: 'renderer',
+      title: 'Renderer / Asset',
+      order: 20,
+      placement: 'body',
+      persistence: 'document',
+      properties: [
+        createLabInspectorProperty(gameObjects, 'renderer.assetId', 'Asset', gameObject.assetId ?? '', 'enum', 'enum', {
+          options: document.assets.map(asset => ({ label: asset.label, value: asset.id })),
+          commitMode: 'immediate',
+          validate: value => typeof value === 'string' && document.assets.some(asset => asset.id === value)
+            ? { ok: true, value }
+            : { ok: false, message: 'Unknown asset.' },
+        }),
+      ],
+    }, {
+      id: 'appearance',
+      title: 'Appearance',
+      order: 30,
+      placement: 'body',
+      persistence: 'document',
+      properties: [
+        createLabInspectorProperty(gameObjects, 'appearance.tint', 'Tint', readLabTint(gameObject), 'color', 'color', {
+          coerce: normalizeLabColor,
+          validate: value => normalizeLabColor(value)
+            ? { ok: true, value: normalizeLabColor(value)! }
+            : { ok: false, message: 'Expected an RGB color.' },
+        }),
+      ],
+    });
+  }
+  return sections;
+}
+
+function createLabTransformInspectorProperties(
+  gameObject: LabGameObject,
+  gameObjects: LabGameObject[],
+  readOnly: boolean,
+): InspectorProperty<LabSceneDocument>[] {
+  const properties: InspectorProperty<LabSceneDocument>[] = [];
+  for (const group of ['position', 'rotation', 'scale'] as const) {
+    for (const axis of ['x', 'y', 'z'] as const) {
+      properties.push(createLabInspectorProperty(
+        gameObjects,
+        `transform.${group}.${axis}`,
+        axis.toUpperCase(),
+        gameObject.transform[group][axis],
+        'number',
+        'number',
+        {
+          readOnly,
+          order: properties.length,
+          step: group === 'rotation' ? 1 : 0.1,
+          commitMode: 'live',
+        },
+      ));
+    }
+  }
+  return properties;
+}
+
+function createLabInspectorProperty(
+  gameObjects: LabGameObject[],
+  path: string,
+  label: string,
+  value: unknown,
+  valueType: InspectorProperty<LabSceneDocument>['valueType'],
+  control: InspectorProperty<LabSceneDocument>['control'],
+  options: Partial<InspectorProperty<LabSceneDocument>> = {},
+): InspectorProperty<LabSceneDocument> {
+  const readOnly = options.readOnly === true;
+  return {
+    path,
+    label,
+    valueType,
+    control,
+    value,
+    mixed: gameObjects.length > 1 && gameObjects.some(candidate => !areLabInspectorValuesEqual(readLabProperty(candidate, path), value)),
+    readOnly,
+    persistence: options.persistence ?? (readOnly ? 'readonly' : 'document'),
+    commitMode: options.commitMode ?? (control === 'boolean' || control === 'enum' || control === 'asset' ? 'immediate' : 'blur'),
+    order: options.order,
+    min: options.min,
+    max: options.max,
+    step: options.step,
+    options: options.options as readonly InspectorEnumOption[] | undefined,
+    coerce: options.coerce,
+    validate: options.validate,
+    tooltip: options.tooltip,
+    tags: options.tags,
+  };
+}
+
 function createLabSerializedProperties(
   gameObject: LabGameObject,
   multi: boolean,
@@ -756,9 +1002,16 @@ function createLabSerializedProperties(
 function readLabProperty(gameObject: LabGameObject, path: string): unknown {
   if (path === 'gameObject.name') return gameObject.name;
   if (path === 'gameObject.id') return gameObject.id;
+  if (path === 'gameObject.active') return gameObject.active;
+  if (path === 'renderer.assetId') return gameObject.assetId ?? '';
+  if (path === 'appearance.tint') return readLabTint(gameObject);
   const match = path.match(/^transform\.(position|rotation|scale)\.(x|y|z)$/);
   if (!match) return undefined;
   return gameObject.transform[match[1] as keyof LabTransform][match[2] as keyof LabVec3];
+}
+
+function areLabInspectorValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function toLabProjectionNode(gameObject: LabGameObject): BabylonEditorProjectionNode {
@@ -776,6 +1029,9 @@ function toLabProjectionNode(gameObject: LabGameObject): BabylonEditorProjection
       ? {
           id: gameObject.assetId,
           sourceId: gameObject.assetId,
+          metadata: {
+            tint: readLabTint(gameObject),
+          },
         }
       : null,
   };
@@ -802,14 +1058,15 @@ function attachLabPrimitiveProjection(context: BabylonEditorProjectionImportCont
     },
   };
   const material = new babylon.StandardMaterial(`${context.node.id}.labMaterial`, context.scene);
-  material.diffuseColor = babylon.Color3.FromHexString(asset?.color ?? '#5e6a78');
+  const tint = normalizeLabColor(context.node.asset?.metadata?.tint) ?? hexToLabColor(asset?.color ?? '#5e6a78');
+  material.diffuseColor = new babylon.Color3(tint.r, tint.g, tint.b);
   material.specularColor = new babylon.Color3(0.08, 0.1, 0.12);
   mesh.material = material;
   return mesh;
 }
 
 function findAssetInMetadata(assetId: string): LabAsset | null {
-  return createLabSceneDocument().assets.find(asset => asset.id === assetId) ?? null;
+  return LAB_DEFAULT_ASSETS.find(asset => asset.id === assetId) ?? null;
 }
 
 function createLabGameObject(input: {
@@ -821,6 +1078,7 @@ function createLabGameObject(input: {
   position?: LabVec3;
   rotation?: LabVec3;
   scale?: LabVec3;
+  tint?: LabColor;
 }): LabGameObject {
   return {
     id: input.id,
@@ -829,8 +1087,39 @@ function createLabGameObject(input: {
     kind: input.kind,
     active: true,
     assetId: input.assetId,
+    tint: input.tint ?? (input.kind === 'mesh' ? hexToLabColor(findAssetInMetadata(input.assetId ?? '')?.color ?? '#5e6a78') : undefined),
     transform: createLabTransform(input.position, input.rotation, input.scale),
   };
+}
+
+function readLabTint(gameObject: LabGameObject): LabColor {
+  return gameObject.tint ?? hexToLabColor(findAssetInMetadata(gameObject.assetId ?? '')?.color ?? '#5e6a78');
+}
+
+function normalizeLabColor(value: unknown): LabColor | null {
+  if (!value || typeof value !== 'object') return null;
+  const color = value as { r?: unknown; g?: unknown; b?: unknown };
+  if (typeof color.r !== 'number' || typeof color.g !== 'number' || typeof color.b !== 'number') return null;
+  if (![color.r, color.g, color.b].every(channel => Number.isFinite(channel))) return null;
+  return {
+    r: clamp01(color.r),
+    g: clamp01(color.g),
+    b: clamp01(color.b),
+  };
+}
+
+function hexToLabColor(hex: string): LabColor {
+  const clean = hex.replace('#', '').trim();
+  const numeric = Number.parseInt(clean.length === 6 ? clean : '5e6a78', 16);
+  return {
+    r: ((numeric >> 16) & 255) / 255,
+    g: ((numeric >> 8) & 255) / 255,
+    b: (numeric & 255) / 255,
+  };
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function createLabTransform(
