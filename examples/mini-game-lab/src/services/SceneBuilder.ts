@@ -256,9 +256,7 @@ export class SceneBuilder {
     const nodes = configService.getSceneNodes();
     if (nodes.length === 0) return;
 
-    for (const kind of ['group', 'transform', 'instance'] as const) {
-      await this.buildSceneNodePass(nodes.filter((nodeConfig) => nodeConfig.kind === kind));
-    }
+    await this.buildSceneNodePass(nodes);
   }
 
   getSceneNodeRuntime(id: string): TransformNode | undefined {

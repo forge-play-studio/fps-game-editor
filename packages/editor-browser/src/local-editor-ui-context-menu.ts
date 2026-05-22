@@ -118,6 +118,7 @@ function renderMenu(doc: Document, menu: HTMLElement, items: LocalEditorContextM
     button.type = 'button';
     button.dataset.editorContextMenuItem = item.id;
     button.disabled = item.disabled ?? false;
+    if (item.disabledReason) button.title = item.disabledReason;
     button.setAttribute('role', 'menuitem');
     button.style.cssText = [
       'width:100%',

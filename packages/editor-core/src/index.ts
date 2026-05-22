@@ -15,6 +15,7 @@ export * from './scene-graph';
 export * from './serialized-object';
 export * from './inspector';
 export * from './transform-gizmo';
+export * from './transform-math';
 
 export type MaybePromise<T> = T | Promise<T>;
 

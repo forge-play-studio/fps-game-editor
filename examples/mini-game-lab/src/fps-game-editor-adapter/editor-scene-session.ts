@@ -11,12 +11,21 @@ import {
   type SceneGraphCreateGroupIntent,
   type SceneGraphDeleteIntent,
   type SceneGraphDropIntent,
+  type SceneGraphGroupSelectionIntent,
+  type SceneGraphMoveIntent,
   type SceneGraphRenameIntent,
+  type SceneGraphTreeItem,
   type SceneGraphValidationResult,
   type SerializedMultiObject,
   type SerializedObject,
   type SerializedPropertyDescriptor,
   type SerializedPropertyPatch,
+  composeEditorTransformChain,
+  createIdentityEditorTransform,
+  getTopLevelSceneGraphNodeIds,
+  toEditorLocalTransformFromWorld,
+  validateSceneGraphGroupSelection,
+  validateSceneGraphMove,
 } from '@fps-games/editor-core';
 import type {
   EditorSceneAsset,
@@ -86,7 +95,29 @@ export type EditorSceneDocumentPatch =
     targetId: string;
     parentId?: string;
     transform?: EditorTransformSnapshot;
+  }
+  | {
+    kind: 'game-object.hierarchy-move';
+    moves: Array<{
+      targetId: string;
+      parentId?: string;
+      transform: EditorTransformSnapshot;
+    }>;
+    order: string[];
+  }
+  | {
+    kind: 'game-object.group-selection';
+    gameObject: EditorSceneGameObject;
+    childIds: string[];
+    childTransforms: Record<string, EditorTransformSnapshot>;
+    order: string[];
   };
+
+type EditorSceneHierarchyMovePatchEntry = {
+  targetId: string;
+  parentId?: string;
+  transform: EditorTransformSnapshot;
+};
 
 export function reduceEditorSceneDocument(
   document: EditorSceneDocument,
@@ -192,11 +223,124 @@ export function reduceEditorSceneDocument(
       },
     };
   }
+  if (patch.kind === 'game-object.hierarchy-move') {
+    const moves = new Map(patch.moves.map((move) => [move.targetId, move]));
+    const gameObjects = document.scene.gameObjects.map((gameObject) => {
+      const move = moves.get(gameObject.id);
+      if (!move) return gameObject;
+      return {
+        ...gameObject,
+        parentId: move.parentId,
+        components: gameObject.components.map((component) => {
+          if (component.type !== 'Transform') return component;
+          return {
+            ...component,
+            position: move.transform.position,
+            rotation: move.transform.rotation,
+            scale: move.transform.scale,
+          };
+        }),
+      };
+    });
+    return {
+      ...document,
+      scene: {
+        ...document.scene,
+        gameObjects: orderEditorSceneGameObjects(gameObjects, patch.order),
+      },
+    };
+  }
+  if (patch.kind === 'game-object.group-selection') {
+    if (document.scene.gameObjects.some((gameObject) => gameObject.id === patch.gameObject.id)) return document;
+    const childIds = new Set(patch.childIds);
+    const updated = document.scene.gameObjects.map((gameObject) => {
+      if (!childIds.has(gameObject.id)) return gameObject;
+      const transform = patch.childTransforms[gameObject.id];
+      return {
+        ...gameObject,
+        parentId: patch.gameObject.id,
+        components: transform
+          ? gameObject.components.map((component) => {
+              if (component.type !== 'Transform') return component;
+              return {
+                ...component,
+                position: transform.position,
+                rotation: transform.rotation,
+                scale: transform.scale,
+              };
+            })
+          : gameObject.components,
+      };
+    });
+    return {
+      ...document,
+      scene: {
+        ...document.scene,
+        gameObjects: orderEditorSceneGameObjects([...updated, patch.gameObject], patch.order),
+      },
+    };
+  }
   return document;
 }
 
 export function isEditorSceneGroupLikeGameObject(gameObject: EditorSceneGameObject): boolean {
   return readEditorSceneNodeKind(gameObject) === 'group';
+}
+
+export function canEditorSceneGameObjectHaveChildren(gameObject: EditorSceneGameObject): boolean {
+  return !!findEditorSceneTransform(gameObject);
+}
+
+export function getEditorSceneHierarchyItems(document: EditorSceneDocument): SceneGraphTreeItem[] {
+  return document.scene.gameObjects.map((gameObject) => ({
+    id: gameObject.id,
+    label: gameObject.name ?? gameObject.id,
+    parentId: gameObject.parentId ?? null,
+    depth: getEditorSceneGameObjectDepth(document, gameObject),
+    role: gameObject.id === 'mvp_root' ? 'root' : isEditorSceneGroupLikeGameObject(gameObject) ? 'group' : 'object',
+    selectable: gameObject.id !== 'mvp_root',
+    protected: gameObject.id === 'mvp_root',
+    canHaveChildren: canEditorSceneGameObjectHaveChildren(gameObject),
+    renamable: gameObject.id !== 'mvp_root',
+    deletable: gameObject.id !== 'mvp_root',
+    draggable: gameObject.id !== 'mvp_root',
+  }));
+}
+
+export function normalizeEditorSceneHierarchyDocument(document: EditorSceneDocument): EditorSceneDocument {
+  const rootId = resolveEditorSceneRootContainerId(document);
+  if (!rootId) return document;
+  let changed = false;
+  const gameObjects = document.scene.gameObjects.map((gameObject) => {
+    if (gameObject.id === rootId || gameObject.parentId) return gameObject;
+    const world = getEditorSceneGameObjectWorldTransform(document, gameObject.id);
+    const local = world ? toLocalTransformForParent(document, rootId, world) : null;
+    changed = true;
+    return {
+      ...gameObject,
+      parentId: rootId,
+      components: local
+        ? gameObject.components.map((component) => {
+            if (component.type !== 'Transform') return component;
+            return {
+              ...component,
+              position: local.position,
+              rotation: local.rotation,
+              scale: local.scale,
+            };
+          })
+        : gameObject.components,
+    };
+  });
+  return changed
+    ? {
+        ...document,
+        scene: {
+          ...document.scene,
+          gameObjects,
+        },
+      }
+    : document;
 }
 
 export function createEditorSceneRenamePatch(
@@ -222,9 +366,8 @@ export function createEditorSceneCreateGroupPatch(
   document: EditorSceneDocument,
   intent: SceneGraphCreateGroupIntent,
 ): { patch: EditorSceneDocumentPatch; label: string; createdId: string } | null {
-  const parentId = resolveCreateGroupParentId(document, intent.activeId ?? intent.parentId ?? null);
-  const parent = parentId ? findEditorSceneGameObject(document, parentId) : null;
-  if (parentId && (!parent || !isEditorSceneGroupLikeGameObject(parent))) return null;
+  const parentId = resolveCreateGroupParentId(document, intent);
+  if (parentId === null) return null;
   const id = createUniqueEditorSceneId(document.scene.gameObjects.map((gameObject) => gameObject.id), 'group');
   const name = intent.name?.trim() || 'Group';
   const gameObject: EditorSceneGameObject = {
@@ -283,13 +426,13 @@ export function validateEditorSceneReparent(
   if (!dragged) return { ok: false, reason: `GameObject not found: ${intent.draggedId}` };
   if (!target) return { ok: false, reason: `Parent GameObject not found: ${intent.targetId}` };
   if (!findEditorSceneTransform(dragged)) return { ok: false, reason: `${intent.draggedId} has no Transform to preserve.` };
-  if (!isEditorSceneGroupLikeGameObject(target)) return { ok: false, reason: `${intent.targetId} cannot have children.` };
+  if (!canEditorSceneGameObjectHaveChildren(target)) return { ok: false, reason: `${intent.targetId} cannot have children.` };
   if (dragged.id === target.id) return { ok: false, reason: 'GameObject cannot be parented to itself.' };
   if (isEditorSceneAncestor(document, dragged.id, target.id)) {
     return { ok: false, reason: 'GameObject cannot be parented to its descendant.' };
   }
-  if (intent.preserveWorldTransform !== false && !canPreserveWorldTransformWithSimpleMath(document, dragged.parentId, target.id)) {
-    return { ok: false, reason: 'Cannot preserve world transform under rotated or scaled parents yet.' };
+  if (intent.preserveWorldTransform !== false && !computeLocalTransformForParent(document, dragged.id, target.id)) {
+    return { ok: false, reason: 'Cannot preserve world transform under the target parent.' };
   }
   return { ok: true };
 }
@@ -320,6 +463,173 @@ export function createEditorSceneReparentPatch(
   };
 }
 
+export function validateEditorSceneHierarchyMove(
+  document: EditorSceneDocument,
+  intent: SceneGraphMoveIntent,
+): SceneGraphValidationResult {
+  const hierarchy = getEditorSceneHierarchyItems(document);
+  const validation = validateSceneGraphMove(hierarchy, intent);
+  if (!validation.ok) return validation;
+  const ids = getTopLevelSceneGraphNodeIds(hierarchy, intent.ids);
+  const parentId = resolveEditorSceneMoveParentId(document, intent);
+  if (parentId && !isEditorSceneContainer(document, parentId)) {
+    return { ok: false, reason: `${parentId} cannot have children.` };
+  }
+  if (intent.preserveWorldTransform !== false) {
+    for (const id of ids) {
+      const gameObject = findEditorSceneGameObject(document, id);
+      if (!gameObject) return { ok: false, reason: `GameObject not found: ${id}` };
+      if (!findEditorSceneTransform(gameObject)) return { ok: false, reason: `${id} has no Transform to preserve.` };
+      if (!computeLocalTransformForParent(document, id, parentId)) {
+        return { ok: false, reason: 'Cannot preserve world transform under the target parent.' };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+export function createEditorSceneHierarchyMovePatch(
+  document: EditorSceneDocument,
+  intent: SceneGraphMoveIntent,
+): { patch: EditorSceneDocumentPatch; label: string; changedIds: string[] } | null {
+  const validation = validateEditorSceneHierarchyMove(document, intent);
+  if (!validation.ok) return null;
+  const hierarchy = getEditorSceneHierarchyItems(document);
+  const ids = getTopLevelSceneGraphNodeIds(hierarchy, intent.ids);
+  const parentId = resolveEditorSceneMoveParentId(document, intent);
+  const moves = ids
+    .map<EditorSceneHierarchyMovePatchEntry | null>((id) => {
+      const gameObject = findEditorSceneGameObject(document, id);
+      if (!gameObject || !findEditorSceneTransform(gameObject)) return null;
+      const transform = intent.preserveWorldTransform === false
+        ? readGameObjectLocalTransform(gameObject)
+        : computeLocalTransformForParent(document, id, parentId);
+      if (!transform) return null;
+      return parentId
+        ? { targetId: id, parentId, transform }
+        : { targetId: id, transform };
+    })
+    .filter((move): move is EditorSceneHierarchyMovePatchEntry => !!move);
+  if (moves.length !== ids.length) return null;
+  const order = createEditorSceneMoveOrder(document, ids, intent);
+  const currentOrder = document.scene.gameObjects.map((gameObject) => gameObject.id);
+  const moved = moves.some((move) => {
+    const gameObject = findEditorSceneGameObject(document, move.targetId);
+    return !gameObject
+      || gameObject.parentId !== move.parentId
+      || !transformsEqual(readGameObjectLocalTransform(gameObject), move.transform);
+  });
+  if (!moved && arraysEqual(currentOrder, order)) return null;
+  return {
+    label: `Move ${ids.length} GameObject${ids.length === 1 ? '' : 's'}`,
+    patch: {
+      kind: 'game-object.hierarchy-move',
+      moves,
+      order,
+    },
+    changedIds: ids,
+  };
+}
+
+export function validateEditorSceneGroupSelection(
+  document: EditorSceneDocument,
+  intent: SceneGraphGroupSelectionIntent,
+): SceneGraphValidationResult {
+  const hierarchy = getEditorSceneHierarchyItems(document);
+  const validation = validateSceneGraphGroupSelection(hierarchy, intent);
+  if (!validation.ok) return validation;
+  const ids = getTopLevelSceneGraphNodeIds(hierarchy, intent.ids);
+  const parentId = resolveEditorSceneGroupSelectionParentId(document, intent.parentId ?? null);
+  if (parentId && !isEditorSceneContainer(document, parentId)) {
+    return { ok: false, reason: `${parentId} cannot have children.` };
+  }
+  if (intent.preserveWorldTransform !== false) {
+    const center = computeEditorSceneSelectionWorldCenter(document, ids);
+    const groupWorld = center
+      ? {
+          position: center,
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+        }
+      : null;
+    if (!groupWorld || !toLocalTransformForParent(document, parentId, groupWorld)) {
+      return { ok: false, reason: 'Cannot preserve world transform under the target parent.' };
+    }
+    for (const id of ids) {
+      const gameObject = findEditorSceneGameObject(document, id);
+      if (!gameObject) return { ok: false, reason: `GameObject not found: ${id}` };
+      if (!findEditorSceneTransform(gameObject)) return { ok: false, reason: `${id} has no Transform to preserve.` };
+      if (!getEditorSceneGameObjectWorldTransform(document, id)) {
+        return { ok: false, reason: 'Cannot preserve world transform under the target parent.' };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+export function createEditorSceneGroupSelectionPatch(
+  document: EditorSceneDocument,
+  intent: SceneGraphGroupSelectionIntent,
+): { patch: EditorSceneDocumentPatch; label: string; createdId: string; changedIds: string[] } | null {
+  const validation = validateEditorSceneGroupSelection(document, intent);
+  if (!validation.ok) return null;
+  const hierarchy = getEditorSceneHierarchyItems(document);
+  const ids = getTopLevelSceneGraphNodeIds(hierarchy, intent.ids);
+  if (ids.length === 0) return null;
+  const parentId = resolveEditorSceneGroupSelectionParentId(document, intent.parentId ?? null);
+  const center = computeEditorSceneSelectionWorldCenter(document, ids);
+  if (!center) return null;
+  const groupWorld = {
+    position: center,
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+  };
+  const groupLocal = toLocalTransformForParent(document, parentId, groupWorld);
+  if (!groupLocal) return null;
+  const id = createUniqueEditorSceneId(document.scene.gameObjects.map((gameObject) => gameObject.id), 'group');
+  const gameObject: EditorSceneGameObject = {
+    id,
+    name: intent.name?.trim() || 'Group',
+    ...(parentId ? { parentId } : {}),
+    active: true,
+    components: [
+      {
+        type: 'Transform',
+        position: groupLocal.position,
+        rotation: groupLocal.rotation,
+        scale: groupLocal.scale,
+      },
+    ],
+  };
+  const childTransforms: Record<string, EditorTransformSnapshot> = {};
+  for (const childId of ids) {
+    const child = findEditorSceneGameObject(document, childId);
+    if (!child) return null;
+    if (intent.preserveWorldTransform === false) {
+      childTransforms[childId] = readGameObjectLocalTransform(child);
+      continue;
+    }
+    const childWorld = getEditorSceneGameObjectWorldTransform(document, childId);
+    if (!childWorld) return null;
+    const childLocal = toLocalTransformFromParentWorld(groupWorld, childWorld);
+    if (!childLocal) return null;
+    childTransforms[childId] = childLocal;
+  }
+  const order = createEditorSceneGroupSelectionOrder(document, id, ids, intent.insertBeforeId ?? null);
+  return {
+    label: `Group ${ids.length} GameObject${ids.length === 1 ? '' : 's'}`,
+    patch: {
+      kind: 'game-object.group-selection',
+      gameObject,
+      childIds: ids,
+      childTransforms,
+      order,
+    },
+    createdId: id,
+    changedIds: [id, ...ids],
+  };
+}
+
 export function getEditorSceneGameObjectWorldTransform(
   document: EditorSceneDocument,
   gameObjectId: string,
@@ -335,10 +645,7 @@ export function getEditorSceneGameObjectWorldTransform(
     chain.unshift(cursor);
     cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
   }
-  return chain.reduce(
-    (world, entry) => combineTransforms(world, readGameObjectLocalTransform(entry)),
-    identityTransform(),
-  );
+  return composeEditorTransformChain(chain.map(entry => readGameObjectLocalTransform(entry)));
 }
 
 export function toEditorSceneLocalTransformFromWorld(
@@ -348,7 +655,6 @@ export function toEditorSceneLocalTransformFromWorld(
 ): EditorTransformSnapshot | null {
   const gameObject = findEditorSceneGameObject(document, gameObjectId);
   if (!gameObject || !findEditorSceneTransform(gameObject)) return null;
-  if (!isSimpleParentChain(document, gameObject.parentId)) return null;
   return toLocalTransformForParent(document, gameObject.parentId, worldTransform);
 }
 
@@ -547,12 +853,43 @@ function findEditorSceneGameObject(
   return document.scene.gameObjects.find((gameObject) => gameObject.id === gameObjectId) ?? null;
 }
 
-function resolveCreateGroupParentId(document: EditorSceneDocument, activeId: string | null): string | undefined {
-  const active = activeId ? findEditorSceneGameObject(document, activeId) : null;
-  if (active && isEditorSceneGroupLikeGameObject(active)) return active.id;
-  if (active?.parentId && findEditorSceneGameObject(document, active.parentId)) return active.parentId;
-  return document.scene.gameObjects.find((gameObject) => gameObject.id === 'mvp_root' && isEditorSceneGroupLikeGameObject(gameObject))?.id
-    ?? document.scene.gameObjects.find((gameObject) => !gameObject.parentId && isEditorSceneGroupLikeGameObject(gameObject))?.id;
+function resolveCreateGroupParentId(
+  document: EditorSceneDocument,
+  intent: SceneGraphCreateGroupIntent,
+): string | null | undefined {
+  if (intent.parentId) {
+    const parent = findEditorSceneGameObject(document, intent.parentId);
+    return parent && canEditorSceneGameObjectHaveChildren(parent) ? parent.id : null;
+  }
+  const active = intent.activeId ? findEditorSceneGameObject(document, intent.activeId) : null;
+  if (active && canEditorSceneGameObjectHaveChildren(active)) return active.id;
+  if (active?.parentId) {
+    const activeParent = findEditorSceneGameObject(document, active.parentId);
+    if (activeParent && canEditorSceneGameObjectHaveChildren(activeParent)) return activeParent.id;
+  }
+  return document.scene.gameObjects.find((gameObject) => gameObject.id === 'mvp_root' && canEditorSceneGameObjectHaveChildren(gameObject))?.id
+    ?? document.scene.gameObjects.find((gameObject) => !gameObject.parentId && canEditorSceneGameObjectHaveChildren(gameObject))?.id;
+}
+
+function resolveEditorSceneRootContainerId(document: EditorSceneDocument): string | undefined {
+  return document.scene.gameObjects.find((gameObject) => gameObject.id === 'mvp_root' && canEditorSceneGameObjectHaveChildren(gameObject))?.id
+    ?? document.scene.gameObjects.find((gameObject) => !gameObject.parentId && canEditorSceneGameObjectHaveChildren(gameObject))?.id;
+}
+
+function resolveEditorSceneMoveParentId(document: EditorSceneDocument, intent: SceneGraphMoveIntent): string | undefined {
+  if (intent.placement === 'root') return resolveEditorSceneRootContainerId(document);
+  if (intent.placement === 'inside' && intent.targetId) return intent.targetId;
+  const target = intent.targetId ? findEditorSceneGameObject(document, intent.targetId) : null;
+  return intent.parentId ?? target?.parentId ?? resolveEditorSceneRootContainerId(document);
+}
+
+function resolveEditorSceneGroupSelectionParentId(document: EditorSceneDocument, parentId: string | null): string | undefined {
+  return parentId && isEditorSceneContainer(document, parentId) ? parentId : resolveEditorSceneRootContainerId(document);
+}
+
+function isEditorSceneContainer(document: EditorSceneDocument, gameObjectId: string): boolean {
+  const gameObject = findEditorSceneGameObject(document, gameObjectId);
+  return !!gameObject && canEditorSceneGameObjectHaveChildren(gameObject);
 }
 
 function collectEditorSceneSubtreeIds(document: EditorSceneDocument, rootIds: string[]): Set<string> {
@@ -568,6 +905,128 @@ function collectEditorSceneSubtreeIds(document: EditorSceneDocument, rootIds: st
     }
   }
   return ids;
+}
+
+function createEditorSceneMoveOrder(
+  document: EditorSceneDocument,
+  ids: readonly string[],
+  intent: SceneGraphMoveIntent,
+): string[] {
+  const blockIds = collectOrderedEditorSceneSubtreeBlockIds(document, ids);
+  const blockSet = new Set(blockIds);
+  const remaining = document.scene.gameObjects
+    .map((gameObject) => gameObject.id)
+    .filter((id) => !blockSet.has(id));
+  const index = resolveEditorSceneInsertIndex(document, remaining, {
+    placement: intent.placement,
+    targetId: intent.targetId ?? null,
+    beforeId: intent.beforeId ?? null,
+    afterId: intent.afterId ?? null,
+    parentId: resolveEditorSceneMoveParentId(document, intent),
+  });
+  return insertEditorSceneIdsAt(remaining, blockIds, index);
+}
+
+function createEditorSceneGroupSelectionOrder(
+  document: EditorSceneDocument,
+  groupId: string,
+  ids: readonly string[],
+  insertBeforeId: string | null,
+): string[] {
+  const blockIds = collectOrderedEditorSceneSubtreeBlockIds(document, ids);
+  const blockSet = new Set(blockIds);
+  const currentOrder = document.scene.gameObjects.map((gameObject) => gameObject.id);
+  const remaining = currentOrder.filter((id) => !blockSet.has(id));
+  const firstSelectedIndex = Math.min(...ids.map((id) => currentOrder.indexOf(id)).filter((index) => index >= 0));
+  const fallbackIndex = Number.isFinite(firstSelectedIndex)
+    ? remaining.filter((id) => currentOrder.indexOf(id) < firstSelectedIndex).length
+    : remaining.length;
+  const index = insertBeforeId
+    ? Math.max(0, remaining.indexOf(insertBeforeId))
+    : fallbackIndex;
+  return insertEditorSceneIdsAt(remaining, [groupId, ...blockIds], index);
+}
+
+function collectOrderedEditorSceneSubtreeBlockIds(document: EditorSceneDocument, rootIds: readonly string[]): string[] {
+  const subtreeIds = collectEditorSceneSubtreeIds(document, [...rootIds]);
+  return document.scene.gameObjects
+    .map((gameObject) => gameObject.id)
+    .filter((id) => subtreeIds.has(id));
+}
+
+function resolveEditorSceneInsertIndex(
+  document: EditorSceneDocument,
+  remaining: readonly string[],
+  input: {
+    placement: SceneGraphMoveIntent['placement'];
+    targetId: string | null;
+    beforeId: string | null;
+    afterId: string | null;
+    parentId?: string;
+  },
+): number {
+  if (input.beforeId) return boundedInsertIndex(remaining.indexOf(input.beforeId), remaining.length);
+  if (input.afterId) return indexAfterEditorSceneSubtree(document, remaining, input.afterId);
+  if (input.placement === 'before' && input.targetId) return boundedInsertIndex(remaining.indexOf(input.targetId), remaining.length);
+  if (input.placement === 'after' && input.targetId) return indexAfterEditorSceneSubtree(document, remaining, input.targetId);
+  if (input.placement === 'inside' && input.targetId) return indexAfterEditorSceneSubtree(document, remaining, input.targetId);
+  if (input.placement === 'root') return remaining.length;
+  if (input.parentId) return indexAfterEditorSceneSubtree(document, remaining, input.parentId);
+  return remaining.length;
+}
+
+function indexAfterEditorSceneSubtree(document: EditorSceneDocument, remaining: readonly string[], anchorId: string): number {
+  const subtreeIds = collectEditorSceneSubtreeIds(document, [anchorId]);
+  let index = remaining.indexOf(anchorId);
+  if (index < 0) return remaining.length;
+  for (let cursor = index + 1; cursor < remaining.length; cursor += 1) {
+    if (!subtreeIds.has(remaining[cursor]!)) break;
+    index = cursor;
+  }
+  return index + 1;
+}
+
+function insertEditorSceneIdsAt(base: readonly string[], ids: readonly string[], index: number): string[] {
+  const safeIndex = Math.max(0, Math.min(index, base.length));
+  return [
+    ...base.slice(0, safeIndex),
+    ...ids,
+    ...base.slice(safeIndex),
+  ];
+}
+
+function orderEditorSceneGameObjects(
+  gameObjects: EditorSceneGameObject[],
+  order: readonly string[],
+): EditorSceneGameObject[] {
+  const byId = new Map(gameObjects.map((gameObject) => [gameObject.id, gameObject]));
+  const ordered = order
+    .map((id) => byId.get(id))
+    .filter((gameObject): gameObject is EditorSceneGameObject => !!gameObject);
+  const orderedIds = new Set(ordered.map((gameObject) => gameObject.id));
+  return [
+    ...ordered,
+    ...gameObjects.filter((gameObject) => !orderedIds.has(gameObject.id)),
+  ];
+}
+
+function boundedInsertIndex(index: number, fallback: number): number {
+  return index >= 0 ? index : fallback;
+}
+
+function computeEditorSceneSelectionWorldCenter(
+  document: EditorSceneDocument,
+  ids: readonly string[],
+): EditorSceneVec3 | null {
+  const worlds = ids
+    .map((id) => getEditorSceneGameObjectWorldTransform(document, id))
+    .filter((transform): transform is EditorTransformSnapshot => !!transform);
+  if (worlds.length === 0) return null;
+  return {
+    x: worlds.reduce((sum, transform) => sum + transform.position.x, 0) / worlds.length,
+    y: worlds.reduce((sum, transform) => sum + transform.position.y, 0) / worlds.length,
+    z: worlds.reduce((sum, transform) => sum + transform.position.z, 0) / worlds.length,
+  };
 }
 
 function resolveDeleteFallbackSelectionId(
@@ -600,28 +1059,6 @@ function createGameObjectMap(document: EditorSceneDocument): Map<string, EditorS
   return new Map(document.scene.gameObjects.map((gameObject) => [gameObject.id, gameObject]));
 }
 
-function canPreserveWorldTransformWithSimpleMath(
-  document: EditorSceneDocument,
-  oldParentId: string | undefined,
-  newParentId: string | undefined,
-): boolean {
-  return isSimpleParentChain(document, oldParentId) && isSimpleParentChain(document, newParentId);
-}
-
-function isSimpleParentChain(document: EditorSceneDocument, parentId: string | undefined): boolean {
-  if (!parentId) return true;
-  const byId = createGameObjectMap(document);
-  const seen = new Set<string>();
-  let cursor = byId.get(parentId);
-  while (cursor && !seen.has(cursor.id)) {
-    seen.add(cursor.id);
-    const transform = readGameObjectLocalTransform(cursor);
-    if (!isZeroVec3(transform.rotation) || !isOneVec3(transform.scale)) return false;
-    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
-  }
-  return true;
-}
-
 function computeLocalTransformForParent(
   document: EditorSceneDocument,
   gameObjectId: string,
@@ -637,27 +1074,28 @@ function toLocalTransformForParent(
   parentId: string | undefined,
   world: EditorTransformSnapshot,
 ): EditorTransformSnapshot | null {
-  const parentWorld = parentId ? getEditorSceneGameObjectWorldTransform(document, parentId) : identityTransform();
-  if (!parentWorld || Math.abs(parentWorld.scale.x) < 0.000001 || Math.abs(parentWorld.scale.y) < 0.000001 || Math.abs(parentWorld.scale.z) < 0.000001) {
-    return null;
+  const parentWorld = parentId ? getEditorSceneGameObjectWorldTransform(document, parentId) : createIdentityEditorTransform();
+  return parentWorld ? toLocalTransformFromParentWorld(parentWorld, world) : null;
+}
+
+function toLocalTransformFromParentWorld(
+  parentWorld: EditorTransformSnapshot,
+  world: EditorTransformSnapshot,
+): EditorTransformSnapshot | null {
+  return toEditorLocalTransformFromWorld(parentWorld, world);
+}
+
+function getEditorSceneGameObjectDepth(document: EditorSceneDocument, gameObject: EditorSceneGameObject): number {
+  const byId = createGameObjectMap(document);
+  const seen = new Set<string>();
+  let depth = 0;
+  let cursor = gameObject.parentId ? byId.get(gameObject.parentId) : undefined;
+  while (cursor && !seen.has(cursor.id) && depth < 32) {
+    seen.add(cursor.id);
+    depth += 1;
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
   }
-  return {
-    position: {
-      x: world.position.x - parentWorld.position.x,
-      y: world.position.y - parentWorld.position.y,
-      z: world.position.z - parentWorld.position.z,
-    },
-    rotation: {
-      x: world.rotation.x - parentWorld.rotation.x,
-      y: world.rotation.y - parentWorld.rotation.y,
-      z: world.rotation.z - parentWorld.rotation.z,
-    },
-    scale: {
-      x: world.scale.x / parentWorld.scale.x,
-      y: world.scale.y / parentWorld.scale.y,
-      z: world.scale.z / parentWorld.scale.z,
-    },
-  };
+  return depth;
 }
 
 function readGameObjectLocalTransform(gameObject: EditorSceneGameObject): EditorTransformSnapshot {
@@ -671,31 +1109,7 @@ function readGameObjectLocalTransform(gameObject: EditorSceneGameObject): Editor
 }
 
 function identityTransform(): EditorTransformSnapshot {
-  return {
-    position: { x: 0, y: 0, z: 0 },
-    rotation: { x: 0, y: 0, z: 0 },
-    scale: { x: 1, y: 1, z: 1 },
-  };
-}
-
-function combineTransforms(parent: EditorTransformSnapshot, local: EditorTransformSnapshot): EditorTransformSnapshot {
-  return {
-    position: {
-      x: parent.position.x + local.position.x,
-      y: parent.position.y + local.position.y,
-      z: parent.position.z + local.position.z,
-    },
-    rotation: {
-      x: parent.rotation.x + local.rotation.x,
-      y: parent.rotation.y + local.rotation.y,
-      z: parent.rotation.z + local.rotation.z,
-    },
-    scale: {
-      x: parent.scale.x * local.scale.x,
-      y: parent.scale.y * local.scale.y,
-      z: parent.scale.z * local.scale.z,
-    },
-  };
+  return createIdentityEditorTransform();
 }
 
 function transformsEqual(left: EditorTransformSnapshot, right: EditorTransformSnapshot): boolean {
@@ -704,22 +1118,14 @@ function transformsEqual(left: EditorTransformSnapshot, right: EditorTransformSn
     && vectorsEqual(left.scale, right.scale);
 }
 
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function vectorsEqual(left: EditorSceneVec3, right: EditorSceneVec3): boolean {
   return Math.abs(left.x - right.x) < 0.000001
     && Math.abs(left.y - right.y) < 0.000001
     && Math.abs(left.z - right.z) < 0.000001;
-}
-
-function isZeroVec3(value: EditorSceneVec3): boolean {
-  return Math.abs(value.x) < 0.000001
-    && Math.abs(value.y) < 0.000001
-    && Math.abs(value.z) < 0.000001;
-}
-
-function isOneVec3(value: EditorSceneVec3): boolean {
-  return Math.abs(value.x - 1) < 0.000001
-    && Math.abs(value.y - 1) < 0.000001
-    && Math.abs(value.z - 1) < 0.000001;
 }
 
 function isVec3(value: unknown): value is EditorSceneVec3 {
@@ -1539,16 +1945,26 @@ function createGameObjectForAsset(
 ): EditorSceneGameObject {
   const usedIds = document.scene.gameObjects.map((gameObject) => gameObject.id);
   const id = createUniqueEditorSceneId(usedIds, sanitizeEditorSceneId(assetItem.sourceId));
+  const parentId = resolveEditorSceneRootContainerId(document);
+  const worldTransform: EditorTransformSnapshot = {
+    position: getNextPlacementPosition(document),
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+  };
+  const localTransform = parentId
+    ? toLocalTransformForParent(document, parentId, worldTransform) ?? worldTransform
+    : worldTransform;
   return {
     id,
     name: assetItem.displayName,
+    ...(parentId ? { parentId } : {}),
     active: true,
     components: [
       {
         type: 'Transform',
-        position: getNextPlacementPosition(document),
-        rotation: { x: 0, y: 0, z: 0 },
-        scale: { x: 1, y: 1, z: 1 },
+        position: localTransform.position,
+        rotation: localTransform.rotation,
+        scale: localTransform.scale,
       },
       {
         type: 'ModelRenderer',

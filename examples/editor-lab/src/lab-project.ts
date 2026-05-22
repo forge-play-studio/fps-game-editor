@@ -6,6 +6,8 @@ import type {
   LocalEditorHarnessSceneGraphCreateGroupPatch,
   LocalEditorHarnessSceneGraphDeletePatch,
   LocalEditorHarnessSceneGraphDropPatch,
+  LocalEditorHarnessSceneGraphGroupSelectionPatch,
+  LocalEditorHarnessSceneGraphMovePatch,
   LocalEditorHarnessSceneGraphRenamePatch,
   LocalEditorHarnessTransformBatchInput,
   LocalEditorHarnessTransformInput,
@@ -29,10 +31,19 @@ import {
   type SceneGraphCreateGroupIntent,
   type SceneGraphDeleteIntent,
   type SceneGraphDropIntent,
+  type SceneGraphGroupSelectionIntent,
+  type SceneGraphMoveIntent,
+  type SceneGraphTreeItem,
   type SceneGraphValidationResult,
   type SerializedMultiObject,
   type SerializedObject,
+  composeEditorTransformChain,
+  createIdentityEditorTransform,
+  getTopLevelSceneGraphNodeIds,
+  toEditorLocalTransformFromWorld,
   validateSceneGraphDrop,
+  validateSceneGraphGroupSelection,
+  validateSceneGraphMove,
 } from '@fps-games/editor-core';
 import type {
   BabylonEditorProjectionImportContext,
@@ -88,10 +99,22 @@ export type LabScenePatch =
   | { kind: 'game-object.rename'; id: string; name: string }
   | { kind: 'game-object.create-group'; id: string; parentId: string | null; name: string }
   | { kind: 'game-object.delete-subtree'; ids: string[] }
-  | { kind: 'game-object.reparent'; id: string; parentId: string | null }
+  | { kind: 'game-object.reparent'; id: string; parentId: string | null; transform?: LabTransform }
   | { kind: 'game-object.active'; id: string; active: boolean }
   | { kind: 'game-object.asset'; id: string; assetId: string }
   | { kind: 'game-object.tint'; id: string; tint: LabColor }
+  | {
+    kind: 'game-object.hierarchy-move';
+    moves: Array<{ id: string; parentId: string | null; transform: LabTransform }>;
+    order: string[];
+  }
+  | {
+    kind: 'game-object.group-selection';
+    gameObject: LabGameObject;
+    childIds: string[];
+    childTransforms: Record<string, LabTransform>;
+    order: string[];
+  }
   | { kind: 'game-object.transform'; id: string; transform: Partial<LabTransform> }
   | { kind: 'game-object.transform-batch'; transforms: Record<string, Partial<LabTransform>> }
   | { kind: 'game-object.create-from-asset'; id: string; assetId: string; parentId: string | null; name: string; transform: LabTransform };
@@ -260,13 +283,15 @@ export function createLabDocumentAdapter(): LocalEditorHarnessDocumentAdapter<La
     createSerializedMultiPropertyPatch: createLabSerializedMultiPropertyPatch,
     createTransformPatch: createLabTransformPatch,
     createTransformBatchPatch: createLabTransformBatchPatch,
-    validateSceneGraphDrop(document, intent) {
-      return validateSceneGraphDrop(getLabHierarchyItems(document), intent);
-    },
+    validateSceneGraphDrop: validateLabSceneGraphDrop,
+    validateSceneGraphMove: validateLabSceneGraphMove,
+    validateSceneGraphGroupSelection: validateLabSceneGraphGroupSelection,
     createSceneGraphRenamePatch: createLabSceneGraphRenamePatch,
     createSceneGraphCreateGroupPatch: createLabSceneGraphCreateGroupPatch,
     createSceneGraphDeletePatch: createLabSceneGraphDeletePatch,
     createSceneGraphDropPatch: createLabSceneGraphDropPatch,
+    createSceneGraphMovePatch: createLabSceneGraphMovePatch,
+    createSceneGraphGroupSelectionPatch: createLabSceneGraphGroupSelectionPatch,
     summarize: summarizeLabScene,
   };
 }
@@ -368,7 +393,13 @@ export function reduceLabSceneDocument(
 
   if (patch.kind === 'game-object.reparent') {
     return mapLabGameObjects(document, gameObject => (
-      gameObject.id === patch.id ? { ...gameObject, parentId: patch.parentId } : gameObject
+      gameObject.id === patch.id
+        ? {
+            ...gameObject,
+            parentId: patch.parentId,
+            transform: patch.transform ? cloneLabTransform(patch.transform) : gameObject.transform,
+          }
+        : gameObject
     ));
   }
 
@@ -392,6 +423,46 @@ export function reduceLabSceneDocument(
         ? { ...gameObject, tint: patch.tint }
         : gameObject
     ));
+  }
+
+  if (patch.kind === 'game-object.hierarchy-move') {
+    const moves = new Map(patch.moves.map(move => [move.id, move]));
+    const updated = document.scene.gameObjects.map((gameObject) => {
+      const move = moves.get(gameObject.id);
+      return move
+        ? {
+            ...gameObject,
+            parentId: move.parentId,
+            transform: cloneLabTransform(move.transform),
+          }
+        : gameObject;
+    });
+    return {
+      ...document,
+      scene: {
+        gameObjects: orderLabGameObjects(updated, patch.order),
+      },
+    };
+  }
+
+  if (patch.kind === 'game-object.group-selection') {
+    if (findLabGameObject(document, patch.gameObject.id)) return document;
+    const childIds = new Set(patch.childIds);
+    const updated = document.scene.gameObjects.map((gameObject) => (
+      childIds.has(gameObject.id)
+        ? {
+            ...gameObject,
+            parentId: patch.gameObject.id,
+            transform: cloneLabTransform(patch.childTransforms[gameObject.id] ?? gameObject.transform),
+          }
+        : gameObject
+    ));
+    return {
+      ...document,
+      scene: {
+        gameObjects: orderLabGameObjects([...updated, patch.gameObject], patch.order),
+      },
+    };
   }
 
   if (patch.kind === 'game-object.transform') {
@@ -449,15 +520,17 @@ export function reduceLabSceneDocument(
   return document;
 }
 
-export function getLabHierarchyItems(document: LabSceneDocument) {
+export function getLabHierarchyItems(document: LabSceneDocument): SceneGraphTreeItem[] {
   return document.scene.gameObjects.map(gameObject => ({
     id: gameObject.id,
     label: gameObject.name,
     parentId: gameObject.parentId,
     depth: getLabGameObjectDepth(document, gameObject),
+    role: gameObject.id === LAB_ROOT_ID ? 'root' : gameObject.kind === 'group' ? 'group' : 'object',
     selectable: gameObject.id !== LAB_ROOT_ID,
     locked: gameObject.id === LAB_ROOT_ID,
-    canHaveChildren: gameObject.kind === 'root' || gameObject.kind === 'group',
+    protected: gameObject.id === LAB_ROOT_ID,
+    canHaveChildren: canLabGameObjectHaveChildren(document, gameObject.id),
     renamable: gameObject.id !== LAB_ROOT_ID,
     deletable: gameObject.id !== LAB_ROOT_ID,
     draggable: gameObject.id !== LAB_ROOT_ID,
@@ -587,9 +660,8 @@ function createLabSceneGraphCreateGroupPatch(
   document: LabSceneDocument,
   intent: SceneGraphCreateGroupIntent,
 ): LocalEditorHarnessSceneGraphCreateGroupPatch<LabScenePatch> | null {
-  const parentId = intent.parentId && canLabGameObjectHaveChildren(document, intent.parentId)
-    ? intent.parentId
-    : LAB_ROOT_ID;
+  const parentId = resolveLabCreateGroupParentId(document, intent);
+  if (parentId === undefined) return null;
   const id = createNextGroupId(document);
   return {
     patch: {
@@ -621,16 +693,183 @@ function createLabSceneGraphDropPatch(
   document: LabSceneDocument,
   intent: SceneGraphDropIntent,
 ): LocalEditorHarnessSceneGraphDropPatch<LabScenePatch> | null {
-  const validation: SceneGraphValidationResult = validateSceneGraphDrop(getLabHierarchyItems(document), intent);
+  const validation = validateLabSceneGraphDrop(document, intent);
   if (!validation.ok || intent.placement !== 'inside') return null;
+  const dragged = findLabGameObject(document, intent.draggedId);
+  if (!dragged) return null;
+  const transform = intent.preserveWorldTransform === false
+    ? cloneLabTransform(dragged.transform)
+    : computeLabLocalTransformForParent(document, intent.draggedId, intent.targetId);
+  if (!transform) return null;
   return {
     patch: {
       kind: 'game-object.reparent',
       id: intent.draggedId,
       parentId: intent.targetId,
+      transform,
     },
     label: `Reparent ${intent.draggedId}`,
     changedIds: [intent.draggedId],
+  };
+}
+
+function validateLabSceneGraphDrop(
+  document: LabSceneDocument,
+  intent: SceneGraphDropIntent,
+): SceneGraphValidationResult {
+  const validation = validateSceneGraphDrop(getLabHierarchyItems(document), intent);
+  if (!validation.ok) return validation;
+  if (intent.placement !== 'inside') return { ok: false, reason: 'Only inside reparent is supported.' };
+  const dragged = findLabGameObject(document, intent.draggedId);
+  if (!dragged) return { ok: false, reason: `GameObject not found: ${intent.draggedId}` };
+  if (intent.preserveWorldTransform !== false && !computeLabLocalTransformForParent(document, intent.draggedId, intent.targetId)) {
+    return { ok: false, reason: 'Cannot preserve world transform under the target parent.' };
+  }
+  return { ok: true };
+}
+
+function validateLabSceneGraphMove(
+  document: LabSceneDocument,
+  intent: SceneGraphMoveIntent,
+): SceneGraphValidationResult {
+  const hierarchy = getLabHierarchyItems(document);
+  const validation = validateSceneGraphMove(hierarchy, intent);
+  if (!validation.ok) return validation;
+  const ids = getTopLevelSceneGraphNodeIds(hierarchy, intent.ids);
+  const parentId = resolveLabMoveParentId(document, intent);
+  if (parentId !== null && !canLabGameObjectHaveChildren(document, parentId)) {
+    return { ok: false, reason: `${parentId} cannot have children.` };
+  }
+  if (intent.preserveWorldTransform !== false) {
+    for (const id of ids) {
+      const gameObject = findLabGameObject(document, id);
+      if (!gameObject) return { ok: false, reason: `GameObject not found: ${id}` };
+      if (!computeLabLocalTransformForParent(document, id, parentId)) {
+        return { ok: false, reason: 'Cannot preserve world transform under the target parent.' };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+function createLabSceneGraphMovePatch(
+  document: LabSceneDocument,
+  intent: SceneGraphMoveIntent,
+): LocalEditorHarnessSceneGraphMovePatch<LabScenePatch> | null {
+  const validation = validateLabSceneGraphMove(document, intent);
+  if (!validation.ok) return null;
+  const hierarchy = getLabHierarchyItems(document);
+  const ids = getTopLevelSceneGraphNodeIds(hierarchy, intent.ids);
+  const parentId = resolveLabMoveParentId(document, intent);
+  const moves = ids
+    .map((id) => {
+      const gameObject = findLabGameObject(document, id);
+      if (!gameObject) return null;
+      const transform = intent.preserveWorldTransform === false
+        ? cloneLabTransform(gameObject.transform)
+        : computeLabLocalTransformForParent(document, id, parentId);
+      return transform ? { id, parentId, transform } : null;
+    })
+    .filter((move): move is { id: string; parentId: string | null; transform: LabTransform } => !!move);
+  if (moves.length !== ids.length) return null;
+  const order = createLabMoveOrder(document, ids, intent);
+  const currentOrder = document.scene.gameObjects.map(gameObject => gameObject.id);
+  const moved = moves.some((move) => {
+    const gameObject = findLabGameObject(document, move.id);
+    return !gameObject || gameObject.parentId !== move.parentId || !labTransformsEqual(gameObject.transform, move.transform);
+  });
+  if (!moved && arraysEqual(currentOrder, order)) return null;
+  return {
+    patch: {
+      kind: 'game-object.hierarchy-move',
+      moves,
+      order,
+    },
+    label: `Move ${ids.length} object${ids.length === 1 ? '' : 's'}`,
+    changedIds: ids,
+  };
+}
+
+function validateLabSceneGraphGroupSelection(
+  document: LabSceneDocument,
+  intent: SceneGraphGroupSelectionIntent,
+): SceneGraphValidationResult {
+  const hierarchy = getLabHierarchyItems(document);
+  const validation = validateSceneGraphGroupSelection(hierarchy, intent);
+  if (!validation.ok) return validation;
+  const ids = getTopLevelSceneGraphNodeIds(hierarchy, intent.ids);
+  const parentId = resolveLabGroupSelectionParentId(document, intent.parentId ?? null);
+  if (parentId !== null && !canLabGameObjectHaveChildren(document, parentId)) {
+    return { ok: false, reason: `${parentId} cannot have children.` };
+  }
+  if (intent.preserveWorldTransform !== false) {
+    const center = computeLabSelectionWorldCenter(document, ids);
+    const groupWorld = center ? createLabTransform(center) : null;
+    if (!groupWorld || !toLabLocalTransformForParent(document, parentId, groupWorld)) {
+      return { ok: false, reason: 'Cannot preserve world transform under the target parent.' };
+    }
+    for (const id of ids) {
+      const gameObject = findLabGameObject(document, id);
+      if (!gameObject) return { ok: false, reason: `GameObject not found: ${id}` };
+      if (!getLabGameObjectWorldTransform(document, id)) {
+        return { ok: false, reason: 'Cannot preserve world transform under the target parent.' };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+function createLabSceneGraphGroupSelectionPatch(
+  document: LabSceneDocument,
+  intent: SceneGraphGroupSelectionIntent,
+): LocalEditorHarnessSceneGraphGroupSelectionPatch<LabScenePatch> | null {
+  const validation = validateLabSceneGraphGroupSelection(document, intent);
+  if (!validation.ok) return null;
+  const hierarchy = getLabHierarchyItems(document);
+  const ids = getTopLevelSceneGraphNodeIds(hierarchy, intent.ids);
+  if (ids.length === 0) return null;
+  const parentId = resolveLabGroupSelectionParentId(document, intent.parentId ?? null);
+  const center = computeLabSelectionWorldCenter(document, ids);
+  if (!center) return null;
+  const groupWorld = createLabTransform(center);
+  const groupLocal = toLabLocalTransformForParent(document, parentId, groupWorld);
+  if (!groupLocal) return null;
+  const id = createNextGroupId(document);
+  const gameObject = createLabGameObject({
+    id,
+    name: intent.name?.trim() || 'Group',
+    parentId,
+    kind: 'group',
+    position: groupLocal.position,
+    rotation: groupLocal.rotation,
+    scale: groupLocal.scale,
+  });
+  const childTransforms: Record<string, LabTransform> = {};
+  for (const childId of ids) {
+    const child = findLabGameObject(document, childId);
+    if (!child) return null;
+    if (intent.preserveWorldTransform === false) {
+      childTransforms[childId] = cloneLabTransform(child.transform);
+      continue;
+    }
+    const childWorld = getLabGameObjectWorldTransform(document, childId);
+    if (!childWorld) return null;
+    const childLocal = toLabLocalTransformFromParentWorld(groupWorld, childWorld);
+    if (!childLocal) return null;
+    childTransforms[childId] = childLocal;
+  }
+  const order = createLabGroupSelectionOrder(document, id, ids, intent.insertBeforeId ?? null);
+  return {
+    patch: {
+      kind: 'game-object.group-selection',
+      gameObject,
+      childIds: ids,
+      childTransforms,
+      order,
+    },
+    label: `Group ${ids.length} object${ids.length === 1 ? '' : 's'}`,
+    createdId: id,
+    changedIds: [id, ...ids],
   };
 }
 
@@ -1150,6 +1389,206 @@ function mapLabGameObjects(
   };
 }
 
+function orderLabGameObjects(gameObjects: LabGameObject[], order: readonly string[]): LabGameObject[] {
+  const byId = new Map(gameObjects.map(gameObject => [gameObject.id, gameObject]));
+  const ordered = order
+    .map(id => byId.get(id))
+    .filter((gameObject): gameObject is LabGameObject => !!gameObject);
+  const orderedIds = new Set(ordered.map(gameObject => gameObject.id));
+  return [
+    ...ordered,
+    ...gameObjects.filter(gameObject => !orderedIds.has(gameObject.id)),
+  ];
+}
+
+function resolveLabMoveParentId(document: LabSceneDocument, intent: SceneGraphMoveIntent): string | null {
+  if (intent.placement === 'root') return LAB_ROOT_ID;
+  if (intent.placement === 'inside' && intent.targetId) return intent.targetId;
+  const target = intent.targetId ? findLabGameObject(document, intent.targetId) : null;
+  return intent.parentId ?? target?.parentId ?? LAB_ROOT_ID;
+}
+
+function resolveLabCreateGroupParentId(document: LabSceneDocument, intent: SceneGraphCreateGroupIntent): string | null | undefined {
+  if (intent.parentId) {
+    return canLabGameObjectHaveChildren(document, intent.parentId) ? intent.parentId : undefined;
+  }
+  if (intent.activeId && canLabGameObjectHaveChildren(document, intent.activeId)) return intent.activeId;
+  const active = intent.activeId ? findLabGameObject(document, intent.activeId) : null;
+  if (active?.parentId && canLabGameObjectHaveChildren(document, active.parentId)) return active.parentId;
+  return LAB_ROOT_ID;
+}
+
+function resolveLabGroupSelectionParentId(document: LabSceneDocument, parentId: string | null): string | null {
+  return parentId && canLabGameObjectHaveChildren(document, parentId) ? parentId : LAB_ROOT_ID;
+}
+
+function createLabMoveOrder(
+  document: LabSceneDocument,
+  ids: readonly string[],
+  intent: SceneGraphMoveIntent,
+): string[] {
+  const blockIds = collectOrderedLabSubtreeBlockIds(document, ids);
+  const blockSet = new Set(blockIds);
+  const remaining = document.scene.gameObjects
+    .map(gameObject => gameObject.id)
+    .filter(id => !blockSet.has(id));
+  const index = resolveLabInsertIndex(document, remaining, {
+    placement: intent.placement,
+    targetId: intent.targetId ?? null,
+    beforeId: intent.beforeId ?? null,
+    afterId: intent.afterId ?? null,
+    parentId: resolveLabMoveParentId(document, intent),
+  });
+  return insertIdsAt(remaining, blockIds, index);
+}
+
+function createLabGroupSelectionOrder(
+  document: LabSceneDocument,
+  groupId: string,
+  ids: readonly string[],
+  insertBeforeId: string | null,
+): string[] {
+  const blockIds = collectOrderedLabSubtreeBlockIds(document, ids);
+  const blockSet = new Set(blockIds);
+  const currentOrder = document.scene.gameObjects.map(gameObject => gameObject.id);
+  const remaining = currentOrder.filter(id => !blockSet.has(id));
+  const firstSelectedIndex = Math.min(...ids.map(id => currentOrder.indexOf(id)).filter(index => index >= 0));
+  const fallbackIndex = Number.isFinite(firstSelectedIndex)
+    ? remaining.filter(id => currentOrder.indexOf(id) < firstSelectedIndex).length
+    : remaining.length;
+  const index = insertBeforeId
+    ? Math.max(0, remaining.indexOf(insertBeforeId))
+    : fallbackIndex;
+  return insertIdsAt(remaining, [groupId, ...blockIds], index);
+}
+
+function collectOrderedLabSubtreeBlockIds(document: LabSceneDocument, rootIds: readonly string[]): string[] {
+  const subtreeIds = collectLabSubtreeIds(document, [...rootIds]);
+  return document.scene.gameObjects
+    .map(gameObject => gameObject.id)
+    .filter(id => subtreeIds.has(id));
+}
+
+function resolveLabInsertIndex(
+  document: LabSceneDocument,
+  remaining: readonly string[],
+  input: {
+    placement: SceneGraphMoveIntent['placement'];
+    targetId: string | null;
+    beforeId: string | null;
+    afterId: string | null;
+    parentId: string | null;
+  },
+): number {
+  if (input.beforeId) return boundedInsertIndex(remaining.indexOf(input.beforeId), remaining.length);
+  if (input.afterId) return indexAfterLabSubtree(document, remaining, input.afterId);
+  if (input.placement === 'before' && input.targetId) return boundedInsertIndex(remaining.indexOf(input.targetId), remaining.length);
+  if (input.placement === 'after' && input.targetId) return indexAfterLabSubtree(document, remaining, input.targetId);
+  if (input.placement === 'inside' && input.targetId) return indexAfterLabSubtree(document, remaining, input.targetId);
+  if (input.placement === 'root') return remaining.length;
+  if (input.parentId) return indexAfterLabSubtree(document, remaining, input.parentId);
+  return remaining.length;
+}
+
+function indexAfterLabSubtree(document: LabSceneDocument, remaining: readonly string[], anchorId: string): number {
+  const subtreeIds = collectLabSubtreeIds(document, [anchorId]);
+  let index = remaining.indexOf(anchorId);
+  if (index < 0) return remaining.length;
+  for (let cursor = index + 1; cursor < remaining.length; cursor += 1) {
+    if (!subtreeIds.has(remaining[cursor]!)) break;
+    index = cursor;
+  }
+  return index + 1;
+}
+
+function insertIdsAt(base: readonly string[], ids: readonly string[], index: number): string[] {
+  const safeIndex = Math.max(0, Math.min(index, base.length));
+  return [
+    ...base.slice(0, safeIndex),
+    ...ids,
+    ...base.slice(safeIndex),
+  ];
+}
+
+function boundedInsertIndex(index: number, fallback: number): number {
+  return index >= 0 ? index : fallback;
+}
+
+function getLabGameObjectWorldTransform(document: LabSceneDocument, id: string): LabTransform | null {
+  const byId = new Map(document.scene.gameObjects.map(gameObject => [gameObject.id, gameObject]));
+  const chain: LabGameObject[] = [];
+  const seen = new Set<string>();
+  let cursor = byId.get(id);
+  while (cursor && !seen.has(cursor.id)) {
+    seen.add(cursor.id);
+    chain.unshift(cursor);
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+  }
+  if (chain.length === 0) return null;
+  const world = composeEditorTransformChain(chain.map(gameObject => gameObject.transform));
+  return world ? transformSnapshotToLabTransform(world) : null;
+}
+
+function computeLabLocalTransformForParent(
+  document: LabSceneDocument,
+  id: string,
+  parentId: string | null,
+): LabTransform | null {
+  const world = getLabGameObjectWorldTransform(document, id);
+  return world ? toLabLocalTransformForParent(document, parentId, world) : null;
+}
+
+function toLabLocalTransformForParent(
+  document: LabSceneDocument,
+  parentId: string | null,
+  world: LabTransform,
+): LabTransform | null {
+  const parentWorld = parentId ? getLabGameObjectWorldTransform(document, parentId) : transformSnapshotToLabTransform(createIdentityEditorTransform());
+  const local = parentWorld ? toEditorLocalTransformFromWorld(parentWorld, world) : null;
+  return local ? transformSnapshotToLabTransform(local) : null;
+}
+
+function toLabLocalTransformFromParentWorld(parentWorld: LabTransform, world: LabTransform): LabTransform | null {
+  const local = toEditorLocalTransformFromWorld(parentWorld, world);
+  return local ? transformSnapshotToLabTransform(local) : null;
+}
+
+function computeLabSelectionWorldCenter(document: LabSceneDocument, ids: readonly string[]): LabVec3 | null {
+  const worlds = ids
+    .map(id => getLabGameObjectWorldTransform(document, id))
+    .filter((transform): transform is LabTransform => !!transform);
+  if (worlds.length === 0) return null;
+  return {
+    x: worlds.reduce((sum, transform) => sum + transform.position.x, 0) / worlds.length,
+    y: worlds.reduce((sum, transform) => sum + transform.position.y, 0) / worlds.length,
+    z: worlds.reduce((sum, transform) => sum + transform.position.z, 0) / worlds.length,
+  };
+}
+
+function cloneLabTransform(transform: LabTransform): LabTransform {
+  return createLabTransform(
+    { ...transform.position },
+    { ...transform.rotation },
+    { ...transform.scale },
+  );
+}
+
+function labTransformsEqual(left: LabTransform, right: LabTransform): boolean {
+  return labVec3Equal(left.position, right.position)
+    && labVec3Equal(left.rotation, right.rotation)
+    && labVec3Equal(left.scale, right.scale);
+}
+
+function labVec3Equal(left: LabVec3, right: LabVec3): boolean {
+  return Math.abs(left.x - right.x) < 0.000001
+    && Math.abs(left.y - right.y) < 0.000001
+    && Math.abs(left.z - right.z) < 0.000001;
+}
+
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function getLabGameObjectDepth(document: LabSceneDocument, gameObject: LabGameObject): number {
   let depth = 0;
   let cursor = gameObject;
@@ -1166,7 +1605,7 @@ function getLabGameObjectDepth(document: LabSceneDocument, gameObject: LabGameOb
 
 function canLabGameObjectHaveChildren(document: LabSceneDocument, id: string): boolean {
   const gameObject = findLabGameObject(document, id);
-  return gameObject?.kind === 'root' || gameObject?.kind === 'group';
+  return !!gameObject?.transform;
 }
 
 function createNextGroupId(document: LabSceneDocument): string {
