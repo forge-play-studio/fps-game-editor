@@ -67,7 +67,6 @@ import { configService } from '../config';
 import type { SceneConfig } from '../config';
 import type { DebugPanelRuntimeController } from '../debug/framework';
 import { createMockPlatformAssetsController } from '../debug/controllers/mock-platform-assets';
-import renderingConfig from '../config/rendering.json';
 import { getAllModelIds } from '../assets';
 
 export interface GameOptions {
@@ -415,8 +414,7 @@ export class Game {
     const camera = this.camera;
     if (!camera || camera.mode !== Camera.ORTHOGRAPHIC_CAMERA) return;
 
-    const camCfg = (renderingConfig as any).globalVolume?.camera ?? {};
-    const orthoSize = (camCfg.orthoSizeDesktop ?? 10) as number;
+    const orthoSize = this.sceneBuilder?.getSelectedCameraOrthoSize() ?? 10;
     const width = Math.max(1, this.engine.getRenderWidth());
     const height = Math.max(1, this.engine.getRenderHeight());
     const halfH = orthoSize;

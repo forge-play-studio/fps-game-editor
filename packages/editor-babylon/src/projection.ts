@@ -31,6 +31,26 @@ export interface BabylonEditorProjectionAsset {
   metadata?: Record<string, unknown>;
 }
 
+export interface BabylonEditorProjectionCameraSettings {
+  alpha: number;
+  beta: number;
+  radius: number;
+  orthoSize: number;
+}
+
+export interface BabylonEditorProjectionColorRGB {
+  r: number;
+  g: number;
+  b: number;
+}
+
+export interface BabylonEditorProjectionDirectionalLightSettings {
+  type: 'directional';
+  intensity: number;
+  direction: BabylonEditorProjectionVec3;
+  diffuseColor?: BabylonEditorProjectionColorRGB;
+}
+
 export interface BabylonEditorProjectionNode {
   id: string;
   name?: string;
@@ -38,6 +58,9 @@ export interface BabylonEditorProjectionNode {
   active?: boolean;
   transform?: BabylonEditorProjectionTransform;
   asset?: BabylonEditorProjectionAsset | null;
+  runtimeKind?: 'camera' | 'light';
+  camera?: BabylonEditorProjectionCameraSettings;
+  light?: BabylonEditorProjectionDirectionalLightSettings;
 }
 
 export interface BabylonEditorProjectionImportResult {
@@ -70,6 +93,7 @@ export interface ProjectedBabylonEditorNode {
   root: any;
   outlineMeshes: any[];
   animationGroups: any[];
+  runtimeObjects: any[];
   loadPromise?: Promise<void>;
 }
 
@@ -122,6 +146,9 @@ export function createBabylonEditorProjection(
     for (const animationGroup of projection.animationGroups) {
       animationGroup.dispose?.();
     }
+    for (const runtimeObject of projection.runtimeObjects) {
+      runtimeObject.dispose?.();
+    }
     projection.root?.dispose?.();
   };
 
@@ -141,15 +168,18 @@ export function createBabylonEditorProjection(
       root,
       outlineMeshes: [],
       animationGroups: [],
+      runtimeObjects: [],
     };
     projections.set(node.id, projection);
     root.setEnabled?.(node.active !== false);
     if (node.transform) applyProjectionTransform(options.babylon, root, node.transform);
 
-    if (node.asset && options.importModel) {
-      projection.loadPromise = loadModelProjection(options, node, projection);
-    } else {
-      attachFallbackProjection(options.babylon, options.scene, node, projection, !!node.asset);
+    if (!attachRuntimeProjection(options.babylon, options.scene, node, projection)) {
+      if (node.asset && options.importModel) {
+        projection.loadPromise = loadModelProjection(options, node, projection);
+      } else {
+        attachFallbackProjection(options.babylon, options.scene, node, projection, !!node.asset);
+      }
     }
     return projection;
   };
@@ -218,8 +248,12 @@ export function createBabylonEditorProjection(
     },
     syncNodeTransform(node) {
       const projection = projections.get(node.id);
-      if (!projection || !node.transform) return;
-      applyProjectionTransform(options.babylon, projection.root, node.transform);
+      if (!projection) return;
+      projection.root?.setEnabled?.(node.active !== false);
+      for (const runtimeObject of projection.runtimeObjects) {
+        runtimeObject.setEnabled?.(node.active !== false);
+      }
+      if (node.transform) applyProjectionTransform(options.babylon, projection.root, node.transform);
     },
     syncSelection(selection) {
       syncProjectionSelection(options.babylon, projections, selection);
@@ -459,6 +493,104 @@ function disposeImportedProjectionResult(result: BabylonEditorProjectionImportRe
   }
 }
 
+function attachRuntimeProjection(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+  projection: ProjectedBabylonEditorNode,
+): boolean {
+  if (node.runtimeKind === 'camera') {
+    attachCameraProjection(babylon, scene, node, projection);
+    return true;
+  }
+  if (node.runtimeKind === 'light') {
+    attachDirectionalLightProjection(babylon, scene, node, projection);
+    return true;
+  }
+  return false;
+}
+
+function attachCameraProjection(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+  projection: ProjectedBabylonEditorNode,
+): void {
+  const MeshBuilder = (babylon as any).MeshBuilder;
+  const StandardMaterial = (babylon as any).StandardMaterial;
+  const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
+  if (!MeshBuilder || !StandardMaterial) return;
+
+  const settings = readProjectionCameraSettings(node.camera);
+  const body = MeshBuilder.CreateBox(`${node.id}.cameraHelper`, {
+    width: 0.38,
+    height: 0.28,
+    depth: 0.24,
+  }, scene);
+  body.parent = projection.root;
+  body.metadata = createProjectionMetadata(node.id, { runtimeKind: 'camera', helper: 'body' });
+  const material = new StandardMaterial(`${node.id}.cameraHelper.material`, scene);
+  material.diffuseColor = new Color3(0.45, 0.68, 1);
+  material.specularColor = new Color3(0.08, 0.1, 0.12);
+  body.material = material;
+  projection.runtimeObjects.push(material);
+  projection.outlineMeshes = [body];
+
+  const frustum = createCameraFrustumLines(babylon, scene, node, settings);
+  if (frustum) {
+    frustum.parent = projection.root;
+    frustum.isPickable = false;
+  }
+}
+
+function attachDirectionalLightProjection(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+  projection: ProjectedBabylonEditorNode,
+): void {
+  const MeshBuilder = (babylon as any).MeshBuilder;
+  const StandardMaterial = (babylon as any).StandardMaterial;
+  const DirectionalLight = (babylon as any).DirectionalLight;
+  const Vector3 = requireBabylonCtor(babylon.Vector3, 'Vector3');
+  const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
+  if (!MeshBuilder || !StandardMaterial) return;
+  const settings = readProjectionDirectionalLightSettings(node.light);
+  const direction = new Vector3(settings.direction.x, settings.direction.y, settings.direction.z);
+
+  if (DirectionalLight) {
+    const light = new DirectionalLight(`${node.id}.directionalLight`, direction, scene);
+    light.intensity = settings.intensity;
+    light.diffuse = new Color3(
+      settings.diffuseColor?.r ?? 1,
+      settings.diffuseColor?.g ?? 1,
+      settings.diffuseColor?.b ?? 1,
+    );
+    light.metadata = createProjectionMetadata(node.id, { runtimeKind: 'light' });
+    light.setEnabled?.(node.active !== false);
+    projection.runtimeObjects.push(light);
+  }
+
+  const helper = MeshBuilder.CreateBox(`${node.id}.lightHelper`, {
+    size: 0.28,
+  }, scene);
+  helper.parent = projection.root;
+  helper.metadata = createProjectionMetadata(node.id, { runtimeKind: 'light', helper: 'body' });
+  const material = new StandardMaterial(`${node.id}.lightHelper.material`, scene);
+  material.diffuseColor = new Color3(1, 0.92, 0.42);
+  material.emissiveColor = new Color3(0.5, 0.42, 0.12);
+  material.specularColor = new Color3(0.08, 0.1, 0.12);
+  helper.material = material;
+  projection.runtimeObjects.push(material);
+  projection.outlineMeshes = [helper];
+
+  const arrow = createLightDirectionLines(babylon, scene, node, settings.direction);
+  if (arrow) {
+    arrow.parent = projection.root;
+    arrow.isPickable = false;
+  }
+}
+
 function attachFallbackProjection(
   babylon: BabylonRuntimeGlobal,
   scene: RuntimeScene,
@@ -502,6 +634,136 @@ function createFallbackProjectionMesh(
     },
   };
   return mesh;
+}
+
+function createCameraFrustumLines(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+  settings: BabylonEditorProjectionCameraSettings,
+): any | null {
+  const MeshBuilder = (babylon as any).MeshBuilder;
+  const Vector3 = requireBabylonCtor(babylon.Vector3, 'Vector3');
+  const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
+  if (!MeshBuilder?.CreateLineSystem) return null;
+  const distance = Math.max(0.4, settings.radius * 0.12);
+  const halfHeight = Math.max(0.12, settings.orthoSize * 0.08);
+  const halfWidth = halfHeight * (16 / 9);
+  const near = new Vector3(0, 0, -0.18);
+  const topLeft = new Vector3(-halfWidth, halfHeight, distance);
+  const topRight = new Vector3(halfWidth, halfHeight, distance);
+  const bottomRight = new Vector3(halfWidth, -halfHeight, distance);
+  const bottomLeft = new Vector3(-halfWidth, -halfHeight, distance);
+  const frustum = MeshBuilder.CreateLineSystem(`${node.id}.cameraFrustum`, {
+    lines: [
+      [topLeft, topRight, bottomRight, bottomLeft, topLeft],
+      [near, topLeft],
+      [near, topRight],
+      [near, bottomRight],
+      [near, bottomLeft],
+    ],
+  }, scene);
+  frustum.color = new Color3(0.45, 0.68, 1);
+  frustum.metadata = createProjectionMetadata(node.id, {
+    runtimeKind: 'camera',
+    helper: 'frustum',
+    orthoSize: settings.orthoSize,
+  });
+  return frustum;
+}
+
+function createLightDirectionLines(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+  direction: BabylonEditorProjectionVec3,
+): any | null {
+  const MeshBuilder = (babylon as any).MeshBuilder;
+  const Vector3 = requireBabylonCtor(babylon.Vector3, 'Vector3');
+  const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
+  if (!MeshBuilder?.CreateLineSystem) return null;
+  const normalized = normalizeProjectionVec3(direction, { x: -0.3, y: -1, z: -0.2 });
+  const shaftEnd = new Vector3(-normalized.x, -normalized.y, -normalized.z);
+  const arrowLeft = new Vector3(
+    shaftEnd.x + normalized.x * 0.22 + normalized.z * 0.12,
+    shaftEnd.y + normalized.y * 0.22,
+    shaftEnd.z + normalized.z * 0.22 - normalized.x * 0.12,
+  );
+  const arrowRight = new Vector3(
+    shaftEnd.x + normalized.x * 0.22 - normalized.z * 0.12,
+    shaftEnd.y + normalized.y * 0.22,
+    shaftEnd.z + normalized.z * 0.22 + normalized.x * 0.12,
+  );
+  const arrow = MeshBuilder.CreateLineSystem(`${node.id}.lightDirection`, {
+    lines: [
+      [new Vector3(0, 0, 0), shaftEnd],
+      [shaftEnd, arrowLeft],
+      [shaftEnd, arrowRight],
+    ],
+  }, scene);
+  arrow.color = new Color3(1, 0.92, 0.42);
+  arrow.metadata = createProjectionMetadata(node.id, {
+    runtimeKind: 'light',
+    helper: 'direction',
+  });
+  return arrow;
+}
+
+function readProjectionCameraSettings(
+  settings: BabylonEditorProjectionCameraSettings | undefined,
+): BabylonEditorProjectionCameraSettings {
+  return {
+    alpha: readFiniteNumber(settings?.alpha, 3.9269908169872414),
+    beta: readFiniteNumber(settings?.beta, 0.8),
+    radius: Math.max(0.001, readFiniteNumber(settings?.radius, 14)),
+    orthoSize: Math.max(0.001, readFiniteNumber(settings?.orthoSize, 6)),
+  };
+}
+
+function readProjectionDirectionalLightSettings(
+  settings: BabylonEditorProjectionDirectionalLightSettings | undefined,
+): BabylonEditorProjectionDirectionalLightSettings {
+  return {
+    type: 'directional',
+    intensity: Math.max(0, readFiniteNumber(settings?.intensity, 2)),
+    direction: readVector3(settings?.direction, { x: -0.3, y: -1, z: -0.2 }),
+    diffuseColor: settings?.diffuseColor
+      ? {
+          r: readFiniteNumber(settings.diffuseColor.r, 1),
+          g: readFiniteNumber(settings.diffuseColor.g, 1),
+          b: readFiniteNumber(settings.diffuseColor.b, 1),
+        }
+      : { r: 1, g: 1, b: 1 },
+  };
+}
+
+function readFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeProjectionVec3(
+  value: BabylonEditorProjectionVec3,
+  fallback: BabylonEditorProjectionVec3,
+): BabylonEditorProjectionVec3 {
+  const length = Math.hypot(value.x, value.y, value.z);
+  if (!Number.isFinite(length) || length <= 0.000001) return normalizeProjectionVec3(fallback, { x: 0, y: -1, z: 0 });
+  return {
+    x: value.x / length,
+    y: value.y / length,
+    z: value.z / length,
+  };
+}
+
+function createProjectionMetadata(
+  nodeId: string,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    editorProjection: {
+      nodeId,
+      ...extra,
+    },
+  };
 }
 
 export function applyProjectionTransform(

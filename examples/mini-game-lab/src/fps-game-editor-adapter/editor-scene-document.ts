@@ -1,6 +1,9 @@
 import type {
+  ColorRGB,
   SceneAssetDefaults,
   SceneAssetMaterialMode,
+  SceneCameraRigConfig,
+  SceneDirectionalLightConfig,
   SceneNodeConfig,
   SceneNodeVisualOverrides,
   SceneTransformNode,
@@ -48,6 +51,13 @@ export interface EditorSceneModelRendererComponent {
   assetId: string;
 }
 
+export type EditorSceneCameraRig = SceneCameraRigConfig;
+
+export interface EditorSceneDirectionalLight extends Omit<SceneDirectionalLightConfig, 'direction' | 'diffuseColor'> {
+  direction: EditorSceneVec3;
+  diffuseColor?: ColorRGB;
+}
+
 export type EditorSceneComponent =
   | EditorSceneTransformComponent
   | EditorSceneModelRendererComponent;
@@ -59,6 +69,8 @@ export interface EditorSceneGameObject {
   parentId?: string;
   active?: boolean;
   transformType?: SceneTransformNode['transformType'];
+  camera?: EditorSceneCameraRig;
+  light?: EditorSceneDirectionalLight;
   groundDecal?: SceneTransformNode['groundDecal'];
   overrides?: SceneNodeVisualOverrides;
   metadata?: Record<string, unknown>;

@@ -50,6 +50,20 @@ export interface TransformConfig {
 
 export type TransformType = 'plain' | 'light' | 'camera' | 'groundDecal';
 
+export interface SceneCameraRigConfig {
+  alpha: number;
+  beta: number;
+  radius: number;
+  orthoSize: number;
+}
+
+export interface SceneDirectionalLightConfig {
+  type: 'directional';
+  intensity: number;
+  direction: Position3D;
+  diffuseColor?: ColorRGB;
+}
+
 // ============================================================
 // World Bounds
 // ============================================================
@@ -232,6 +246,8 @@ export interface SceneTransformNode extends SceneNodeBase {
   kind: 'transform';
   transformType?: TransformType;
   overrides?: SceneNodeVisualOverrides;
+  camera?: SceneCameraRigConfig;
+  light?: SceneDirectionalLightConfig;
   groundDecal?: {
     size: {
       width: number;

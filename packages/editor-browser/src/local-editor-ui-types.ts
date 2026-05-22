@@ -235,6 +235,10 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   } | null;
   transformTool?: LocalEditorBrowserTransformToolState | null;
   transformOperations?: LocalEditorBrowserTransformOperationState | null;
+  sceneCameraPreview?: {
+    enabled: boolean;
+    available: boolean;
+  } | null;
   session?: {
     source?: LocalEditorBrowserAuthoringSource | null;
     dirty: boolean;
@@ -377,6 +381,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onTransformSnapStepChange?: (input: { kind: LocalEditorBrowserTransformSnapStepKind; value: number }) => void;
   onPlacementModeChange?: (mode: LocalEditorBrowserPlacementMode) => void;
   onTransformAction?: (action: LocalEditorBrowserTransformAction) => void;
+  onSceneCameraPreviewToggle?: (enabled: boolean) => void;
   onFocusSelection?: () => void;
   onCancelActiveOperation?: () => void;
   onSceneGraphRename?: (intent: LocalEditorBrowserSceneGraphRenameIntent) => void;

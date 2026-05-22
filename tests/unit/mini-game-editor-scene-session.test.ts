@@ -3,6 +3,10 @@ import {
   compileEditorSceneDocumentToSceneConfig,
 } from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-compiler';
 import {
+  createProjectionNode,
+  createSceneCameraPreviewRig,
+} from '../../examples/mini-game-lab/src/debug/local-editor-mode-switcher';
+import {
   applyProjectMaterialDocumentChange,
   getProjectEditorWorkingDocument,
   loadProjectEditorDocument,
@@ -12,7 +16,13 @@ import {
   createEditorSceneReadonlyInspectorProperty,
   createEditorSceneReadonlyInspectorSection,
   createEditorSceneReadonlyVector3Properties,
+  createEditorSceneDeleteSubtreePatch,
+  createEditorSceneDuplicateSelectionPatch,
   createEditorSceneInspectorPropertyPatch,
+  DEFAULT_EDITOR_SCENE_CAMERA,
+  DEFAULT_EDITOR_SCENE_SUN_LIGHT,
+  ensureEditorSceneEnvironmentDefaults,
+  getEditorSceneHierarchyItems,
   getEditorSceneRuntimeInspectorSections,
   getEditorSceneInspectorMultiObject,
   getEditorSceneInspectorObject,
@@ -205,6 +215,236 @@ function createRuntimeProjectionFixture() {
 }
 
 describe('mini-game editor scene Inspector v2 adapter', () => {
+  it('ensures default Main Camera and Sun Light and protects the camera singleton', () => {
+    const document = ensureEditorSceneEnvironmentDefaults(createMiniEditorSceneDocument());
+    const camera = document.scene.gameObjects.find(gameObject => gameObject.id === 'main_camera');
+    const light = document.scene.gameObjects.find(gameObject => gameObject.id === 'sun_light');
+
+    expect(camera).toMatchObject({
+      id: 'main_camera',
+      name: 'Main Camera',
+      kind: 'transform',
+      parentId: 'root',
+      transformType: 'camera',
+      camera: DEFAULT_EDITOR_SCENE_CAMERA,
+    });
+    expect(light).toMatchObject({
+      id: 'sun_light',
+      name: 'Sun Light',
+      kind: 'transform',
+      parentId: 'root',
+      transformType: 'light',
+      light: DEFAULT_EDITOR_SCENE_SUN_LIGHT,
+    });
+
+    const hierarchyCamera = getEditorSceneHierarchyItems(document).find(item => item.id === 'main_camera');
+    expect(hierarchyCamera).toMatchObject({
+      selectable: true,
+      deletable: false,
+      draggable: true,
+    });
+    expect(createEditorSceneDeleteSubtreePatch(document, {
+      ids: ['main_camera'],
+      activeId: 'main_camera',
+    })).toBeNull();
+    expect(createEditorSceneDuplicateSelectionPatch({
+      document,
+      targetIds: ['main_camera'],
+      activeId: 'main_camera',
+    })).toBeNull();
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'decal',
+      path: 'transformType',
+      value: 'camera',
+    })).toBeNull();
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'main_camera',
+      path: 'transformType',
+      value: 'plain',
+    })).toBeNull();
+
+    const compiled = compileEditorSceneDocumentToSceneConfig(document, {
+      schemaVersion: 2,
+      scene: { rootId: 'root', assets: [], nodes: [], materials: [], textures: [] },
+    } as SceneConfig);
+    const compiledCamera = compiled.sceneConfig.scene?.nodes.find(node => node.id === 'main_camera');
+    const compiledLight = compiled.sceneConfig.scene?.nodes.find(node => node.id === 'sun_light');
+    expect(compiledCamera).toMatchObject({
+      kind: 'transform',
+      transformType: 'camera',
+      camera: DEFAULT_EDITOR_SCENE_CAMERA,
+    });
+    expect(compiledLight).toMatchObject({
+      kind: 'transform',
+      transformType: 'light',
+      light: DEFAULT_EDITOR_SCENE_SUN_LIGHT,
+    });
+  });
+
+  it('normalizes loaded editor scenes to one camera without deleting authored objects', () => {
+    const document = createMiniEditorSceneDocument();
+    document.scene.gameObjects.push({
+      id: 'camera_a',
+      name: 'Authored Camera A',
+      kind: 'transform',
+      parentId: 'root',
+      active: true,
+      transformType: 'camera',
+      components: [
+        { type: 'Transform', position: { x: 1, y: 2, z: 3 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
+      ],
+    }, {
+      id: 'camera_b',
+      name: 'Authored Camera B',
+      kind: 'transform',
+      parentId: 'root',
+      active: true,
+      transformType: 'camera',
+      camera: { ...DEFAULT_EDITOR_SCENE_CAMERA, radius: 20 },
+      components: [
+        { type: 'Transform', position: { x: 4, y: 5, z: 6 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
+      ],
+    });
+
+    const normalized = ensureEditorSceneEnvironmentDefaults(document);
+    const cameras = normalized.scene.gameObjects.filter(gameObject => gameObject.transformType === 'camera');
+    const demoted = normalized.scene.gameObjects.find(gameObject => gameObject.id === 'camera_b');
+
+    expect(cameras.map(gameObject => gameObject.id)).toEqual(['camera_a']);
+    expect(cameras[0]?.camera).toEqual(DEFAULT_EDITOR_SCENE_CAMERA);
+    expect(demoted).toMatchObject({
+      id: 'camera_b',
+      kind: 'transform',
+      transformType: 'plain',
+    });
+    expect(demoted?.camera).toBeUndefined();
+  });
+
+  it('edits Camera and Sun Light Inspector settings as projected document data', () => {
+    const document = ensureEditorSceneEnvironmentDefaults(createMiniEditorSceneDocument());
+    const cameraInspector = getEditorSceneInspectorObject(document, 'main_camera');
+    const lightInspector = getEditorSceneInspectorObject(document, 'sun_light');
+
+    expect(cameraInspector?.sections.map(section => section.id)).toEqual([
+      'common',
+      'hierarchySource',
+      'transform',
+      'camera',
+      'components',
+      'metadata',
+    ]);
+    expect(cameraInspector?.sections.find(section => section.id === 'camera')?.properties).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'camera.alpha', control: 'number', value: DEFAULT_EDITOR_SCENE_CAMERA.alpha }),
+      expect.objectContaining({ path: 'camera.beta', control: 'number', value: DEFAULT_EDITOR_SCENE_CAMERA.beta }),
+      expect.objectContaining({ path: 'camera.radius', control: 'number', value: DEFAULT_EDITOR_SCENE_CAMERA.radius }),
+      expect.objectContaining({ path: 'camera.orthoSize', control: 'number', value: DEFAULT_EDITOR_SCENE_CAMERA.orthoSize }),
+    ]));
+    expect(lightInspector?.sections.map(section => section.id)).toEqual([
+      'common',
+      'hierarchySource',
+      'transform',
+      'light',
+      'components',
+      'metadata',
+    ]);
+    expect(lightInspector?.sections.find(section => section.id === 'light')?.properties).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'light.intensity', control: 'number', value: DEFAULT_EDITOR_SCENE_SUN_LIGHT.intensity }),
+      expect.objectContaining({ path: 'light.direction.x', control: 'number', value: DEFAULT_EDITOR_SCENE_SUN_LIGHT.direction.x }),
+      expect.objectContaining({ path: 'light.diffuseColor', control: 'color', value: DEFAULT_EDITOR_SCENE_SUN_LIGHT.diffuseColor }),
+    ]));
+
+    const cameraPatch = createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'main_camera',
+      path: 'camera.radius',
+      value: 20,
+    });
+    expect(cameraPatch?.reprojectIds).toEqual(['main_camera']);
+    let next = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      patch: cameraPatch!.patch,
+    });
+    expect(next.scene.gameObjects.find(gameObject => gameObject.id === 'main_camera')?.camera?.radius).toBe(20);
+
+    const lightPatch = createEditorSceneInspectorPropertyPatch({
+      document: next,
+      targetId: 'sun_light',
+      path: 'light.diffuseColor',
+      value: { r: 0.8, g: 0.72, b: 0.5 },
+    });
+    expect(lightPatch?.reprojectIds).toEqual(['sun_light']);
+    next = reduceEditorSceneDocument(next, {
+      type: 'document.patch',
+      patch: lightPatch!.patch,
+    });
+    expect(next.scene.gameObjects.find(gameObject => gameObject.id === 'sun_light')?.light?.diffuseColor).toEqual({ r: 0.8, g: 0.72, b: 0.5 });
+
+    expect(createEditorSceneInspectorPropertyPatch({
+      document: next,
+      targetId: 'main_camera',
+      path: 'camera.orthoSize',
+      value: 0,
+    })).toBeNull();
+    expect(createEditorSceneInspectorPropertyPatch({
+      document: next,
+      targetId: 'sun_light',
+      path: 'light.intensity',
+      value: -1,
+    })).toBeNull();
+    expect(createEditorSceneInspectorPropertyPatch({
+      document: next,
+      targetId: 'decal',
+      path: 'camera.alpha',
+      value: 1,
+    })).toBeNull();
+  });
+
+  it('creates projection payloads for Camera and Sun Light runtime helpers', () => {
+    const document = ensureEditorSceneEnvironmentDefaults(createMiniEditorSceneDocument());
+    const camera = document.scene.gameObjects.find(gameObject => gameObject.id === 'main_camera')!;
+    const light = document.scene.gameObjects.find(gameObject => gameObject.id === 'sun_light')!;
+    const cameraProjection = createProjectionNode(document, camera);
+    const lightProjection = createProjectionNode(document, light);
+
+    expect(cameraProjection).toMatchObject({
+      id: 'main_camera',
+      runtimeKind: 'camera',
+      camera: DEFAULT_EDITOR_SCENE_CAMERA,
+      asset: null,
+    });
+    expect(lightProjection).toMatchObject({
+      id: 'sun_light',
+      runtimeKind: 'light',
+      light: DEFAULT_EDITOR_SCENE_SUN_LIGHT,
+      asset: null,
+    });
+  });
+
+  it('provides the unique Main Camera rig for Scene Camera preview without document writes', () => {
+    const document = ensureEditorSceneEnvironmentDefaults(createMiniEditorSceneDocument());
+    const rig = createSceneCameraPreviewRig(document);
+
+    expect(rig).toEqual({
+      target: { x: 0, y: 0, z: 0 },
+      settings: DEFAULT_EDITOR_SCENE_CAMERA,
+    });
+
+    const disabled = {
+      ...document,
+      scene: {
+        ...document.scene,
+        gameObjects: document.scene.gameObjects.map(gameObject => (
+          gameObject.id === 'main_camera'
+            ? { ...gameObject, active: false }
+            : gameObject
+        )),
+      },
+    };
+    expect(createSceneCameraPreviewRig(disabled)).toBeNull();
+  });
+
   it('builds readonly Inspector sections with source tags and skips unsafe empty values', () => {
     const circular: Record<string, unknown> = {
       z: 3,

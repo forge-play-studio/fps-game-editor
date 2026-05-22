@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Scene } from '@babylonjs/core/scene';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
+import { Camera } from '@babylonjs/core/Cameras/camera';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { configService, validateSceneJsonV2, type SceneConfig, type SceneNodeConfig } from '../../examples/mini-game-lab/src/config';
+import renderingConfig from '../../examples/mini-game-lab/src/config/rendering.json';
 import {
   addProjectEditorSceneNode,
   getProjectEditorWorkingDocument,
@@ -12,6 +15,11 @@ import {
 import {
   compileEditorSceneDocumentToSceneConfig,
 } from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-compiler';
+import {
+  DEFAULT_EDITOR_SCENE_CAMERA,
+  DEFAULT_EDITOR_SCENE_SUN_LIGHT,
+  ensureEditorSceneEnvironmentDefaults,
+} from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-session';
 import { SceneBuilder } from '../../examples/mini-game-lab/src/services/SceneBuilder';
 import type {
   EditorSceneDocument,
@@ -26,6 +34,80 @@ afterEach(() => {
 });
 
 describe('mini-game-lab transform hierarchy runtime/schema integration', () => {
+  it('uses authored Main Camera and Sun Light from compiled editor scene', () => {
+    const editorDocument = ensureEditorSceneEnvironmentDefaults({
+      schemaVersion: 1,
+      assets: [],
+      scene: {
+        gameObjects: [
+          createEditorGameObject('mvp_root', 'MVP Root'),
+        ],
+      },
+    });
+    const camera = editorDocument.scene.gameObjects.find(gameObject => gameObject.id === 'main_camera')!;
+    const light = editorDocument.scene.gameObjects.find(gameObject => gameObject.id === 'sun_light')!;
+    camera.camera = {
+      ...DEFAULT_EDITOR_SCENE_CAMERA,
+      alpha: 1.1,
+      beta: 0.72,
+      radius: 22,
+      orthoSize: 9,
+    };
+    light.light = {
+      ...DEFAULT_EDITOR_SCENE_SUN_LIGHT,
+      intensity: 0.35,
+      direction: { x: 0.25, y: -0.8, z: 0.5 },
+      diffuseColor: { r: 0.8, g: 0.7, b: 0.55 },
+    };
+
+    const compiled = compileEditorSceneDocumentToSceneConfig(editorDocument, createSceneConfig());
+    expect(validateSceneJsonV2(compiled.sceneConfig)).toEqual([]);
+    configService.replaceSceneConfig(compiled.sceneConfig);
+
+    const engine = new NullEngine();
+    const scene = createRuntimeTestScene(engine);
+    const builder = new SceneBuilder(scene, {} as any);
+
+    const env = builder.buildSceneEnvironment();
+
+    expect(env.camera.alpha).toBeCloseTo(1.1);
+    expect(env.camera.beta).toBeCloseTo(0.72);
+    expect(env.camera.radius).toBeCloseTo(22);
+    expect(env.camera.mode).toBe(Camera.ORTHOGRAPHIC_CAMERA);
+    expect(env.camera.orthoTop).toBe(9);
+    expect(env.camera.orthoBottom).toBe(-9);
+    expect(builder.getSelectedCameraOrthoSize()).toBe(9);
+
+    expect(env.directionalLight.intensity).toBe(0.35);
+    expect(env.directionalLight.direction).toMatchObject({ x: 0.25, y: -0.8, z: 0.5 });
+    expect(env.directionalLight.diffuse).toMatchObject({ r: 0.8, g: 0.7, b: 0.55 });
+
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('falls back to rendering config when no authored camera or Sun Light exists', () => {
+    configService.replaceSceneConfig(createSceneConfig());
+    const engine = new NullEngine();
+    const scene = createRuntimeTestScene(engine);
+    const builder = new SceneBuilder(scene, {} as any);
+    const env = builder.buildSceneEnvironment();
+    const cameraConfig = (renderingConfig as any).globalVolume.camera;
+    const lightConfig = (renderingConfig as any).globalVolume.lights.directional;
+
+    expect(env.camera.alpha).toBe(cameraConfig.alpha);
+    expect(env.camera.beta).toBe(cameraConfig.beta);
+    expect(env.camera.radius).toBe(14);
+    expect(env.camera.orthoTop).toBe(cameraConfig.orthoSizeDesktop);
+    expect(builder.getSelectedCameraOrthoSize()).toBe(cameraConfig.orthoSizeDesktop);
+    expect(env.directionalLight).toBeInstanceOf(DirectionalLight);
+    expect(env.directionalLight.intensity).toBe(lightConfig.intensity);
+    expect(env.directionalLight.direction).toMatchObject(lightConfig.direction);
+
+    scene.dispose();
+    engine.dispose();
+  });
+
   it('allows authored children under instance and transform scene nodes', () => {
     const sceneConfig = createSceneConfig({
       nodes: [
@@ -179,6 +261,12 @@ function createSceneConfig(input: { nodes?: SceneNodeConfig[] } = {}): SceneConf
       textures: [],
     },
   };
+}
+
+function createRuntimeTestScene(engine: NullEngine): Scene {
+  const scene = new Scene(engine);
+  (scene as any).createDefaultEnvironment = () => null;
+  return scene;
 }
 
 function createStubModelPool(scene: Scene) {
