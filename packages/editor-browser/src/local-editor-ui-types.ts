@@ -8,6 +8,7 @@ import type {
   EditorTransformTool,
   EditorTransformToolDescriptor,
 } from '@fps-games/editor-core';
+import type { LocalEditorThemeName } from './local-editor-ui-theme';
 
 export type LocalEditorBrowserSerializedValueType =
   | 'string'
@@ -396,13 +397,21 @@ export interface LocalEditorBrowserUiCallbacks {
 export interface LocalEditorBrowserUiOptions<TDocument = unknown> {
   root?: HTMLElement;
   document?: Document;
+  theme?: LocalEditorThemeName;
   callbacks?: LocalEditorBrowserUiCallbacks;
   inspector?: LocalEditorBrowserInspectorOptions<TDocument>;
 }
 
 export interface LocalEditorBrowserUi<TDocument = unknown> {
   update(state: LocalEditorBrowserUiState<TDocument>): void;
+  setTheme?(theme: LocalEditorThemeName): void;
+  getTheme?(): LocalEditorThemeName;
   dispose(): void;
+}
+
+export interface LocalEditorThemeController {
+  setTheme(theme: LocalEditorThemeName): void;
+  getTheme(): LocalEditorThemeName;
 }
 
 export type LocalEditorBottomDockTab = 'assets' | 'history';

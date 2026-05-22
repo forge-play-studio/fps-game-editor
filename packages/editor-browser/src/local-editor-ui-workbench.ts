@@ -92,7 +92,7 @@ export function createLocalEditorWorkbench(doc: Document): LocalEditorWorkbenchE
     'justify-content:flex-start',
     'border-bottom:1px solid var(--fps-editor-divider)',
     'background:var(--fps-editor-chrome)',
-    'box-shadow:0 1px 0 rgba(255,255,255,0.03) inset',
+    'box-shadow:var(--fps-editor-shadow-inset-highlight)',
     'pointer-events:none',
   ].join(';');
   sceneFrame.appendChild(sceneHeader);

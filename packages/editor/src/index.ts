@@ -10,6 +10,10 @@ import {
   type BrowserHost,
   type BrowserHostOptions,
 } from '@fps-games/editor-browser';
+export type {
+  LocalEditorThemeController,
+  LocalEditorThemeName,
+} from '@fps-games/editor-browser';
 import {
   type BabylonRuntimeGlobal,
   type CanonicalMaterialChange,

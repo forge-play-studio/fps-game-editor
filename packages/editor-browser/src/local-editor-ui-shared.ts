@@ -2,6 +2,7 @@ import {
   DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
   DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS,
 } from '@fps-games/editor-core';
+import { createLocalEditorIcon, type LocalEditorIconName } from './local-editor-ui-icons';
 import type {
   LocalEditorBrowserAuthoringSource,
   LocalEditorBrowserPlacementMode,
@@ -13,22 +14,29 @@ import type {
   LocalEditorBrowserTransformTool,
 } from './local-editor-ui-types';
 
+export interface LocalEditorButtonOptions {
+  icon?: LocalEditorIconName;
+}
+
 export function applyButtonActiveState(button: HTMLButtonElement, active: boolean): void {
   button.dataset.active = active ? 'true' : 'false';
   button.style.background = active ? 'var(--fps-editor-button-active)' : 'var(--fps-editor-button)';
   button.style.borderColor = active ? 'var(--fps-editor-accent-strong)' : 'var(--fps-editor-border)';
-  button.style.color = active ? '#fff' : 'var(--fps-editor-text)';
+  button.style.color = active ? 'var(--fps-editor-text-inverse)' : 'var(--fps-editor-text)';
 }
 
-export function createButton(doc: Document, text: string): HTMLButtonElement {
+export function createButton(doc: Document, text: string, options: LocalEditorButtonOptions = {}): HTMLButtonElement {
   const button = doc.createElement('button');
   button.type = 'button';
-  button.textContent = text;
   button.style.cssText = [
     'border:1px solid var(--fps-editor-border)',
     'border-radius:3px',
     'background:var(--fps-editor-button)',
     'color:var(--fps-editor-text)',
+    'display:inline-flex',
+    'align-items:center',
+    'justify-content:center',
+    'gap:5px',
     'font-size:12px',
     'font-weight:700',
     'padding:4px 8px',
@@ -37,6 +45,12 @@ export function createButton(doc: Document, text: string): HTMLButtonElement {
     'height:26px',
     'line-height:16px',
   ].join(';');
+  if (options.icon) button.appendChild(createLocalEditorIcon(doc, options.icon));
+  const label = doc.createElement('span');
+  label.dataset.editorButtonLabel = 'true';
+  label.textContent = text;
+  label.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  button.appendChild(label);
   button.addEventListener('mouseenter', () => {
     if (!button.disabled) button.style.background = button.dataset.active === 'true'
       ? 'var(--fps-editor-button-active)'
@@ -78,8 +92,8 @@ export function createEditorPanel(doc: Document, side: 'left-top' | 'left-bottom
     'border:1px solid var(--fps-editor-border)',
     'border-radius:3px',
     'background:var(--fps-editor-panel)',
-    'box-shadow:0 12px 32px rgba(0,0,0,0.28)',
-    'font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+    'box-shadow:var(--fps-editor-shadow-popover)',
+    'font-family:var(--fps-editor-font)',
     'color:var(--fps-editor-text)',
     'font-size:12px',
     'pointer-events:auto',
@@ -87,10 +101,14 @@ export function createEditorPanel(doc: Document, side: 'left-top' | 'left-bottom
   return panel;
 }
 
-export function createDockTabButton(doc: Document, text: string, active: boolean): HTMLButtonElement {
+export function createDockTabButton(
+  doc: Document,
+  text: string,
+  active: boolean,
+  options: LocalEditorButtonOptions = {},
+): HTMLButtonElement {
   const button = doc.createElement('button');
   button.type = 'button';
-  button.textContent = text;
   button.style.cssText = [
     'height:30px',
     'border:0',
@@ -98,12 +116,22 @@ export function createDockTabButton(doc: Document, text: string, active: boolean
     `border-top:${active ? '2px solid var(--fps-editor-accent)' : '2px solid transparent'}`,
     `background:${active ? 'var(--fps-editor-panel)' : 'var(--fps-editor-chrome-dark)'}`,
     `color:${active ? 'var(--fps-editor-text-strong)' : 'var(--fps-editor-muted)'}`,
+    'display:inline-flex',
+    'align-items:center',
+    'justify-content:center',
+    'gap:5px',
     'font-size:12px',
     'font-weight:900',
     'padding:0 10px',
     'cursor:pointer',
     'white-space:nowrap',
   ].join(';');
+  if (options.icon) button.appendChild(createLocalEditorIcon(doc, options.icon));
+  const label = doc.createElement('span');
+  label.dataset.editorButtonLabel = 'true';
+  label.textContent = text;
+  label.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  button.appendChild(label);
   return button;
 }
 

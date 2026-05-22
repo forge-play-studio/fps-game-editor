@@ -18,9 +18,14 @@ import type {
   LocalEditorBrowserUiState,
   LocalEditorWorkbenchPanelDescriptor,
 } from './local-editor-ui-types';
+import { createLocalEditorIcon, type LocalEditorIconName } from './local-editor-ui-icons';
 import {
+  createBadge,
   createAssetList,
   createDockTab,
+  createEditorInputStyle,
+  createEmptyState,
+  createListItemBlock,
   createPanelHeader,
   createPropertyRow,
   createToolbarButton,
@@ -28,6 +33,11 @@ import {
   createTreeViewItem,
 } from './local-editor-ui-primitives';
 import { clearElement, toTitle } from './local-editor-ui-shared';
+
+const DOCK_TAB_ICONS: Record<LocalEditorBottomDockTab, LocalEditorIconName> = {
+  assets: 'asset',
+  history: 'history',
+};
 
 export interface LocalEditorBrowserInspectorRenderOptions<TDocument = unknown> {
   controls?: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[];
@@ -42,11 +52,11 @@ export function renderHierarchyPanel<TDocument>(
   drop: LocalEditorBrowserSceneGraphDropIntent | null,
 ): void {
   clearElement(panel);
-  const createGroupButton = createToolbarButton(doc, '+ Group');
+  const createGroupButton = createToolbarButton(doc, '+ Group', 'group');
   createGroupButton.dataset.editorHierarchyCreateGroup = 'true';
   createGroupButton.style.padding = '3px 7px';
   createGroupButton.style.fontSize = '11px';
-  panel.appendChild(createPanelHeader(doc, 'Graph', [createGroupButton]));
+  panel.appendChild(createPanelHeader(doc, 'Graph', [createGroupButton], 'hierarchy'));
 
   const list = createTreeView(doc);
   for (const item of state.hierarchy) {
@@ -76,7 +86,7 @@ export function renderHierarchyPanel<TDocument>(
         'border:1px solid var(--fps-editor-accent-strong)',
         'border-radius:2px',
         'background:var(--fps-editor-field)',
-        'color:#fff',
+        'color:var(--fps-editor-text-strong)',
         'font-size:12px',
         'font-weight:700',
         'padding:2px 5px',
@@ -133,7 +143,7 @@ export function renderWorkbenchBottomDockPanel<TDocument>(
         { id: 'history', title: '历史', area: 'bottom' },
       ] satisfies Array<LocalEditorWorkbenchPanelDescriptor & { id: LocalEditorBottomDockTab }>;
   for (const tabPanel of dockTabs) {
-    const button = createDockTab(doc, tabPanel.title, activeTab === tabPanel.id);
+    const button = createDockTab(doc, tabPanel.title, activeTab === tabPanel.id, DOCK_TAB_ICONS[tabPanel.id]);
     button.dataset.editorDockTab = tabPanel.id;
     tabHeader.appendChild(button);
   }
@@ -163,25 +173,24 @@ function appendDockTabs(
     history: '历史',
   };
   for (const tab of ['assets', 'history'] as const) {
-    const button = doc.createElement('button');
-    button.type = 'button';
-    button.dataset.editorDockTab = tab;
-    button.textContent = labels[tab];
     const active = activeTab === tab;
-    button.style.cssText = [
-      'border:0',
-      'border-bottom:2px solid transparent',
-      `border-bottom-color:${active ? '#58a6ff' : 'transparent'}`,
-      'background:transparent',
-      `color:${active ? 'var(--fps-editor-text-strong)' : 'var(--fps-editor-muted)'}`,
-      'font-size:12px',
-      'font-weight:900',
-      'padding:0 8px 8px',
-      'cursor:pointer',
-    ].join(';');
+    const button = createDockTab(doc, labels[tab], active, DOCK_TAB_ICONS[tab]);
+    button.dataset.editorDockTab = tab;
+    button.style.border = '0';
+    button.style.borderBottom = `2px solid ${active ? 'var(--fps-editor-accent-strong)' : 'transparent'}`;
+    button.style.background = 'transparent';
+    button.style.color = active ? 'var(--fps-editor-text-strong)' : 'var(--fps-editor-muted)';
+    button.style.padding = '0 8px 8px';
     tabs.appendChild(button);
   }
   panel.appendChild(tabs);
+}
+
+function createHeadingLabel(doc: Document, text: string): HTMLSpanElement {
+  const label = doc.createElement('span');
+  label.textContent = text;
+  label.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  return label;
 }
 
 function renderAssetBrowserContent<TDocument>(
@@ -191,8 +200,9 @@ function renderAssetBrowserContent<TDocument>(
   variant: 'list' | 'grid' = 'list',
 ): void {
   const title = doc.createElement('h2');
-  title.textContent = '资产浏览器';
-  title.style.cssText = 'font-size:13px;margin:0 0 8px;font-weight:800;color:var(--fps-editor-text-strong)';
+  title.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;margin:0 0 8px;font-weight:800;color:var(--fps-editor-text-strong)';
+  title.appendChild(createLocalEditorIcon(doc, 'asset'));
+  title.appendChild(createHeadingLabel(doc, '资产浏览器'));
   panel.appendChild(title);
 
   const filter = doc.createElement('input');
@@ -242,20 +252,28 @@ function renderAssetBrowserContent<TDocument>(
       'padding:6px 8px',
       'border:1px solid var(--fps-editor-border)',
       'border-radius:3px',
-      'background:#243426',
+      'background:var(--fps-editor-asset-card-bg)',
       'color:var(--fps-editor-text)',
+      'display:flex',
+      'align-items:center',
+      'gap:8px',
       'font-size:12px',
       'cursor:pointer',
     ].join(';');
 
+    const icon = createLocalEditorIcon(doc, 'asset', { size: 16 });
+    const body = doc.createElement('div');
+    body.style.cssText = 'min-width:0;flex:1';
     const label = doc.createElement('div');
     label.textContent = asset.label;
     label.style.cssText = 'font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     const meta = doc.createElement('div');
     meta.textContent = asset.meta ?? asset.id;
     meta.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-    button.appendChild(label);
-    button.appendChild(meta);
+    body.appendChild(label);
+    body.appendChild(meta);
+    button.appendChild(icon);
+    button.appendChild(body);
     list.appendChild(button);
   }
   panel.appendChild(list);
@@ -268,8 +286,9 @@ function renderHistoryPanel(
 ): void {
   const title = doc.createElement('h2');
   const entries = history?.entries ?? [];
-  title.textContent = `历史记录 (${entries.length})`;
-  title.style.cssText = 'font-size:13px;margin:0 0 8px;font-weight:800;color:var(--fps-editor-text-strong)';
+  title.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;margin:0 0 8px;font-weight:800;color:var(--fps-editor-text-strong)';
+  title.appendChild(createLocalEditorIcon(doc, 'history'));
+  title.appendChild(createHeadingLabel(doc, `历史记录 (${entries.length})`));
   panel.appendChild(title);
   appendHistoryEntries(doc, panel, entries);
 }
@@ -280,29 +299,13 @@ function appendHistoryEntries(
   entries: LocalEditorBrowserHistoryEntry[],
 ): void {
   if (entries.length === 0) {
-    const empty = doc.createElement('div');
-    empty.textContent = '暂无文档修改。';
-    empty.style.cssText = [
-      'padding:8px',
-      'border:1px solid var(--fps-editor-border-soft)',
-      'border-radius:3px',
-      'background:var(--fps-editor-field)',
-      'color:var(--fps-editor-muted)',
-      'font-size:11px',
-    ].join(';');
-    panel.appendChild(empty);
+    panel.appendChild(createEmptyState(doc, '暂无文档修改。'));
     return;
   }
   const list = doc.createElement('div');
   list.style.cssText = 'display:flex;flex-direction:column;gap:4px';
   for (const entry of entries) {
-    const item = doc.createElement('div');
-    item.style.cssText = [
-      'padding:7px 8px',
-      'border:1px solid var(--fps-editor-border-soft)',
-      'border-radius:3px',
-      'background:var(--fps-editor-panel-soft)',
-    ].join(';');
+    const item = createListItemBlock(doc);
     const label = doc.createElement('div');
     label.textContent = entry.label;
     label.style.cssText = 'font-size:12px;font-weight:900;color:var(--fps-editor-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
@@ -344,8 +347,9 @@ export function renderInspectorPanel<TDocument>(
 ): void {
   clearElement(panel);
   const title = doc.createElement('h2');
-  title.textContent = 'Inspector';
-  title.style.cssText = 'font-size:13px;margin:-8px -8px 8px;padding:7px 8px;border-bottom:1px solid var(--fps-editor-divider);background:var(--fps-editor-chrome-dark);font-weight:800;color:var(--fps-editor-text-strong)';
+  title.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;margin:-8px -8px 8px;padding:7px 8px;border-bottom:1px solid var(--fps-editor-divider);background:var(--fps-editor-chrome-dark);font-weight:800;color:var(--fps-editor-text-strong)';
+  title.appendChild(createLocalEditorIcon(doc, 'inspector'));
+  title.appendChild(createHeadingLabel(doc, 'Inspector'));
   panel.appendChild(title);
 
   const search = createInspectorSearchInput(doc, filter);
@@ -390,16 +394,10 @@ function createInspectorSearchInput(doc: Document, value: string): HTMLInputElem
   input.value = value;
   input.placeholder = 'Search...';
   input.style.cssText = [
+    createEditorInputStyle(),
     'width:100%',
     'height:30px',
-    'box-sizing:border-box',
     'margin:0 0 8px',
-    'border:1px solid var(--fps-editor-border)',
-    'border-radius:3px',
-    'background:var(--fps-editor-field)',
-    'color:var(--fps-editor-text)',
-    'font-size:12px',
-    'padding:0 8px',
     'outline:none',
   ].join(';');
   return input;
@@ -489,9 +487,11 @@ function createInspectorSectionBlock<TDocument>(
     meta.appendChild(summary);
   }
   if (section.persistence === 'runtime' || section.runtimeOnly || section.persistence === 'readonly') {
-    const badge = doc.createElement('span');
-    badge.textContent = section.persistence === 'runtime' || section.runtimeOnly ? 'Runtime' : 'Readonly';
-    badge.style.cssText = 'flex:0 0 auto';
+    const badge = createBadge(doc, section.persistence === 'runtime' || section.runtimeOnly ? 'Runtime' : 'Readonly', {
+      compact: true,
+      tone: section.persistence === 'readonly' ? 'default' : 'warning',
+    });
+    badge.style.flex = '0 0 auto';
     meta.appendChild(badge);
   }
   sectionTitle.appendChild(meta);
@@ -928,13 +928,7 @@ export function applyLocalEditorBrowserInspectorControlBinding<TDocument>(
 
 function createInspectorInputStyle(): string {
   return [
-    'min-width:0',
-    'height:28px',
-    'border:1px solid var(--fps-editor-border)',
-    'border-radius:3px',
-    'background:var(--fps-editor-field)',
-    'color:var(--fps-editor-text)',
-    'font-size:12px',
+    createEditorInputStyle(),
     'padding:0 6px',
   ].join(';');
 }
