@@ -43,13 +43,20 @@ import { createLocalEditorWorkbenchInputRouter } from './local-editor-ui-input-r
 import { createLocalEditorPanelRegistry } from './local-editor-ui-panel-registry';
 import * as LocalEditorShared from './local-editor-ui-shared';
 import { createShortcutHelpPanel as createLocalEditorShortcutHelpPanel } from './local-editor-ui-shortcuts';
-import { ensureLocalEditorTheme, LOCAL_EDITOR_THEME_CLASS } from './local-editor-ui-theme';
+import {
+  applyLocalEditorTheme,
+  ensureLocalEditorTheme,
+  LOCAL_EDITOR_THEME_CLASS,
+  normalizeLocalEditorThemeName,
+  type LocalEditorThemeName,
+} from './local-editor-ui-theme';
 import {
   createDefaultLocalEditorWorkbenchLayout,
   createLocalEditorWorkbench,
   createSceneHeaderToolbar,
   createWorkbenchPanelContent,
 } from './local-editor-ui-workbench';
+import type { LocalEditorIconName } from './local-editor-ui-icons';
 import type {
   LocalEditorBottomDockTab,
   LocalEditorBrowserInspectorCommitMode,
@@ -67,6 +74,7 @@ import type {
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
+  LocalEditorThemeController,
 } from './local-editor-ui-types';
 
 export {
@@ -76,6 +84,29 @@ export {
   resolveLocalEditorBrowserInspectorControlRegistration,
 } from './local-editor-ui-panels';
 export type { LocalEditorBrowserInspectorRenderOptions } from './local-editor-ui-panels';
+
+export type {
+  LocalEditorThemeName,
+} from './local-editor-ui-theme';
+
+export {
+  DEFAULT_LOCAL_EDITOR_THEME,
+  LOCAL_EDITOR_THEME_CLASS,
+  applyLocalEditorTheme,
+  normalizeLocalEditorThemeName,
+} from './local-editor-ui-theme';
+
+export {
+  LOCAL_EDITOR_ICON_NAMES,
+  createLocalEditorIcon,
+  isLocalEditorIconName,
+  resolveLocalEditorIconName,
+} from './local-editor-ui-icons';
+
+export type {
+  LocalEditorIconName,
+  LocalEditorIconOptions,
+} from './local-editor-ui-icons';
 
 export type {
   LocalEditorBottomDockTab,
@@ -124,6 +155,7 @@ export type {
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
+  LocalEditorThemeController,
   LocalEditorContextAction,
   LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
@@ -160,6 +192,24 @@ function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): n
   }
   return input.value;
 }
+
+const TRANSFORM_TOOL_ICONS: Record<LocalEditorBrowserTransformTool, LocalEditorIconName> = {
+  select: 'select',
+  move: 'move',
+  rotate: 'rotate',
+  scale: 'scale',
+};
+
+const TRANSFORM_SPACE_ICONS: Record<LocalEditorBrowserTransformSpace, LocalEditorIconName> = {
+  world: 'world',
+  local: 'local',
+};
+
+const PLACEMENT_MODE_ICONS: Record<LocalEditorBrowserPlacementMode, LocalEditorIconName> = {
+  off: 'place-off',
+  ground: 'place-ground',
+  surface: 'place-surface',
+};
 
 function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, number> {
   const wrapper = input.closest<HTMLElement>('[data-inspector-vector-control]');
@@ -210,15 +260,16 @@ function readInspectorImmediateSource(input: HTMLInputElement | HTMLSelectElemen
 
 export function createLocalEditorBrowserUi<TDocument = unknown>(
   options: LocalEditorBrowserUiOptions<TDocument> = {},
-): LocalEditorBrowserUi<TDocument> {
+): LocalEditorBrowserUi<TDocument> & LocalEditorThemeController {
   const doc = options.document ?? document;
   const root = options.root ?? doc.body;
   const callbacks = options.callbacks ?? {};
   ensureLocalEditorTheme(doc);
+  let activeTheme: LocalEditorThemeName = normalizeLocalEditorThemeName(options.theme);
   const inputRouter = createLocalEditorWorkbenchInputRouter(doc);
   const contextMenu = createLocalEditorContextMenuController(doc, (open) => {
     inputRouter.setContextMenuOpen(open);
-  });
+  }, activeTheme);
   let currentState: LocalEditorBrowserUiState<TDocument> | null = null;
   let inspectorFilter = '';
   const workbenchLayout = createDefaultLocalEditorWorkbenchLayout();
@@ -241,7 +292,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'border:1px solid var(--fps-editor-border)',
     'border-radius:3px',
     'background:var(--fps-editor-chrome)',
-    'box-shadow:0 10px 28px rgba(0,0,0,0.24)',
+    'box-shadow:var(--fps-editor-shadow-panel)',
     'font-family:var(--fps-editor-font)',
     'color:var(--fps-editor-text)',
     'font-size:12px',
@@ -254,7 +305,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'font-weight:800',
     'white-space:nowrap',
   ].join(';');
-  const enterEditorButton = LocalEditorShared.createButton(doc, '进入编辑场景');
+  const enterEditorButton = LocalEditorShared.createButton(doc, '进入编辑场景', { icon: 'execute' });
   hostChrome.appendChild(hostModeLabel);
   hostChrome.appendChild(enterEditorButton);
   root.appendChild(hostChrome);
@@ -266,19 +317,19 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'align-items:center',
     'padding:0 7px',
     'border-radius:999px',
-    'background:rgba(248,81,73,0.16)',
-    'border:1px solid rgba(248,81,73,0.45)',
-    'color:#ffd7d5',
+    'background:var(--fps-editor-danger-soft)',
+    'border:1px solid var(--fps-editor-danger-border)',
+    'color:var(--fps-editor-danger-text)',
     'font-size:11px',
     'font-weight:800',
   ].join(';');
   dirtyBadge.textContent = '未保存';
 
-  const saveButton = LocalEditorShared.createButton(doc, '保存场景');
-  const saveAndRunButton = LocalEditorShared.createButton(doc, '保存并运行');
-  const discardRunButton = LocalEditorShared.createButton(doc, '放弃并运行');
-  const undoButton = LocalEditorShared.createButton(doc, '撤销');
-  const redoButton = LocalEditorShared.createButton(doc, '重做');
+  const saveButton = LocalEditorShared.createButton(doc, '保存场景', { icon: 'save' });
+  const saveAndRunButton = LocalEditorShared.createButton(doc, '保存并运行', { icon: 'execute' });
+  const discardRunButton = LocalEditorShared.createButton(doc, '放弃并运行', { icon: 'discard' });
+  const undoButton = LocalEditorShared.createButton(doc, '撤销', { icon: 'undo' });
+  const redoButton = LocalEditorShared.createButton(doc, '重做', { icon: 'redo' });
   let helpOpen = false;
 
   const status = doc.createElement('span');
@@ -330,7 +381,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const transformToolDescriptors = Object.values(DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS);
   for (const descriptor of transformToolDescriptors) {
     const shortcut = descriptor.shortcut ? `${descriptor.shortcut} ` : '';
-    const button = LocalEditorShared.createButton(doc, `${shortcut}${descriptor.label}`);
+    const button = LocalEditorShared.createButton(doc, `${shortcut}${descriptor.label}`, {
+      icon: TRANSFORM_TOOL_ICONS[descriptor.tool],
+    });
     button.dataset.transformTool = descriptor.tool;
     button.title = descriptor.handles.length > 0
       ? `${descriptor.label} · ${descriptor.handles.map(handle => handle.label).join(' / ')}`
@@ -347,8 +400,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
   const spaceButtons = {
-    world: LocalEditorShared.createButton(doc, '世界'),
-    local: LocalEditorShared.createButton(doc, '本地'),
+    world: LocalEditorShared.createButton(doc, '世界', { icon: TRANSFORM_SPACE_ICONS.world }),
+    local: LocalEditorShared.createButton(doc, '本地', { icon: TRANSFORM_SPACE_ICONS.local }),
   } satisfies Record<LocalEditorBrowserTransformSpace, HTMLButtonElement>;
   for (const [space, button] of Object.entries(spaceButtons) as Array<[LocalEditorBrowserTransformSpace, HTMLButtonElement]>) {
     button.dataset.transformSpace = space;
@@ -370,7 +423,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const snapButton = LocalEditorShared.createButton(doc, '吸附');
+  const snapButton = LocalEditorShared.createButton(doc, '吸附', { icon: 'snap' });
   snapButton.dataset.transformSnapToggle = 'true';
   snapButton.title = '移动 / 旋转 / 缩放吸附';
   const snapStepInputs = new Map<LocalEditorBrowserTransformSnapStepKind, HTMLInputElement>();
@@ -413,9 +466,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   placementLabel.textContent = '放置';
   placementLabel.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;font-weight:900;white-space:nowrap';
   const placementButtons = {
-    off: LocalEditorShared.createButton(doc, '关'),
-    ground: LocalEditorShared.createButton(doc, '地'),
-    surface: LocalEditorShared.createButton(doc, '表'),
+    off: LocalEditorShared.createButton(doc, '关', { icon: PLACEMENT_MODE_ICONS.off }),
+    ground: LocalEditorShared.createButton(doc, '地', { icon: PLACEMENT_MODE_ICONS.ground }),
+    surface: LocalEditorShared.createButton(doc, '表', { icon: PLACEMENT_MODE_ICONS.surface }),
   } satisfies Record<LocalEditorBrowserPlacementMode, HTMLButtonElement>;
   placementButtons.off.title = '关闭放置模式';
   placementButtons.ground.title = '放置到 XZ 地面';
@@ -462,7 +515,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     transformActionSelect.appendChild(option);
   }
   transformActionSelect.value = selectedTransformAction;
-  const transformActionButton = LocalEditorShared.createButton(doc, '执行');
+  const transformActionButton = LocalEditorShared.createButton(doc, '执行', { icon: 'execute' });
   transformActionButton.dataset.transformActionRun = 'true';
   transformActionButton.title = '对当前多选执行 Transform 操作';
   actionGroup.appendChild(transformActionSelect);
@@ -488,7 +541,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'font-size:11px',
   ].join(';');
   sceneMouseHint.textContent = '左键选择 · 空白拖拽框选 · 中键平移 · Alt+左键环绕 · 右键飞行 · 滚轮缩放';
-  const sceneHelpButton = LocalEditorShared.createButton(doc, '快捷键');
+  const themeToggleButton = LocalEditorShared.createButton(doc, '主题', { icon: 'theme' });
+  themeToggleButton.dataset.editorThemeToggle = 'true';
+  themeToggleButton.style.padding = '5px 7px';
+  const sceneHelpButton = LocalEditorShared.createButton(doc, '快捷键', { icon: 'help' });
   sceneHelpButton.style.padding = '5px 7px';
   sceneQuickActions.appendChild(saveButton);
   sceneQuickActions.appendChild(saveAndRunButton);
@@ -496,6 +552,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneQuickActions.appendChild(undoButton);
   sceneQuickActions.appendChild(redoButton);
   sceneQuickActions.appendChild(dirtyBadge);
+  sceneQuickActions.appendChild(themeToggleButton);
   sceneQuickActions.appendChild(sceneHelpButton);
   const cameraPreviewGroup = doc.createElement('div');
   cameraPreviewGroup.style.cssText = [
@@ -505,7 +562,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const sceneCameraButton = LocalEditorShared.createButton(doc, 'Scene Camera');
+  const sceneCameraButton = LocalEditorShared.createButton(doc, 'Scene Camera', { icon: 'camera' });
   sceneCameraButton.dataset.sceneCameraPreviewToggle = 'true';
   sceneCameraButton.title = '从 Main Camera 查看当前场景';
   cameraPreviewGroup.appendChild(sceneCameraButton);
@@ -524,13 +581,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   workbench.sceneHeader.appendChild(sceneToolOverlay);
 
   const boxSelectionOverlay = doc.createElement('div');
+  boxSelectionOverlay.classList.add(LOCAL_EDITOR_THEME_CLASS);
   boxSelectionOverlay.style.cssText = [
     'position:fixed',
     'z-index:2147483637',
     'display:none',
-    'border:1px solid rgba(88,166,255,0.95)',
-    'background:rgba(56,139,253,0.18)',
-    'box-shadow:0 0 0 1px rgba(10,15,23,0.55) inset',
+    'border:1px solid var(--fps-editor-drop-target)',
+    'background:var(--fps-editor-box-select-bg)',
+    'box-shadow:var(--fps-editor-box-select-shadow)',
     'pointer-events:none',
   ].join(';');
   root.appendChild(boxSelectionOverlay);
@@ -538,6 +596,30 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const shortcutHelpPanel = createLocalEditorShortcutHelpPanel(doc);
   shortcutHelpPanel.classList.add(LOCAL_EDITOR_THEME_CLASS);
   root.appendChild(shortcutHelpPanel);
+
+  function applyThemeToSurfaces(): void {
+    applyLocalEditorTheme(hostChrome, activeTheme);
+    applyLocalEditorTheme(workbench.root, activeTheme);
+    applyLocalEditorTheme(shortcutHelpPanel, activeTheme);
+    applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
+    contextMenu.setTheme?.(activeTheme);
+  }
+
+  function updateThemeToggleButton(): void {
+    const nextTheme = activeTheme === 'dark' ? 'light' : 'dark';
+    themeToggleButton.dataset.editorTheme = activeTheme;
+    themeToggleButton.setAttribute('aria-pressed', activeTheme === 'light' ? 'true' : 'false');
+    themeToggleButton.title = nextTheme === 'light' ? '切换为浅色主题' : '切换为深色主题';
+  }
+
+  function setActiveTheme(theme: unknown): void {
+    activeTheme = normalizeLocalEditorThemeName(theme);
+    applyThemeToSurfaces();
+    updateThemeToggleButton();
+  }
+
+  applyThemeToSurfaces();
+  updateThemeToggleButton();
 
   enterEditorButton.addEventListener('click', () => callbacks.onEnterEditor?.());
   saveButton.addEventListener('click', () => callbacks.onSaveScene?.());
@@ -559,6 +641,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
 
   sceneHelpButton.addEventListener('click', () => {
     setShortcutHelpOpen(!helpOpen);
+  });
+  themeToggleButton.addEventListener('click', () => {
+    setActiveTheme(activeTheme === 'dark' ? 'light' : 'dark');
   });
   shortcutHelpPanel.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -903,11 +988,11 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     status.textContent += dragSuffix;
     status.title = state.statusDetails || status.textContent;
     status.style.color = state.statusTone === 'error'
-      ? '#ff8f87'
+      ? 'var(--fps-editor-danger-strong)'
       : state.statusTone === 'warning'
-        ? '#d29922'
+        ? 'var(--fps-editor-warn)'
         : state.statusTone === 'success'
-          ? '#7ee787'
+          ? 'var(--fps-editor-success)'
           : 'var(--fps-editor-muted)';
     sceneToolStatus.textContent = transformTool?.dragPhase === 'dragging'
       ? `正在拖拽 ${transformTool.draggingNodeId ?? '选择对象'}`
@@ -944,6 +1029,12 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   return {
     update(state) {
       render(state);
+    },
+    setTheme(theme) {
+      setActiveTheme(theme);
+    },
+    getTheme() {
+      return activeTheme;
     },
     dispose() {
       hostChrome.remove();

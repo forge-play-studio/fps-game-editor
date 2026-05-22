@@ -361,6 +361,26 @@ createLocalEditorHarness
 
 它覆盖 hierarchy、transform、save、undo/redo、dirty 和基础 Babylon 投影，适合隔离调试编辑器框架。`examples/babylon-editor-world` 仍保留为更低层的 Babylon 投影 demo。
 
+### Editor UI 主题
+
+本地编辑器 UI 默认使用 `dark` 主题，也可以在创建 harness 时切到 `light`。主题只作用于浏览器 UI surface，不写入 document、session 或 undo/redo 状态：
+
+```ts
+import { createLocalEditorHarness, type LocalEditorThemeName } from '@fps-games/editor';
+
+const harness = createLocalEditorHarness({
+  root: document.body,
+  theme: 'light' satisfies LocalEditorThemeName,
+  documentAdapter,
+  persistenceAdapter,
+  worldAdapter,
+});
+
+harness.setTheme('dark');
+```
+
+浏览器层的主题由 `.fps-editor-workbench[data-fps-editor-theme="dark|light"]` 驱动。Workbench、context menu、shortcut modal、box selection overlay 等独立 surface 会同步这个属性。新增控件应优先复用 `packages/editor-browser/src/local-editor-ui-primitives.ts` 和 `local-editor-ui-shared.ts`，颜色使用 `local-editor-ui-theme.ts` 中的 token；toolbar、hierarchy、panel 图标使用 `local-editor-ui-icons.ts` 的内联 SVG registry，不新增 UI/icon 运行时依赖，也不把 PNG kind icon 混入工具栏体系。
+
 ### mini-game-lab
 
 默认启动从 `lumber_order` 基线复制来的 mini game lab，用它验证“编辑器保存后回到真实 GameWorld”的完整体验：

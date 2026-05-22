@@ -1,5 +1,9 @@
 import { createContextMenu } from './local-editor-ui-primitives';
-import { LOCAL_EDITOR_THEME_CLASS } from './local-editor-ui-theme';
+import {
+  applyLocalEditorTheme,
+  LOCAL_EDITOR_THEME_CLASS,
+  type LocalEditorThemeName,
+} from './local-editor-ui-theme';
 import type { LocalEditorContextMenuItem } from './local-editor-ui-types';
 
 export interface LocalEditorContextMenuOpenInput {
@@ -13,15 +17,18 @@ export interface LocalEditorContextMenuController {
   isOpen(): boolean;
   open(input: LocalEditorContextMenuOpenInput): void;
   close(): void;
+  setTheme?(theme: LocalEditorThemeName): void;
   dispose(): void;
 }
 
 export function createLocalEditorContextMenuController(
   doc: Document,
   onOpenChange: (open: boolean) => void,
+  theme?: LocalEditorThemeName,
 ): LocalEditorContextMenuController {
   const menu = createContextMenu(doc);
   menu.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  applyLocalEditorTheme(menu, theme);
   menu.tabIndex = -1;
   menu.setAttribute('role', 'menu');
   doc.body.appendChild(menu);
@@ -89,6 +96,9 @@ export function createLocalEditorContextMenuController(
       menu.focus({ preventScroll: true });
     },
     close,
+    setTheme(nextTheme) {
+      applyLocalEditorTheme(menu, nextTheme);
+    },
     dispose() {
       close();
       doc.removeEventListener('pointerdown', onPointerDown, { capture: true });
@@ -131,7 +141,7 @@ function renderMenu(doc: Document, menu: HTMLElement, items: LocalEditorContextM
       'border:0',
       'border-radius:2px',
       'background:transparent',
-      `color:${item.disabled ? 'var(--fps-editor-muted)' : item.danger ? '#ffb8b3' : 'var(--fps-editor-text)'}`,
+      `color:${item.disabled ? 'var(--fps-editor-muted)' : item.danger ? 'var(--fps-editor-danger-text)' : 'var(--fps-editor-text)'}`,
       'font-family:var(--fps-editor-font)',
       'font-size:12px',
       'font-weight:800',

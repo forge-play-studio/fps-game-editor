@@ -67,6 +67,8 @@ import {
   type LocalEditorBrowserUiHierarchyItem,
   type LocalEditorBrowserUiState,
   type LocalEditorContextAction,
+  type LocalEditorThemeController,
+  type LocalEditorThemeName,
 } from '@fps-games/editor-browser';
 import {
   createBabylonEditorProjection,
@@ -347,6 +349,7 @@ export interface LocalEditorHarnessWorldAdapter<TAsset = LocalEditorHarnessAsset
 
 export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   root?: HTMLElement;
+  theme?: LocalEditorThemeName;
   authoringHost?: ProjectAuthoringHost;
   hostServices?: EditorHostServices;
   documentAdapter: LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset>;
@@ -364,6 +367,8 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
 
 export interface LocalEditorHarness<TDocument = unknown> {
   render(): void;
+  setTheme?(theme: LocalEditorThemeName): void;
+  getTheme?(): LocalEditorThemeName;
   getHostServices(): EditorHostServices | null;
   getWorkingDocument(): TDocument | null;
   reloadAssets(): Promise<LocalEditorHarnessAssetReloadResult>;
@@ -416,7 +421,7 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
 
 export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem>(
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
-): LocalEditorHarness<TDocument> {
+): LocalEditorHarness<TDocument> & LocalEditorThemeController {
   const root = options.root ?? document.body;
   const state: LocalEditorHarnessState<TDocument, TPatch, TAsset> = {
     mode: 'game',
@@ -450,9 +455,10 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     summary: '',
   };
 
-  let harness: LocalEditorHarness<TDocument>;
-  const ui: LocalEditorBrowserUi<TDocument> = createLocalEditorBrowserUi<TDocument>({
+  let harness: LocalEditorHarness<TDocument> & LocalEditorThemeController;
+  const ui: LocalEditorBrowserUi<TDocument> & LocalEditorThemeController = createLocalEditorBrowserUi<TDocument>({
     root,
+    theme: options.theme,
     inspector: options.inspector,
     callbacks: {
       onEnterEditor: () => {
@@ -578,6 +584,12 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     render() {
       syncSceneCameraPreview(state, options);
       ui.update(createUiState(state, options));
+    },
+    setTheme(theme) {
+      ui.setTheme(theme);
+    },
+    getTheme() {
+      return ui.getTheme();
     },
     getHostServices() {
       return options.hostServices ?? null;
