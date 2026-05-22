@@ -18,6 +18,8 @@ import {
   type SceneGraphCreateGroupIntent,
   type SceneGraphDeleteIntent,
   type SceneGraphDropIntent,
+  type SceneGraphGroupSelectionIntent,
+  type SceneGraphMoveIntent,
   type SceneGraphRenameIntent,
   type SceneGraphValidationResult,
   createInspectorEditPayload,
@@ -41,6 +43,8 @@ import {
   serializedObjectToInspectorObject,
   validateSceneGraphDelete,
   validateSceneGraphDrop,
+  validateSceneGraphGroupSelection,
+  validateSceneGraphMove,
   validateSceneGraphRename,
 } from '@fps-games/editor-core';
 import {
@@ -183,6 +187,19 @@ export interface LocalEditorHarnessSceneGraphDropPatch<TPatch> {
   changedIds?: string[];
 }
 
+export interface LocalEditorHarnessSceneGraphMovePatch<TPatch> {
+  patch: TPatch;
+  label?: string;
+  changedIds?: string[];
+}
+
+export interface LocalEditorHarnessSceneGraphGroupSelectionPatch<TPatch> {
+  patch: TPatch;
+  label?: string;
+  createdId: string;
+  changedIds?: string[];
+}
+
 export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   cloneDocument?(document: TDocument): TDocument;
   compareDocuments?(left: TDocument, right: TDocument): boolean;
@@ -209,6 +226,10 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   createSceneGraphCreateGroupPatch?(document: TDocument, intent: SceneGraphCreateGroupIntent): LocalEditorHarnessSceneGraphCreateGroupPatch<TPatch> | null;
   createSceneGraphDeletePatch?(document: TDocument, intent: SceneGraphDeleteIntent): LocalEditorHarnessSceneGraphDeletePatch<TPatch> | null;
   createSceneGraphDropPatch?(document: TDocument, intent: SceneGraphDropIntent): LocalEditorHarnessSceneGraphDropPatch<TPatch> | null;
+  validateSceneGraphMove?(document: TDocument, intent: SceneGraphMoveIntent): SceneGraphValidationResult;
+  createSceneGraphMovePatch?(document: TDocument, intent: SceneGraphMoveIntent): LocalEditorHarnessSceneGraphMovePatch<TPatch> | null;
+  validateSceneGraphGroupSelection?(document: TDocument, intent: SceneGraphGroupSelectionIntent): SceneGraphValidationResult;
+  createSceneGraphGroupSelectionPatch?(document: TDocument, intent: SceneGraphGroupSelectionIntent): LocalEditorHarnessSceneGraphGroupSelectionPatch<TPatch> | null;
   summarize?(document: TDocument): string;
 }
 
@@ -363,6 +384,12 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       },
       onSceneGraphDrop: (intent) => {
         if (dropSceneGraphNode(state, options, intent)) harness.render();
+      },
+      onSceneGraphMove: (intent) => {
+        if (moveSceneGraphNodes(state, options, intent)) harness.render();
+      },
+      onSceneGraphGroupSelection: (intent) => {
+        if (groupSceneGraphSelection(state, options, intent)) harness.render();
       },
       onContextAction: (action) => {
         if (handleContextAction(state, options, action)) harness.render();
@@ -976,6 +1003,106 @@ function dropSceneGraphNode<TDocument, TPatch, TAsset>(
   rebuildProjectionFromDocument(state, options, result.workingDocument, result.selection);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
   state.status = patch.label ?? `Reparented ${intent.draggedId}`;
+  return true;
+}
+
+function moveSceneGraphNodes<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  intent: SceneGraphMoveIntent,
+): boolean {
+  const document = state.session?.getState().workingDocument;
+  if (state.mode !== 'editor' || !state.session || !document) return false;
+  cancelActiveOperation(state);
+  const hierarchy = options.documentAdapter.getHierarchyItems(document);
+  const coreValidation = validateSceneGraphMove(hierarchy, intent);
+  if (!coreValidation.ok) {
+    state.status = `Move rejected: ${coreValidation.reason ?? 'invalid scene graph move'}`;
+    return true;
+  }
+  const projectValidation = options.documentAdapter.validateSceneGraphMove?.(document, intent);
+  if (projectValidation && !projectValidation.ok) {
+    state.status = `Move rejected: ${projectValidation.reason ?? 'project validation failed'}`;
+    return true;
+  }
+  if (!options.documentAdapter.createSceneGraphMovePatch && intent.placement === 'inside' && intent.ids.length === 1 && intent.targetId) {
+    return dropSceneGraphNode(state, options, {
+      draggedId: intent.ids[0]!,
+      targetId: intent.targetId,
+      placement: 'inside',
+      preserveWorldTransform: intent.preserveWorldTransform,
+    });
+  }
+  const patch = options.documentAdapter.createSceneGraphMovePatch?.(document, intent);
+  if (!patch) {
+    state.status = 'Move rejected';
+    return true;
+  }
+  const result = state.session.dispatch({
+    type: 'document.patch',
+    label: patch.label ?? `Move ${intent.ids.length} node(s)`,
+    patch: patch.patch,
+    targetId: intent.ids[0] ?? undefined,
+  });
+  if (!result.documentChanged) {
+    state.status = 'Move unchanged';
+    return true;
+  }
+  const selection = sanitizeSelection(state, options, result.workingDocument, result.selection) ?? result.selection;
+  rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
+  state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
+  state.status = patch.label ?? `Moved ${patch.changedIds?.length ?? intent.ids.length} node(s)`;
+  return true;
+}
+
+function groupSceneGraphSelection<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  intent: SceneGraphGroupSelectionIntent,
+): boolean {
+  const document = state.session?.getState().workingDocument;
+  if (state.mode !== 'editor' || !state.session || !document) return false;
+  cancelActiveOperation(state);
+  const hierarchy = options.documentAdapter.getHierarchyItems(document);
+  const coreValidation = validateSceneGraphGroupSelection(hierarchy, intent);
+  if (!coreValidation.ok) {
+    state.status = `Group selection rejected: ${coreValidation.reason ?? 'invalid scene graph group selection'}`;
+    return true;
+  }
+  const projectValidation = options.documentAdapter.validateSceneGraphGroupSelection?.(document, intent);
+  if (projectValidation && !projectValidation.ok) {
+    state.status = `Group selection rejected: ${projectValidation.reason ?? 'project validation failed'}`;
+    return true;
+  }
+  const patch = options.documentAdapter.createSceneGraphGroupSelectionPatch?.(document, intent);
+  if (!patch) {
+    state.status = 'Group selection rejected';
+    return true;
+  }
+  const result = state.session.dispatch({
+    type: 'document.patch',
+    label: patch.label ?? 'Group Selection',
+    patch: patch.patch,
+    targetId: patch.createdId,
+  });
+  if (!result.documentChanged) {
+    state.status = 'Group selection unchanged';
+    return true;
+  }
+  let selection = result.selection;
+  if (patch.createdId && isNodeSelectableInDocument(options, result.workingDocument, patch.createdId)) {
+    selection = state.session.dispatch({
+      type: 'selection.replace',
+      selectedIds: [patch.createdId],
+      activeId: patch.createdId,
+      label: 'Select Created Group',
+    }).selection;
+  } else {
+    selection = sanitizeSelection(state, options, result.workingDocument, selection) ?? selection;
+  }
+  rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
+  state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
+  state.status = patch.label ?? `Grouped ${patch.changedIds?.length ?? intent.ids.length} node(s)`;
   return true;
 }
 

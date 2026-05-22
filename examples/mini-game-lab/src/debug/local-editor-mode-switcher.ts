@@ -26,18 +26,23 @@ import {
   collectEditorSceneSubtreeIdList,
   createEditorSceneCreateGroupPatch,
   createEditorSceneDeleteSubtreePatch,
+  createEditorSceneGroupSelectionPatch,
+  createEditorSceneHierarchyMovePatch,
   createEditorSceneInspectorPropertyPatch,
-  getEditorSceneRuntimeInspectorSections,
   createEditorSceneRenamePatch,
   createEditorSceneReparentPatch,
+  getEditorSceneHierarchyItems,
   getEditorSceneInspectorMultiObject,
   getEditorSceneInspectorObject,
+  getEditorSceneRuntimeInspectorSections,
   getEditorSceneSerializedObject,
   getEditorSceneSerializedMultiObject,
   getEditorSceneGameObjectWorldTransform,
-  isEditorSceneGroupLikeGameObject,
+  normalizeEditorSceneHierarchyDocument,
   reduceEditorSceneDocument,
   toEditorSceneLocalTransformFromWorld,
+  validateEditorSceneGroupSelection,
+  validateEditorSceneHierarchyMove,
   validateEditorSceneReparent,
   type EditorSceneDocumentPatch,
 } from '../fps-game-editor-adapter/editor-scene-session';
@@ -71,24 +76,14 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
     root: options.root,
     authoringHost,
     documentAdapter: {
-      prepareDocument: enrichEditorSceneDocumentAssets,
+      prepareDocument: (document, assets) => normalizeEditorSceneHierarchyDocument(enrichEditorSceneDocumentAssets(document, assets)),
       reduceDocument: reduceEditorSceneDocument,
       getSerializedObject: getEditorSceneSerializedObject,
       getSerializedMultiObject: getEditorSceneSerializedMultiObject,
       getInspectorObject: getEditorSceneInspectorObject,
       getInspectorMultiObject: getEditorSceneInspectorMultiObject,
       getRuntimeInspectorSections: getEditorSceneRuntimeInspectorSections,
-      getHierarchyItems: (document) => document.scene.gameObjects.map((gameObject) => ({
-        id: gameObject.id,
-        label: gameObject.name ?? gameObject.id,
-        parentId: gameObject.parentId ?? null,
-        depth: getGameObjectDepth(document, gameObject),
-        selectable: gameObject.id !== 'mvp_root',
-        canHaveChildren: isEditorSceneGroupLikeGameObject(gameObject),
-        renamable: gameObject.id !== 'mvp_root',
-        deletable: gameObject.id !== 'mvp_root',
-        draggable: gameObject.id !== 'mvp_root',
-      })),
+      getHierarchyItems: getEditorSceneHierarchyItems,
       getProjectionNodes: createProjectionNodes,
       getProjectionNode: (document, id) => {
         const gameObject = document.scene.gameObjects.find((entry) => entry.id === id);
@@ -112,10 +107,14 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
       createTransformPatch: createEditorSceneTransformPatch,
       createTransformBatchPatch: createEditorSceneTransformBatchPatch,
       validateSceneGraphDrop: validateEditorSceneReparent,
+      validateSceneGraphMove: validateEditorSceneHierarchyMove,
+      validateSceneGraphGroupSelection: validateEditorSceneGroupSelection,
       createSceneGraphRenamePatch: createEditorSceneRenamePatch,
       createSceneGraphCreateGroupPatch: createEditorSceneCreateGroupPatch,
       createSceneGraphDeletePatch: createEditorSceneDeleteSubtreePatch,
       createSceneGraphDropPatch: createEditorSceneReparentPatch,
+      createSceneGraphMovePatch: createEditorSceneHierarchyMovePatch,
+      createSceneGraphGroupSelectionPatch: createEditorSceneGroupSelectionPatch,
       summarize: summarizeEditorScene,
     },
     persistenceAdapter: {
@@ -370,19 +369,6 @@ function createTransformFromSerializedPath(
   const storedValue = vectorName === 'rotation' ? (value * Math.PI) / 180 : value;
   const vector = { [axis]: storedValue };
   return { [vectorName]: vector };
-}
-
-function getGameObjectDepth(editorScene: EditorSceneDocument, gameObject: EditorSceneGameObject): number {
-  const byId = new Map(editorScene.scene.gameObjects.map((entry) => [entry.id, entry]));
-  const seen = new Set<string>();
-  let depth = 0;
-  let cursor = gameObject.parentId ? byId.get(gameObject.parentId) : undefined;
-  while (cursor && !seen.has(cursor.id) && depth < 12) {
-    seen.add(cursor.id);
-    depth += 1;
-    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
-  }
-  return depth;
 }
 
 const FORGE_PLAY_BRIDGE_SOURCE = 'forge-play-game-bridge';

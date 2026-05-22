@@ -4,9 +4,11 @@ export interface TreeViewItemRenderInput {
   id: string;
   label: string;
   depth?: number;
+  role?: 'root' | 'group' | 'object';
   selected?: boolean;
   active?: boolean;
   locked?: boolean;
+  protected?: boolean;
   selectable?: boolean;
   draggable?: boolean;
   dropPlacement?: 'inside' | 'before' | 'after' | null;
@@ -50,8 +52,9 @@ export function createTreeViewItem(doc: Document, input: TreeViewItemRenderInput
   const button = doc.createElement('button');
   button.type = 'button';
   button.dataset.editorHierarchyId = input.id;
-  button.draggable = input.locked !== true && input.draggable !== false;
-  const selectable = input.selectable !== false && input.locked !== true;
+  const protectedNode = input.protected === true;
+  button.draggable = !protectedNode && input.locked !== true && input.draggable !== false;
+  const selectable = input.selectable !== false && !protectedNode && input.locked !== true;
   const depth = input.depth ?? 0;
   const dropColor = input.dropPlacement === 'inside'
     ? 'rgba(88,166,255,0.95)'
@@ -61,12 +64,15 @@ export function createTreeViewItem(doc: Document, input: TreeViewItemRenderInput
   button.style.cssText = [
     'width:100%',
     'min-height:24px',
+    'display:flex',
+    'align-items:center',
+    'gap:5px',
     'text-align:left',
     `padding:3px 8px 3px ${8 + depth * 16}px`,
     `border:1px solid ${dropColor ?? (input.active ? 'var(--fps-editor-accent-strong)' : input.selected ? 'var(--fps-editor-accent)' : 'transparent')}`,
     'border-radius:0',
     `background:${input.dropPlacement === 'inside' ? 'var(--fps-editor-accent-soft)' : input.active ? 'rgba(45,117,214,0.50)' : input.selected ? 'rgba(45,117,214,0.30)' : input.locked ? '#262626' : 'transparent'}`,
-    `color:${input.locked ? '#777' : input.selected ? '#ffffff' : 'var(--fps-editor-text)'}`,
+    `color:${input.locked && !protectedNode ? '#777' : input.selected ? '#ffffff' : 'var(--fps-editor-text)'}`,
     'font-size:12px',
     'font-weight:700',
     `cursor:${selectable ? 'pointer' : 'not-allowed'}`,

@@ -1616,10 +1616,10 @@ function assertValidSceneParent(sceneConfig: SceneConfig, parentId: string | und
   const scene = ensureSceneSection(sceneConfig);
   if (parentId === scene.rootId) return;
   const parent = scene.nodes.find((node) => node.id === parentId);
-  if (!parent || parent.kind !== 'group') {
+  if (!parent) {
     throw new ProjectEditorSceneNodeError(
       PROJECT_EDITOR_SCENE_NODE_ERROR_CODES.invalidSceneNodeParent,
-      `[ProjectEditor][Document] parentId must point to root or group: ${parentId}`,
+      `[ProjectEditor][Document] parentId must point to root or scene node: ${parentId}`,
       { nodeId, parentId },
     );
   }

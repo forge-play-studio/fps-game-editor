@@ -122,8 +122,10 @@ export interface LocalEditorBrowserUiHierarchyItem {
   label: string;
   parentId?: string | null;
   depth?: number;
+  role?: 'root' | 'group' | 'object';
   selectable?: boolean;
   locked?: boolean;
+  protected?: boolean;
   canHaveChildren?: boolean;
   renamable?: boolean;
   deletable?: boolean;
@@ -261,6 +263,8 @@ export interface LocalEditorBrowserHierarchySelectionInput {
 
 export type LocalEditorBrowserSceneGraphDropPlacement = 'inside' | 'before' | 'after';
 
+export type LocalEditorBrowserSceneGraphMovePlacement = LocalEditorBrowserSceneGraphDropPlacement | 'root';
+
 export interface LocalEditorBrowserSceneGraphRenameIntent {
   id: string;
   name: string;
@@ -284,12 +288,32 @@ export interface LocalEditorBrowserSceneGraphDropIntent {
   preserveWorldTransform?: boolean;
 }
 
+export interface LocalEditorBrowserSceneGraphMoveIntent {
+  ids: string[];
+  targetId?: string | null;
+  placement: LocalEditorBrowserSceneGraphMovePlacement;
+  parentId?: string | null;
+  beforeId?: string | null;
+  afterId?: string | null;
+  preserveWorldTransform?: boolean;
+}
+
+export interface LocalEditorBrowserSceneGraphGroupSelectionIntent {
+  ids: string[];
+  parentId?: string | null;
+  insertBeforeId?: string | null;
+  name?: string;
+  pivot?: 'selection-center' | 'active' | 'parent-origin';
+  preserveWorldTransform?: boolean;
+}
+
 export interface LocalEditorContextMenuItem {
   id: string;
   label: string;
   shortcut?: string;
   danger?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   separatorBefore?: boolean;
   children?: LocalEditorContextMenuItem[];
 }
@@ -320,6 +344,8 @@ export interface LocalEditorBrowserUiCallbacks {
   onSceneGraphCreateGroup?: (intent: LocalEditorBrowserSceneGraphCreateGroupIntent) => void;
   onSceneGraphDelete?: (intent: LocalEditorBrowserSceneGraphDeleteIntent) => void;
   onSceneGraphDrop?: (intent: LocalEditorBrowserSceneGraphDropIntent) => void;
+  onSceneGraphMove?: (intent: LocalEditorBrowserSceneGraphMoveIntent) => void;
+  onSceneGraphGroupSelection?: (intent: LocalEditorBrowserSceneGraphGroupSelectionIntent) => void;
   onContextAction?: (action: LocalEditorContextAction) => void;
 }
 

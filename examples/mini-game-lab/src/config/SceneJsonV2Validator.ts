@@ -59,7 +59,6 @@ export function validateSceneJsonV2(
 
   const assetIds = new Set<string>();
   const nodeIds = new Set<string>();
-  const groupIds = new Set<string>([scene.rootId]);
 
   scene.assets.forEach((asset, index) => {
     const path = `$.scene.assets[${index}]`;
@@ -92,14 +91,15 @@ export function validateSceneJsonV2(
     else if (nodeIds.has(node.id)) add(`${path}.id`, `duplicate node id: ${node.id}`);
     else nodeIds.add(node.id);
     if (!NODE_KINDS.has(node.kind)) add(`${path}.kind`, 'node.kind must be group, instance, or transform');
-    if (node.kind === 'group' && nonEmptyString(node.id)) groupIds.add(node.id);
   });
 
   scene.nodes.forEach((node, index) => {
     if (!isRecord(node)) return;
     const path = `$.scene.nodes[${index}]`;
     const parentId = nonEmptyString(node.parentId) ? node.parentId : scene.rootId;
-    if (!groupIds.has(parentId)) add(`${path}.parentId`, `parentId must point to root or group: ${parentId}`);
+    if (parentId !== scene.rootId && !nodeIds.has(parentId)) {
+      add(`${path}.parentId`, `parentId must point to root or scene node: ${parentId}`);
+    }
     if (nonEmptyString(node.id)) validateNodeParentCycle(node.id, scene, `${path}.parentId`, add);
     validateRuntimeSourceBinding(node.source, `${path}.source`, add);
     validateTransform(node.transform, `${path}.transform`, add);
@@ -114,9 +114,6 @@ export function validateSceneJsonV2(
     }
     if (node.kind === 'transform' && node.transformType === 'groundDecal') {
       validateGroundDecal(node.groundDecal, `${path}.groundDecal`, add);
-    }
-    if ((node.kind === 'instance' || node.kind === 'transform') && scene.nodes.some((child) => child?.parentId === node.id)) {
-      add(path, `${node.kind} nodes must not have authored children`);
     }
     if (strictNodes.has(node.id)) assertNoRuntimeOnlyFields(node, path, add);
   });
