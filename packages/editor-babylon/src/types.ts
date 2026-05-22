@@ -34,6 +34,10 @@ export type BabylonRuntimeGlobal = {
   GizmoManager?: new (scene: RuntimeScene) => any;
   UtilityLayerRenderer?: any;
   PointerDragBehavior?: any;
+  MeshBuilder?: {
+    CreateSphere?: (name: string, options: Record<string, unknown>, scene: RuntimeScene) => any;
+  };
+  StandardMaterial?: new (name: string, scene: RuntimeScene) => any;
   Inspector?: any;
   DebugLayerTab?: any;
   InstancedMesh?: any;

@@ -26,9 +26,11 @@ import {
   collectEditorSceneSubtreeIdList,
   createEditorSceneCreateGroupPatch,
   createEditorSceneDeleteSubtreePatch,
+  createEditorSceneDuplicateSelectionPatch,
   createEditorSceneGroupSelectionPatch,
   createEditorSceneHierarchyMovePatch,
   createEditorSceneInspectorPropertyPatch,
+  createEditorScenePlacedAssetPatch,
   createEditorSceneRenamePatch,
   createEditorSceneReparentPatch,
   getEditorSceneHierarchyItems,
@@ -98,6 +100,7 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
           assetItem,
         },
       }),
+      createPlacedAssetPatch: createEditorScenePlacedAssetPatch,
       findCreatedId: (beforeDocument, afterDocument) => {
         const beforeIds = new Set(beforeDocument.scene.gameObjects.map((gameObject) => gameObject.id));
         return afterDocument.scene.gameObjects.find((gameObject) => !beforeIds.has(gameObject.id))?.id ?? null;
@@ -106,6 +109,7 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
       createSerializedMultiPropertyPatch: createEditorSceneSerializedMultiPropertyPatch,
       createTransformPatch: createEditorSceneTransformPatch,
       createTransformBatchPatch: createEditorSceneTransformBatchPatch,
+      createDuplicateSelectionPatch: createEditorSceneDuplicateSelectionPatch,
       validateSceneGraphDrop: validateEditorSceneReparent,
       validateSceneGraphMove: validateEditorSceneHierarchyMove,
       validateSceneGraphGroupSelection: validateEditorSceneGroupSelection,

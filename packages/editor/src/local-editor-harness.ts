@@ -3,17 +3,25 @@ import {
   type AuthoringSourceDescriptor,
   createEditorSession,
   createInspectorRegistry,
+  DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
   type DocumentCommand,
+  type EditorPlacementHit,
   type EditorSelectionState,
   type EditorSession,
   type EditorSessionDispatchResult,
   type EditorSessionHistoryResult,
+  type EditorPlacementMode,
+  type EditorTransformAction,
   type EditorTransformBatchCommit,
+  type EditorTransformCanonicalConstraint,
   type EditorTransformConstraint,
+  type EditorTransformOperationSettings,
+  type EditorTransformPivot,
   type EditorTransformSnapshot,
   type EditorTransformSpace,
-  type EditorTransformTool,
   type EditorTransformTargetSnapshot,
+  type EditorTransformTool,
+  type EditorTransformVec3,
   type SelectionCommand,
   type SceneGraphCreateGroupIntent,
   type SceneGraphDeleteIntent,
@@ -37,7 +45,9 @@ import {
   type InspectorSection,
   type InspectorSelectionContext,
   type EditorHostServices,
+  computeEditorTransformActionTargets,
   mergeInspectorSections,
+  normalizeEditorTransformConstraint,
   type ProjectAuthoringHost,
   serializedMultiObjectToInspectorObject,
   serializedObjectToInspectorObject,
@@ -76,6 +86,8 @@ import {
   type BabylonEditorProjectionNode,
   type BabylonTransformGizmoCommit,
   type BabylonTransformGizmoController,
+  type BabylonTransformGizmoDuplicateDragInput,
+  type BabylonTransformGizmoDuplicateDragResult,
   type BabylonEditorWorld,
   type BabylonRuntimeGlobal,
 } from '@fps-games/editor-babylon';
@@ -151,12 +163,26 @@ export interface LocalEditorHarnessTransformInput<TDocument = unknown> {
   targetId: string;
   tool: Exclude<EditorTransformTool, 'select'>;
   space: EditorTransformSpace;
+  constraint: EditorTransformCanonicalConstraint;
   before: EditorTransformSnapshot;
   after: EditorTransformSnapshot;
 }
 
 export interface LocalEditorHarnessTransformBatchInput<TDocument = unknown> extends EditorTransformBatchCommit {
   document: TDocument;
+}
+
+export interface LocalEditorHarnessDuplicateSelectionInput<TDocument = unknown> {
+  document: TDocument;
+  targetIds: string[];
+  activeId: string | null;
+  transforms: Record<string, EditorTransformSnapshot>;
+}
+
+export interface LocalEditorHarnessPlacedAssetInput<TDocument = unknown, TAsset = LocalEditorHarnessAssetItem> {
+  document: TDocument;
+  asset: TAsset;
+  hit: EditorPlacementHit;
 }
 
 export interface LocalEditorHarnessPatchResult<TPatch> {
@@ -205,6 +231,23 @@ export interface LocalEditorHarnessSceneGraphGroupSelectionPatch<TPatch> {
   changedIds?: string[];
 }
 
+export interface LocalEditorHarnessDuplicateSelectionPatch<TPatch> {
+  patch: TPatch;
+  label?: string;
+  createdIds: string[];
+  activeId?: string | null;
+  changedIds?: string[];
+  reprojectIds?: string[];
+}
+
+export interface LocalEditorHarnessPlacedAssetPatch<TPatch> {
+  patch: TPatch;
+  label?: string;
+  createdId?: string | null;
+  changedIds?: string[];
+  reprojectIds?: string[];
+}
+
 export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   cloneDocument?(document: TDocument): TDocument;
   compareDocuments?(left: TDocument, right: TDocument): boolean;
@@ -221,11 +264,13 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   isSelectable?(document: TDocument, id: string): boolean;
   isLocked?(document: TDocument, id: string): boolean;
   createPatchFromAsset(asset: TAsset): { patch: TPatch; label?: string };
+  createPlacedAssetPatch?(input: LocalEditorHarnessPlacedAssetInput<TDocument, TAsset>): LocalEditorHarnessPlacedAssetPatch<TPatch> | null;
   findCreatedId?(beforeDocument: TDocument, afterDocument: TDocument): string | null;
   createSerializedPropertyPatch(input: LocalEditorHarnessPropertyInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
   createSerializedMultiPropertyPatch?(input: LocalEditorHarnessMultiPropertyInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
   createTransformPatch?(input: LocalEditorHarnessTransformInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
   createTransformBatchPatch?(input: LocalEditorHarnessTransformBatchInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
+  createDuplicateSelectionPatch?(input: LocalEditorHarnessDuplicateSelectionInput<TDocument>): LocalEditorHarnessDuplicateSelectionPatch<TPatch> | null;
   validateSceneGraphDrop?(document: TDocument, intent: SceneGraphDropIntent): SceneGraphValidationResult;
   createSceneGraphRenamePatch?(document: TDocument, intent: SceneGraphRenameIntent): LocalEditorHarnessSceneGraphRenamePatch<TPatch> | null;
   createSceneGraphCreateGroupPatch?(document: TDocument, intent: SceneGraphCreateGroupIntent): LocalEditorHarnessSceneGraphCreateGroupPatch<TPatch> | null;
@@ -315,7 +360,17 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   boxSelection: BabylonProjectionSelectionBox | null;
   transformTool: EditorTransformTool;
   transformSpace: EditorTransformSpace;
-  transformConstraint: EditorTransformConstraint;
+  transformConstraint: EditorTransformCanonicalConstraint;
+  transformOperationSettings: EditorTransformOperationSettings;
+  duplicateDrag: {
+    originalSelection: EditorSelectionState;
+    createdIds: string[];
+    activeId: string | null;
+  } | null;
+  armedPlacement: {
+    assetId: string;
+    asset: TAsset;
+  } | null;
   resizeHandler: (() => void) | null;
   status: string;
   statusTone: LocalEditorBrowserUiState<TDocument>['statusTone'];
@@ -347,6 +402,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     transformTool: 'select',
     transformSpace: 'world',
     transformConstraint: 'axis',
+    transformOperationSettings: cloneTransformOperationSettings(DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS),
+    duplicateDrag: null,
+    armedPlacement: null,
     resizeHandler: null,
     status: 'Game running',
     statusTone: 'default',
@@ -379,7 +437,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         if (redoSessionChange(state, options)) harness.render();
       },
       onCreateFromAsset: (assetId) => {
-        if (addAssetToDocument(state, options, assetId)) harness.render();
+        if (createAssetFromBrowserIntent(state, options, assetId)) harness.render();
       },
       onSelectHierarchyItem: (input) => {
         if (selectItem(state, options, input)) harness.render();
@@ -416,7 +474,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       },
       onTransformToolChange: (tool) => {
         state.transformTool = tool;
+        state.transformConstraint = normalizeTransformConstraint(tool, state.transformConstraint);
         state.gizmo?.setTool(tool);
+        state.gizmo?.setConstraint(state.transformConstraint);
         harness.render();
       },
       onTransformSpaceChange: (space) => {
@@ -425,9 +485,44 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         harness.render();
       },
       onTransformConstraintChange: (constraint) => {
-        state.transformConstraint = constraint;
-        state.gizmo?.setConstraint(constraint);
+        state.transformConstraint = normalizeTransformConstraint(state.transformTool, constraint);
+        state.gizmo?.setConstraint(state.transformConstraint);
         harness.render();
+      },
+      onTransformSnapEnabledChange: (enabled) => {
+        state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, {
+          snap: {
+            ...state.transformOperationSettings.snap,
+            enabled,
+          },
+        });
+        state.gizmo?.setOperationSettings(state.transformOperationSettings);
+        state.status = enabled ? 'Transform snap enabled' : 'Transform snap disabled';
+        harness.render();
+      },
+      onTransformSnapStepChange: (input) => {
+        const value = normalizePositiveStep(input.value);
+        if (value == null) return;
+        const snap = { ...state.transformOperationSettings.snap };
+        if (input.kind === 'move') snap.moveStep = value;
+        else if (input.kind === 'rotate') snap.rotateStepDegrees = value;
+        else snap.scaleStep = value;
+        state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, { snap });
+        state.gizmo?.setOperationSettings(state.transformOperationSettings);
+        state.status = `Transform snap ${input.kind} step ${value}`;
+        harness.render();
+      },
+      onPlacementModeChange: (mode) => {
+        state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, {
+          placementMode: normalizePlacementMode(mode),
+        });
+        state.gizmo?.setOperationSettings(state.transformOperationSettings);
+        if (state.transformOperationSettings.placementMode === 'off') clearArmedPlacement(state);
+        state.status = `Placement mode: ${state.transformOperationSettings.placementMode}`;
+        harness.render();
+      },
+      onTransformAction: (action) => {
+        if (executeTransformAction(state, options, action)) harness.render();
       },
       onFocusSelection: () => {
         if (focusSelectedProjection(state)) harness.render();
@@ -581,6 +676,65 @@ export function mergeLocalEditorHarnessInspectorComponentSections<TDocument>(
   };
 }
 
+function normalizeTransformConstraint(
+  tool: EditorTransformTool,
+  constraint?: EditorTransformConstraint | null,
+): EditorTransformCanonicalConstraint {
+  return normalizeEditorTransformConstraint(tool, constraint) ?? 'axis';
+}
+
+function cloneTransformOperationSettings(
+  settings: EditorTransformOperationSettings,
+): EditorTransformOperationSettings {
+  return {
+    snap: {
+      enabled: settings.snap.enabled,
+      moveStep: settings.snap.moveStep,
+      rotateStepDegrees: settings.snap.rotateStepDegrees,
+      scaleStep: settings.snap.scaleStep,
+    },
+    placementMode: settings.placementMode,
+  };
+}
+
+function updateTransformOperationSettings(
+  current: EditorTransformOperationSettings,
+  patch: Partial<EditorTransformOperationSettings>,
+): EditorTransformOperationSettings {
+  return {
+    ...current,
+    ...patch,
+    snap: patch.snap
+      ? { ...current.snap, ...patch.snap }
+      : { ...current.snap },
+  };
+}
+
+function normalizePositiveStep(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Number(value.toFixed(4));
+}
+
+function normalizePlacementMode(mode: EditorPlacementMode): EditorPlacementMode {
+  return mode === 'ground' || mode === 'surface' ? mode : 'off';
+}
+
+function validateTransformActionSelection<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  action: EditorTransformAction,
+): { ok: true } | { ok: false; message: string } {
+  const selection = state.session?.getState().selection;
+  const selectedCount = selection?.selectedIds.length ?? 0;
+  if (action.startsWith('align-')) {
+    return selectedCount >= 2 && selection?.activeId
+      ? { ok: true }
+      : { ok: false, message: 'Align needs at least 2 selected objects and an active object' };
+  }
+  return selectedCount >= 3
+    ? { ok: true }
+    : { ok: false, message: 'Distribute needs at least 3 selected objects' };
+}
+
 async function createEditorWorld<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -617,8 +771,8 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     logger: console,
     onDragStart(event) {
       state.status = event.targetIds.length > 1
-        ? `Dragging ${event.tool} ${event.targetIds.length} objects`
-        : `Dragging ${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
+        ? `Dragging ${event.duplicate ? 'duplicate ' : ''}${event.tool} ${event.targetIds.length} objects`
+        : `Dragging ${event.duplicate ? 'duplicate ' : ''}${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
       render();
     },
     onDragUpdate() {
@@ -629,12 +783,20 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       render();
     },
     onDragCancel(event) {
+      if (event.duplicate && cancelDuplicateDrag(state, options)) {
+        render();
+        return;
+      }
       state.status = event.targetIds.length > 1
         ? `Canceled ${event.tool} ${event.targetIds.length} objects`
         : `Canceled ${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
       render();
     },
+    onDuplicateDragStart(input) {
+      return beginDuplicateDrag(state, options, input);
+    },
   });
+  gizmo.setOperationSettings(state.transformOperationSettings);
   gizmo.setConstraint(state.transformConstraint);
   const selectionController = createBabylonProjectionSelectionController({
     scene: world.scene,
@@ -662,7 +824,16 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     isGizmoDragCandidate: (event) => gizmo.isGizmoDragCandidate(event),
     isBoxSelectCandidate: (event) => selectionController.isBoxSelectionCandidate(event),
     isViewPlaneMoveCandidate: (event) => gizmo.isViewPlaneMoveCandidate(event),
+    isPlacementCandidate: () => isPlacementArmed(state),
     onPointerIntentStart(event) {
+      if (event.state.intent === 'gizmo-drag') {
+        gizmo.preparePointerDrag(event.originalEvent);
+        return;
+      }
+      if (event.state.intent === 'placement') {
+        if (previewArmedPlacement(state, event.originalEvent)) render();
+        return;
+      }
       if (event.state.intent === 'view-plane-move') {
         if (gizmo.beginViewPlaneMove(event.originalEvent)) render();
         return;
@@ -672,6 +843,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentMove(event) {
+      if (event.state.intent === 'placement') {
+        if (previewArmedPlacement(state, event.originalEvent)) render();
+        return;
+      }
       if (event.state.intent === 'view-plane-move') {
         if (gizmo.updateViewPlaneMove(event.originalEvent)) render();
         return;
@@ -685,6 +860,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentEnd(event) {
+      if (event.state.intent === 'placement') {
+        if (commitArmedPlacement(state, options, event.originalEvent)) render();
+        return;
+      }
       if (event.state.intent === 'view-plane-move') {
         if (gizmo.endViewPlaneMove(event.originalEvent)) render();
         return;
@@ -694,6 +873,11 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentCancel(event) {
+      if (event.state.intent === 'placement') {
+        state.gizmo?.setPlacementMarker(null);
+        render();
+        return;
+      }
       if (event.state.intent === 'view-plane-move') {
         gizmo.cancelDrag();
         render();
@@ -1159,6 +1343,231 @@ function syncSelectionToProjection<TDocument, TPatch, TAsset>(
   state.gizmo?.refreshSelection();
 }
 
+function executeTransformAction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  action: EditorTransformAction,
+): boolean {
+  if (state.mode !== 'editor' || !state.session) return false;
+  const document = state.session.getState().workingDocument;
+  const selection = state.session.getState().selection;
+  cancelActiveOperation(state);
+  const validation = validateTransformActionSelection(state, action);
+  if (!validation.ok) {
+    state.status = validation.message;
+    return true;
+  }
+  const beforeTransforms = state.projection?.readNodeTransforms(selection.selectedIds) ?? {};
+  const transformTargets = selection.selectedIds
+    .map((id) => {
+      const transform = beforeTransforms[id];
+      return transform ? { id, transform } : null;
+    })
+    .filter((target): target is { id: string; transform: EditorTransformSnapshot } => !!target);
+  const targets = computeEditorTransformActionTargets({
+    action,
+    activeId: selection.activeId,
+    targets: transformTargets,
+  });
+  if (targets.length === 0) {
+    state.status = `Transform action rejected: ${action}`;
+    return true;
+  }
+  const changedTargets = targets.filter(target => !editorTransformSnapshotsEqual(target.before, target.after));
+  if (changedTargets.length === 0) {
+    state.status = `Transform action unchanged: ${action}`;
+    return true;
+  }
+  const patch = options.documentAdapter.createTransformBatchPatch?.({
+    document,
+    targetIds: changedTargets.map(target => target.id),
+    activeId: selection.activeId,
+    tool: 'move',
+    space: 'world',
+    constraint: action === 'align-all' ? 'free' : 'axis',
+    pivot: createTransformActionPivot(targets),
+    targets: changedTargets,
+  });
+  if (!patch) {
+    state.status = `Transform action ignored: ${action}`;
+    return true;
+  }
+  const result = state.session.dispatch({
+    type: 'document.patch',
+    label: patch.label ?? formatTransformActionStatus(action, changedTargets.length),
+    patch: patch.patch,
+    targetId: selection.activeId ?? changedTargets[0]?.id,
+  });
+  if (!result.documentChanged) {
+    state.status = `Transform action unchanged: ${action}`;
+    return true;
+  }
+  const changedIds = patch.changedIds ?? changedTargets.map(target => target.id);
+  syncProjectionForChangedIds(state, options, result.workingDocument, changedIds);
+  state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
+  state.status = patch.label ?? formatTransformActionStatus(action, changedTargets.length);
+  return true;
+}
+
+function createTransformActionPivot(targets: EditorTransformTargetSnapshot[]): EditorTransformPivot {
+  const center = averageTransformTargetPositions(targets);
+  return {
+    mode: 'selection-center',
+    position: center,
+  };
+}
+
+function averageTransformTargetPositions(targets: EditorTransformTargetSnapshot[]): EditorTransformVec3 {
+  if (targets.length === 0) return { x: 0, y: 0, z: 0 };
+  return {
+    x: targets.reduce((sum, target) => sum + target.before.position.x, 0) / targets.length,
+    y: targets.reduce((sum, target) => sum + target.before.position.y, 0) / targets.length,
+    z: targets.reduce((sum, target) => sum + target.before.position.z, 0) / targets.length,
+  };
+}
+
+function editorTransformSnapshotsEqual(
+  left: EditorTransformSnapshot,
+  right: EditorTransformSnapshot,
+): boolean {
+  return editorVec3Equal(left.position, right.position)
+    && editorVec3Equal(left.rotation, right.rotation)
+    && editorVec3Equal(left.scale, right.scale);
+}
+
+function editorVec3Equal(
+  left: EditorTransformVec3,
+  right: EditorTransformVec3,
+): boolean {
+  return Math.abs(left.x - right.x) < 0.000000001
+    && Math.abs(left.y - right.y) < 0.000000001
+    && Math.abs(left.z - right.z) < 0.000000001;
+}
+
+function formatTransformActionStatus(action: EditorTransformAction, count: number): string {
+  return `${action} ${count} object${count === 1 ? '' : 's'}`;
+}
+
+function createAssetFromBrowserIntent<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  assetId: string,
+): boolean {
+  if (state.transformOperationSettings.placementMode === 'off') {
+    return addAssetToDocument(state, options, assetId);
+  }
+  return armAssetPlacement(state, options, assetId);
+}
+
+function armAssetPlacement<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  assetId: string,
+): boolean {
+  if (state.mode !== 'editor') return false;
+  cancelActiveOperation(state);
+  const asset = state.assets.find(candidate => resolveAssetId(options, candidate) === assetId);
+  if (!asset) return false;
+  state.armedPlacement = { assetId, asset };
+  state.gizmo?.setPlacementMarker(null);
+  state.status = `Placement armed: ${formatAssetLabel(asset, assetId)} (${state.transformOperationSettings.placementMode})`;
+  return true;
+}
+
+function isPlacementArmed<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): boolean {
+  return state.mode === 'editor'
+    && !!state.armedPlacement
+    && state.transformOperationSettings.placementMode !== 'off';
+}
+
+function previewArmedPlacement<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  event: PointerEvent,
+): boolean {
+  if (!isPlacementArmed(state)) return false;
+  const hit = pickArmedPlacementHit(state, event);
+  state.gizmo?.setPlacementMarker(hit);
+  const mode = state.transformOperationSettings.placementMode;
+  state.status = hit
+    ? `Placement ${mode}: ${formatVec3(hit.position)}`
+    : `Placement ${mode}: no hit`;
+  return true;
+}
+
+function commitArmedPlacement<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  event: PointerEvent,
+): boolean {
+  if (!isPlacementArmed(state) || !state.session) return false;
+  const armed = state.armedPlacement;
+  const session = state.session;
+  const beforeDocument = session.getState().workingDocument;
+  const hit = pickArmedPlacementHit(state, event);
+  if (!armed || !hit) {
+    state.gizmo?.setPlacementMarker(null);
+    state.status = 'Placement rejected: no hit';
+    return true;
+  }
+  const patch = options.documentAdapter.createPlacedAssetPatch?.({
+    document: beforeDocument,
+    asset: armed.asset,
+    hit,
+  });
+  if (!patch) {
+    state.status = 'Placement rejected: document adapter does not support placed assets';
+    return true;
+  }
+  const result = session.dispatch({
+    type: 'document.patch',
+    label: patch.label ?? `Place ${armed.assetId}`,
+    patch: patch.patch,
+    targetId: patch.createdId ?? undefined,
+  });
+  if (!result.documentChanged) {
+    state.status = 'Placement unchanged';
+    return true;
+  }
+  const createdId = patch.createdId
+    ?? options.documentAdapter.findCreatedId?.(beforeDocument, result.workingDocument)
+    ?? null;
+  let selection = result.selection;
+  if (createdId && isNodeSelectableInDocument(options, result.workingDocument, createdId)) {
+    selection = session.dispatch({
+      type: 'selection.replace',
+      selectedIds: [createdId],
+      activeId: createdId,
+      label: 'Select Placed Item',
+    }).selection;
+  } else {
+    selection = sanitizeSelection(state, options, result.workingDocument, selection) ?? selection;
+  }
+  clearArmedPlacement(state);
+  rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
+  state.summary = summarizeDocument(options, result.workingDocument, session.getSource());
+  state.status = patch.label ?? `Placed ${formatAssetLabel(armed.asset, armed.assetId)} at ${formatVec3(hit.position)}`;
+  return true;
+}
+
+function pickArmedPlacementHit<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  event: PointerEvent,
+): EditorPlacementHit | null {
+  const mode = state.transformOperationSettings.placementMode;
+  return mode === 'off'
+    ? null
+    : state.gizmo?.pickPlacementHit(event.clientX, event.clientY, mode) ?? null;
+}
+
+function clearArmedPlacement<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): void {
+  state.armedPlacement = null;
+  state.gizmo?.setPlacementMarker(null);
+}
+
 function addAssetToDocument<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -1343,6 +1752,88 @@ function findInspectorPropertyByPath<TDocument>(
   return null;
 }
 
+function beginDuplicateDrag<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  input: BabylonTransformGizmoDuplicateDragInput,
+): BabylonTransformGizmoDuplicateDragResult | null {
+  if (state.mode !== 'editor' || !state.session) return null;
+  if (state.duplicateDrag) return null;
+  const document = state.session.getState().workingDocument;
+  const patch = options.documentAdapter.createDuplicateSelectionPatch?.({
+    document,
+    targetIds: input.targetIds,
+    activeId: input.activeId,
+    transforms: input.beforeTransforms,
+  });
+  if (!patch || patch.createdIds.length === 0) {
+    state.status = 'Duplicate drag rejected';
+    return null;
+  }
+  const originalSelection = state.session.getSelection();
+  const result = state.session.dispatch({
+    type: 'document.patch',
+    label: patch.label ?? `Duplicate ${input.targetIds.length} object(s)`,
+    patch: patch.patch,
+    targetId: patch.activeId ?? patch.createdIds[patch.createdIds.length - 1] ?? undefined,
+  });
+  if (!result.documentChanged) {
+    state.status = 'Duplicate drag unchanged';
+    return null;
+  }
+  const createdIds = patch.createdIds.filter(id => isNodeSelectableInDocument(options, result.workingDocument, id));
+  if (createdIds.length === 0) {
+    const undone = state.session.undo();
+    if (undone) rebuildProjectionFromDocument(state, options, undone.workingDocument, originalSelection);
+    state.status = 'Duplicate drag rejected: duplicated selection is not selectable';
+    return null;
+  }
+  const activeId = patch.activeId && createdIds.includes(patch.activeId)
+    ? patch.activeId
+    : createdIds[createdIds.length - 1] ?? null;
+  const selectionResult = state.session.dispatch({
+    type: 'selection.replace',
+    selectedIds: createdIds,
+    activeId,
+    label: 'Select Duplicate Drag Targets',
+  });
+  state.duplicateDrag = {
+    originalSelection,
+    createdIds,
+    activeId,
+  };
+  rebuildProjectionFromDocument(state, options, result.workingDocument, selectionResult.selection);
+  if (patch.reprojectIds?.length) reprojectProjectionForChangedIds(state, options, result.workingDocument, patch.reprojectIds);
+  else syncProjectionForChangedIds(state, options, result.workingDocument, patch.changedIds ?? createdIds);
+  state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
+  state.status = patch.label ?? `Duplicated ${createdIds.length} object(s)`;
+  return {
+    targetIds: createdIds,
+    activeId,
+  };
+}
+
+function cancelDuplicateDrag<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+): boolean {
+  const duplicate = state.duplicateDrag;
+  if (!duplicate || !state.session) return false;
+  state.duplicateDrag = null;
+  const undone = state.session.undo();
+  if (!undone) return false;
+  const selectionResult = state.session.dispatch({
+    type: 'selection.replace',
+    selectedIds: duplicate.originalSelection.selectedIds,
+    activeId: duplicate.originalSelection.activeId,
+    label: 'Restore Duplicate Drag Selection',
+  });
+  rebuildProjectionFromDocument(state, options, undone.workingDocument, selectionResult.selection);
+  state.summary = summarizeDocument(options, undone.workingDocument, state.session.getSource());
+  state.status = `Canceled duplicate drag ${duplicate.createdIds.length} object(s)`;
+  return true;
+}
+
 function commitGizmoTransform<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -1356,8 +1847,10 @@ function commitGizmoTransform<TDocument, TPatch, TAsset>(
       document,
     });
     if (!patch) {
-      restoreBatchTransformPreview(state, event.targets);
-      state.status = `Ignored ${event.tool} ${event.targetIds.length} objects`;
+      if (!cancelDuplicateDrag(state, options)) {
+        restoreBatchTransformPreview(state, event.targets);
+        state.status = `Ignored ${event.tool} ${event.targetIds.length} objects`;
+      }
       return false;
     }
     const result = state.session.dispatch({
@@ -1365,11 +1858,14 @@ function commitGizmoTransform<TDocument, TPatch, TAsset>(
       label: patch.label ?? `${event.tool} ${event.targetIds.length} objects`,
       patch: patch.patch,
       targetId: event.activeId ?? undefined,
+    }, {
+      mergeWithPrevious: event.targetIds.some(id => state.duplicateDrag?.createdIds.includes(id)) === true,
     });
     syncProjectionForDispatchResult(state, options, result);
     syncProjectionForChangedIds(state, options, result.workingDocument, patch.changedIds ?? event.targetIds);
     state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
     state.status = patch.label ?? `${event.tool} ${event.targetIds.length} objects`;
+    state.duplicateDrag = null;
     return result.documentChanged;
   }
   const patch = options.documentAdapter.createTransformPatch?.({
@@ -1377,12 +1873,15 @@ function commitGizmoTransform<TDocument, TPatch, TAsset>(
     targetId: event.nodeId,
     tool: event.tool,
     space: event.space,
+    constraint: event.constraint,
     before: event.before,
     after: event.after,
   });
   if (!patch) {
-    state.projection?.setNodeTransformPreview(event.nodeId, event.before);
-    state.status = `Ignored ${event.tool} ${event.nodeId}`;
+    if (!cancelDuplicateDrag(state, options)) {
+      state.projection?.setNodeTransformPreview(event.nodeId, event.before);
+      state.status = `Ignored ${event.tool} ${event.nodeId}`;
+    }
     return false;
   }
   const result = state.session.dispatch({
@@ -1390,11 +1889,14 @@ function commitGizmoTransform<TDocument, TPatch, TAsset>(
     label: patch.label ?? `${event.tool} ${event.nodeId}`,
     patch: patch.patch,
     targetId: event.nodeId,
+  }, {
+    mergeWithPrevious: state.duplicateDrag?.createdIds.includes(event.nodeId) === true,
   });
   if (patch.changedIds) syncProjectionForChangedIds(state, options, result.workingDocument, patch.changedIds);
   else syncProjectionForDispatchResult(state, options, result, patch.changedId ?? event.nodeId);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
   state.status = patch.label ?? `${event.tool} ${event.nodeId}`;
+  state.duplicateDrag = null;
   return result.documentChanged;
 }
 
@@ -1423,6 +1925,7 @@ function cancelActiveOperation<TDocument, TPatch, TAsset>(
   state.sceneViewInput?.cancelActiveIntent();
   state.selectionController?.cancelBoxSelection();
   cancelActiveGizmoDrag(state);
+  clearArmedPlacement(state);
 }
 
 function focusSelectedProjection<TDocument, TPatch, TAsset>(
@@ -1462,6 +1965,20 @@ function formatEditorStatusTime(timestamp: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+function formatVec3(value: { x: number; y: number; z: number }): string {
+  return `${formatPlacementNumber(value.x)}, ${formatPlacementNumber(value.y)}, ${formatPlacementNumber(value.z)}`;
+}
+
+function formatPlacementNumber(value: number): string {
+  return Number.isFinite(value) ? Number(value.toFixed(3)).toString() : String(value);
+}
+
+function formatAssetLabel<TAsset>(asset: TAsset, fallback: string): string {
+  const record = isObjectRecord(asset) ? asset : null;
+  const label = record?.label ?? record?.displayName ?? record?.name;
+  return typeof label === 'string' && label.trim() ? label : fallback;
+}
+
 function undoSessionChange<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -1479,7 +1996,7 @@ function redoSessionChange<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
 ): boolean {
-  cancelActiveGizmoDrag(state);
+  cancelActiveOperation(state);
   const result = state.session?.redo();
   if (!result) return false;
   rebuildProjection(state, options, result);
@@ -1611,6 +2128,13 @@ function createUiState<TDocument, TPatch, TAsset>(
       activeConstraint: state.gizmo?.getState().constraint ?? state.transformConstraint,
       dragPhase: state.gizmo?.getState().dragPhase ?? 'idle',
       draggingNodeId: state.gizmo?.getState().draggingNodeId ?? null,
+    },
+    transformOperations: {
+      settings: cloneTransformOperationSettings(state.transformOperationSettings),
+      selectedCount: selectedIds.length,
+      activeId,
+      canAlign: selectedIds.length >= 2 && activeId != null,
+      canDistribute: selectedIds.length >= 3,
     },
     session: sessionState
       ? {

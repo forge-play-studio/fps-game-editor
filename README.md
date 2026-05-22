@@ -12,16 +12,10 @@
 
 ## 快速开始
 
-如果只是开发编辑器框架，优先启动轻量 editor lab：
+默认启动包含真实 GameWorld 闭环的 mini game lab，用它验证“编辑器修改 -> 保存 -> GameWorld 运行态消费”：
 
 ```bash
 npm install
-npm run dev:editor-lab
-```
-
-如果要验证“编辑器修改 -> 保存 -> GameWorld 运行态消费”的完整闭环，启动 mini game lab：
-
-```bash
 cd examples/mini-game-lab
 npm install
 cd ../..
@@ -32,6 +26,12 @@ npm run dev:mini-game-lab
 
 ```text
 http://localhost:5184
+```
+
+只有在用户明确要求轻量 playground、纯编辑器框架调试，或需要隔离 EditorWorld/Harness 行为时，才启动 editor lab：
+
+```bash
+npm run dev:editor-lab
 ```
 
 如果是首次 clone 且 mini-game-lab 资产缺失，请先确认 Git LFS 已启用：
@@ -321,17 +321,17 @@ if (import.meta.env.DEV) {
 
 ### 开发环境分层
 
-本仓库现在有三层测试环境，日常开发按从轻到重使用：
+本仓库现在有三层测试环境。默认服务启动和手动体验验证使用 `mini-game-lab`，因为它包含真实 GameWorld、项目 adapter、保存和运行态消费闭环；只有明确需要轻量隔离调试时才使用 `editor-lab`：
 
 | 环境 | 命令 | 用途 |
 | --- | --- | --- |
-| editor-lab | `npm run dev:editor-lab` | 最轻量的编辑器框架 playground，适合快速验证 EditorWorld、Hierarchy、Transform、Save、Undo/Redo |
-| mini-game-lab | `npm run dev:mini-game-lab` | 包仓库内的真实 GameWorld 闭环，基于 `lumber_order` 基线复制，适合验证保存后运行态消费 |
+| mini-game-lab | `npm run dev:mini-game-lab` | 默认启动环境；包仓库内的真实 GameWorld 闭环，基于 `lumber_order` 基线复制，适合验证保存后运行态消费 |
+| editor-lab | `npm run dev:editor-lab` | 仅在明确需要轻量隔离时使用的编辑器框架 playground，适合快速验证 EditorWorld、Hierarchy、Transform、Save、Undo/Redo |
 | lumber_order + forge-play | 在对应项目启动 | 最终平台沙盒验收环境，验证 Forge Play 按钮、iframe、proxy、文件保存链路 |
 
 ### editor-lab
 
-日常开发优先使用包内最小 playground：
+`examples/editor-lab` 是包内最小 playground。不要把它作为默认服务启动目标；只有在用户明确要求 editor-only、轻量 playground，或需要隔离公共编辑器框架问题时使用：
 
 ```bash
 npm run dev:editor-lab
@@ -347,11 +347,11 @@ createLocalEditorHarness
   -> Babylon EditorWorld projection
 ```
 
-它覆盖 hierarchy、transform、save、undo/redo、dirty 和基础 Babylon 投影，适合平时快速改编辑器框架。`examples/babylon-editor-world` 仍保留为更低层的 Babylon 投影 demo。
+它覆盖 hierarchy、transform、save、undo/redo、dirty 和基础 Babylon 投影，适合隔离调试编辑器框架。`examples/babylon-editor-world` 仍保留为更低层的 Babylon 投影 demo。
 
 ### mini-game-lab
 
-如果需要验证“编辑器保存后回到真实 GameWorld”的完整体验，可以启动从 `lumber_order` 基线复制来的 mini game lab：
+默认启动从 `lumber_order` 基线复制来的 mini game lab，用它验证“编辑器保存后回到真实 GameWorld”的完整体验：
 
 ```bash
 cd examples/mini-game-lab

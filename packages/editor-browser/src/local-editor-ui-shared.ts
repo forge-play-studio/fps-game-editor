@@ -1,5 +1,13 @@
+import {
+  DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
+  DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS,
+} from '@fps-games/editor-core';
 import type {
   LocalEditorBrowserAuthoringSource,
+  LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserTransformConstraint,
+  LocalEditorBrowserTransformAction,
+  LocalEditorBrowserTransformOperationSettings,
   LocalEditorBrowserSceneGraphDropPlacement,
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformTool,
@@ -119,13 +127,7 @@ export function formatAuthoringSourceLabel(source: LocalEditorBrowserAuthoringSo
 }
 
 export function toTransformToolLabel(tool: LocalEditorBrowserTransformTool): string {
-  const labels: Record<LocalEditorBrowserTransformTool, string> = {
-    select: '选择',
-    move: '移动',
-    rotate: '旋转',
-    scale: '缩放',
-  };
-  return labels[tool];
+  return DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS[tool].label;
 }
 
 export function toTransformSpaceLabel(space: LocalEditorBrowserTransformSpace): string {
@@ -134,4 +136,93 @@ export function toTransformSpaceLabel(space: LocalEditorBrowserTransformSpace): 
     local: '本地',
   };
   return labels[space];
+}
+
+export function toTransformConstraintLabel(
+  constraint: LocalEditorBrowserTransformConstraint | undefined,
+): string {
+  const labels: Record<LocalEditorBrowserTransformConstraint, string> = {
+    axis: '轴向',
+    plane: '平面',
+    free: '自由',
+    uniform: '统一',
+    'view-plane': '自由',
+  };
+  return labels[constraint ?? 'axis'];
+}
+
+export function toTransformHandleListLabel(tool: LocalEditorBrowserTransformTool): string {
+  const handles = DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS[tool].handles;
+  return handles.map(handle => handle.label).join(' / ');
+}
+
+export function toTransformToolStatusLabel(
+  tool: LocalEditorBrowserTransformTool,
+  space: LocalEditorBrowserTransformSpace,
+): string {
+  const handleLabel = toTransformHandleListLabel(tool);
+  return [
+    toTransformToolLabel(tool),
+    toTransformSpaceLabel(space),
+    handleLabel,
+  ].filter(Boolean).join(' · ');
+}
+
+export function toPlacementModeLabel(mode: LocalEditorBrowserPlacementMode): string {
+  const labels: Record<LocalEditorBrowserPlacementMode, string> = {
+    off: '放置关',
+    ground: '地面',
+    surface: '表面',
+  };
+  return labels[mode];
+}
+
+export function toTransformActionLabel(action: LocalEditorBrowserTransformAction): string {
+  const labels: Record<LocalEditorBrowserTransformAction, string> = {
+    'align-x': '对齐 X',
+    'align-y': '对齐 Y',
+    'align-z': '对齐 Z',
+    'align-all': '对齐全',
+    'distribute-x': '分布 X',
+    'distribute-y': '分布 Y',
+    'distribute-z': '分布 Z',
+  };
+  return labels[action];
+}
+
+export function toTransformSnapStatusLabel(
+  settings: LocalEditorBrowserTransformOperationSettings = DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
+): string {
+  const snap = settings.snap;
+  const state = snap.enabled ? '吸附开' : '吸附关';
+  return [
+    state,
+    `移动 ${formatOperationNumber(snap.moveStep)}`,
+    `旋转 ${formatOperationNumber(snap.rotateStepDegrees)}°`,
+    `缩放 ${formatOperationNumber(snap.scaleStep)}`,
+  ].join(' · ');
+}
+
+export function toTransformOperationStatusLabel(
+  settings: LocalEditorBrowserTransformOperationSettings = DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
+): string {
+  const placement = settings.placementMode === 'off'
+    ? toPlacementModeLabel(settings.placementMode)
+    : `放置${toPlacementModeLabel(settings.placementMode)}`;
+  return [
+    toTransformSnapStatusLabel(settings),
+    placement,
+  ].join(' · ');
+}
+
+export function toTransformMouseHint(tool: LocalEditorBrowserTransformTool): string {
+  if (tool === 'move') return '移动手柄 · 轴向箭头 / 平面方块 / 中心自由拖拽 · Esc 取消';
+  if (tool === 'rotate') return '旋转手柄 · 轴向圆环拖拽 · Esc 取消';
+  if (tool === 'scale') return '缩放手柄 · 轴向方块 / 中心统一缩放 · Esc 取消';
+  return '左键选择 · 空白拖拽框选 · 中键平移 · Alt+左键环绕 · 右键飞行 · 滚轮缩放';
+}
+
+function formatOperationNumber(value: number): string {
+  if (!Number.isFinite(value)) return String(value);
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
 }

@@ -42,7 +42,10 @@ export function createShortcutHelpPanel(doc: Document): HTMLDivElement {
     ['E', '切换到旋转工具'],
     ['R', '切换到缩放工具'],
     ['世界 / 本地', '在 Scene View 工具条切换 Transform 坐标空间'],
-    ['视图平面', '沿当前摄像机视图平面移动选中对象'],
+    ['移动手柄', '轴向箭头、平面方块和中心自由手柄同时可用'],
+    ['吸附', '在 Scene View 工具条切换移动、旋转、缩放步进吸附'],
+    ['放置', '在 Scene View 工具条切换关闭、XZ 地面或场景表面放置'],
+    ['对齐 / 分布', '多选后从 Scene View 工具条执行位置对齐或分布'],
   ]);
   appendShortcutSection(doc, panel, '视图', [
     ['F', '聚焦当前选中的 GameObject'],
