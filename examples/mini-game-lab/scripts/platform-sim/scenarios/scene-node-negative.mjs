@@ -57,16 +57,23 @@ export async function run(ctx) {
     },
   });
 
-  await ctx.bridge.command('scene.node.create', {
-    requestId: `${requestId}-invalid-parent`,
+  const transformChild = await createNode(ctx, `${requestId}-transform-child`, {
     kind: 'group',
-    id: 'bad_parent_group',
+    id: 'sim_negative_transform_child',
     parentId: decal.nodeId,
+  });
+  assert(transformChild.nodeId, 'transform child should be allowed by scene hierarchy policy', transformChild);
+
+  await ctx.bridge.command('scene.node.create', {
+    requestId: `${requestId}-missing-parent`,
+    kind: 'group',
+    id: 'bad_missing_parent_group',
+    parentId: 'missing_parent_node',
   });
   await expectSceneNodeResult(
     ctx,
     'scene.node.create.result',
-    `${requestId}-invalid-parent`,
+    `${requestId}-missing-parent`,
     'invalid_scene_node_parent',
   );
 

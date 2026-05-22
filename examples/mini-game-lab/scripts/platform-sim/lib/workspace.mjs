@@ -20,7 +20,8 @@ export async function createWorkspace({ repoRoot, write }) {
 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lumber-order-platform-sim-'));
   await copyProject(repoRoot, root);
-  await fs.symlink(path.join(repoRoot, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+  const nodeModulesRoot = await findNearestNodeModules(repoRoot);
+  if (nodeModulesRoot) await fs.symlink(nodeModulesRoot, path.join(root, 'node_modules'), 'dir');
   return {
     root,
     mode: 'dry',
@@ -46,5 +47,21 @@ async function copyProject(source, target) {
     } else if (entry.isFile()) {
       await fs.copyFile(from, to);
     }
+  }
+}
+
+async function findNearestNodeModules(start) {
+  let current = start;
+  for (;;) {
+    const candidate = path.join(current, 'node_modules');
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isDirectory()) return candidate;
+    } catch {
+      // Keep walking toward the workspace root.
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
   }
 }

@@ -10,7 +10,7 @@ export class BridgeProtocol {
   async waitForEvent(name, { requestId, timeoutMs = 15000 } = {}) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const value = await this.cdp.evaluate(`window.__sim.takeEvent(${JSON.stringify(name)}, ${JSON.stringify(requestId ?? null)})`);
+      const value = await this.cdp.evaluate(`window.__sim ? window.__sim.takeEvent(${JSON.stringify(name)}, ${JSON.stringify(requestId ?? null)}) : null`);
       if (value) return value;
       await delay(100);
     }
@@ -21,7 +21,7 @@ export class BridgeProtocol {
   async waitForMessage(type, predicateSource, { timeoutMs = 15000 } = {}) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const value = await this.cdp.evaluate(`window.__sim.takeMessage(${JSON.stringify(type)}, ${JSON.stringify(predicateSource)})`);
+      const value = await this.cdp.evaluate(`window.__sim ? window.__sim.takeMessage(${JSON.stringify(type)}, ${JSON.stringify(predicateSource)}) : null`);
       if (value) return value;
       await delay(100);
     }
@@ -38,11 +38,11 @@ export class BridgeProtocol {
   }
 
   async trace() {
-    return this.cdp.evaluate('window.__sim.trace()');
+    return this.cdp.evaluate('window.__sim ? window.__sim.trace() : null');
   }
 
   async state() {
-    return this.cdp.evaluate('window.__sim.state()');
+    return this.cdp.evaluate('window.__sim ? window.__sim.state() : null');
   }
 }
 

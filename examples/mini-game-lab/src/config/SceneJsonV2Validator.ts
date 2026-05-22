@@ -19,6 +19,7 @@ const ASSET_TYPES = new Set(sceneJsonV2Rules.assetTypes);
 const MATERIAL_MODES = new Set(sceneJsonV2Rules.materialModes);
 const MATERIAL_SCOPES = new Set(sceneJsonV2Rules.materialScopes);
 const TRANSFORM_TYPES = new Set(sceneJsonV2Rules.transformTypes);
+const HIERARCHY_PARENT_TARGETS = new Set(sceneJsonV2Rules.hierarchy.parentTargets);
 const RUNTIME_ONLY_TOKENS = sceneJsonV2Rules.runtimeOnlyTokens;
 
 export function validateSceneJsonV2(
@@ -101,9 +102,7 @@ export function validateSceneJsonV2(
     if (!isRecord(node)) return;
     const path = `$.scene.nodes[${index}]`;
     const parentId = nonEmptyString(node.parentId) ? node.parentId : scene.rootId;
-    if (parentId !== scene.rootId && !nodeIds.has(parentId)) {
-      add(`${path}.parentId`, `parentId must point to root or scene node: ${parentId}`);
-    }
+    validateNodeParentTarget(parentId, scene.rootId, nodeIds, `${path}.parentId`, add);
     if (nonEmptyString(node.id)) validateNodeParentCycle(node.id, scene, `${path}.parentId`, add);
     validateRuntimeSourceBinding(node.source, `${path}.source`, add);
     validateTransform(node.transform, `${path}.transform`, add);
@@ -173,6 +172,28 @@ export function validateSceneJsonV2(
   });
 
   return errors;
+}
+
+function validateNodeParentTarget(
+  parentId: string,
+  rootId: unknown,
+  nodeIds: Set<string>,
+  path: string,
+  add: (path: string, message: string) => void,
+): void {
+  if (parentId === rootId) {
+    if (!HIERARCHY_PARENT_TARGETS.has('root')) {
+      add(path, `parentId must point to scene node: ${parentId}`);
+    }
+    return;
+  }
+  if (HIERARCHY_PARENT_TARGETS.has('sceneNode') && nodeIds.has(parentId)) return;
+  const targetDescription = HIERARCHY_PARENT_TARGETS.has('root') && HIERARCHY_PARENT_TARGETS.has('sceneNode')
+    ? 'root or scene node'
+    : HIERARCHY_PARENT_TARGETS.has('sceneNode')
+      ? 'scene node'
+      : 'root';
+  add(path, `parentId must point to ${targetDescription}: ${parentId}`);
 }
 
 function validateNodeParentCycle(

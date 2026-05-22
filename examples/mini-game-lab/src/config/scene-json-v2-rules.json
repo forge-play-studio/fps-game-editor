@@ -4,6 +4,9 @@
   "assetTypes": ["glb"],
   "materialScopes": ["sharedAsset", "nodeMaterial"],
   "materialModes": ["shared", "instance"],
+  "hierarchy": {
+    "parentTargets": ["root", "sceneNode"]
+  },
   "runtimeOnlyTokens": ["/@fs", "assetUrl", "sourceAssetUrl", "sourceAssetPath"],
   "assetManagerMetadata": {
     "key": "registeredBy",

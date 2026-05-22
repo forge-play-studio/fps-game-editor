@@ -12,6 +12,7 @@ import { getScenario, listScenarioNames, scenarios } from './scenarios/index.mjs
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
+const editorSourceRoot = path.resolve(repoRoot, '../..');
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -46,6 +47,11 @@ async function main() {
     vite = await startViteDevServer({
       cwd: workspace.root,
       port: devPort,
+      env: {
+        BRIDGE_ENABLED: 'true',
+        FPS_GAME_EDITOR_ROOT: editorSourceRoot,
+        VITE_ENABLE_LEGACY_RUNTIME_EDITOR: 'true',
+      },
     });
 
     const projectUrl = `http://127.0.0.1:${devPort}/`;

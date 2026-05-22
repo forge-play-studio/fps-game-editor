@@ -83,6 +83,11 @@ import {
 export type LocalEditorHarnessMode = 'game' | 'editor';
 type LocalEditorMaybePromise<T> = T | Promise<T>;
 
+export interface LocalEditorAuthoringFailureStatus {
+  status: string;
+  details: string;
+}
+
 export interface LocalEditorHarnessAssetItem {
   id: string;
   label: string;
@@ -313,6 +318,9 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   transformConstraint: EditorTransformConstraint;
   resizeHandler: (() => void) | null;
   status: string;
+  statusTone: LocalEditorBrowserUiState<TDocument>['statusTone'];
+  statusToneStatus: string;
+  statusDetails: string;
   summary: string;
 }
 
@@ -341,6 +349,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     transformConstraint: 'axis',
     resizeHandler: null,
     status: 'Game running',
+    statusTone: 'default',
+    statusToneStatus: 'Game running',
+    statusDetails: '',
     summary: '',
   };
 
@@ -475,7 +486,11 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
           expectedRevision: source.ref.revision,
         });
         if (!hostResult.ok || !hostResult.document) {
-          state.status = summarizeAuthoringFailure(hostResult);
+          const failureStatus = summarizeLocalEditorAuthoringFailure(hostResult);
+          state.status = failureStatus.status;
+          state.statusTone = 'error';
+          state.statusToneStatus = state.status;
+          state.statusDetails = failureStatus.details;
           state.summary = summarizeDocument(options, document, source);
           return false;
         }
@@ -506,6 +521,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       }
       state.summary = result.summary ?? summarizeDocument(options, preparedDocument, savedSource ?? null);
       state.status = 'Scene saved';
+      state.statusTone = 'success';
+      state.statusToneStatus = state.status;
+      state.statusDetails = '';
       return true;
     },
     async saveAndRunGame() {
@@ -520,6 +538,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       state.session = null;
       state.source = null;
       state.status = 'Reloading game';
+      state.statusTone = 'default';
+      state.statusToneStatus = state.status;
+      state.statusDetails = '';
       await options.persistenceAdapter.runGame();
     },
     dispose() {
@@ -755,6 +776,9 @@ async function runExclusive<TDocument, TPatch, TAsset>(
     await action();
   } catch (error) {
     state.status = error instanceof Error ? error.message : String(error);
+    state.statusTone = 'error';
+    state.statusToneStatus = state.status;
+    state.statusDetails = state.status;
     console.error('[LocalEditorHarness] action failed', error);
   } finally {
     state.busy = false;
@@ -1561,6 +1585,8 @@ function createUiState<TDocument, TPatch, TAsset>(
     mode: state.mode,
     busy: state.busy,
     status: state.status,
+    statusTone: state.statusToneStatus === state.status ? state.statusTone : 'default',
+    statusDetails: state.statusToneStatus === state.status ? state.statusDetails : '',
     summary: state.summary,
     assetFilter: state.assetFilter,
     assets: state.assets
@@ -1774,9 +1800,17 @@ function summarizeDocument<TDocument, TPatch, TAsset>(
   return options.documentAdapter.summarize?.(document) ?? '';
 }
 
-function summarizeAuthoringFailure(result: AuthoringCommandResult<unknown>): string {
+export function summarizeLocalEditorAuthoringFailure(
+  result: AuthoringCommandResult<unknown>,
+): LocalEditorAuthoringFailureStatus {
   const diagnostic = result.diagnostics.find(item => item.severity === 'error') ?? result.diagnostics[0];
-  return diagnostic?.message ?? result.reason ?? 'Authoring source commit failed';
+  const status = diagnostic?.message ?? result.reason ?? 'Authoring source commit failed';
+  const diagnostics = summarizeDiagnostics(result.diagnostics);
+  const details = [
+    result.reason ? `Reason: ${result.reason}` : '',
+    diagnostics ? `Diagnostics: ${diagnostics}` : '',
+  ].filter(Boolean).join('\n') || status;
+  return { status, details };
 }
 
 function summarizeDiagnostics(diagnostics: readonly { message: string }[] | undefined): string | undefined {

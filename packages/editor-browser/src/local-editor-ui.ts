@@ -663,6 +663,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       state.summary,
     ].filter(Boolean).join(' | ');
     status.textContent += dragSuffix;
+    status.title = state.statusDetails || status.textContent;
+    status.style.color = state.statusTone === 'error'
+      ? '#ff8f87'
+      : state.statusTone === 'warning'
+        ? '#d29922'
+        : state.statusTone === 'success'
+          ? '#7ee787'
+          : 'var(--fps-editor-muted)';
     sceneToolStatus.textContent = transformTool?.dragPhase === 'dragging'
       ? `正在拖拽 ${transformTool.draggingNodeId ?? '选择对象'}`
       : `${LocalEditorShared.toTransformToolLabel(transformTool?.activeTool ?? 'select')} · ${LocalEditorShared.toTransformSpaceLabel(transformTool?.activeSpace ?? 'world')}${transformTool?.activeConstraint === 'view-plane' ? ' · 视图平面' : ''}`;
