@@ -10,6 +10,8 @@ export interface BabylonEditorInfiniteGridOptions {
   camera?: RuntimeCamera | null;
   name?: string;
   step?: number;
+  adaptiveSteps?: number[];
+  targetScreenSpacingPx?: number;
   majorStep?: number;
   halfLineCount?: number;
   gridColor?: { r: number; g: number; b: number };
@@ -21,6 +23,7 @@ export interface BabylonEditorInfiniteGridOptions {
 export interface BabylonEditorGridController {
   setVisible(visible: boolean): void;
   isVisible(): boolean;
+  getStep(): number;
   dispose(): void;
 }
 
@@ -35,9 +38,30 @@ interface GridCenter {
   z: number;
 }
 
+interface GridFrameState {
+  center: GridCenter;
+  step: number;
+  majorStep: number;
+  lineSpan: number;
+}
+
 const DEFAULT_STEP = 1;
-const DEFAULT_MAJOR_STEP = 5;
+const DEFAULT_MAJOR_STEP_MULTIPLIER = 5;
 const DEFAULT_HALF_LINE_COUNT = 80;
+const DEFAULT_TARGET_SCREEN_SPACING_PX = 48;
+const DEFAULT_ADAPTIVE_STEPS = [
+  1,
+  5,
+  10,
+  50,
+  100,
+  500,
+  1000,
+  5000,
+  10000,
+  50000,
+  100000,
+];
 
 export function createBabylonEditorInfiniteGrid(
   options: BabylonEditorInfiniteGridOptions,
@@ -48,10 +72,13 @@ export function createBabylonEditorInfiniteGrid(
   const scene = options.scene;
   if (!scene || !MeshBuilder?.CreateLines || !Vector3 || !Color3) return createNoopGridController();
 
-  const step = normalizePositive(options.step, DEFAULT_STEP);
-  const majorStep = normalizePositive(options.majorStep, DEFAULT_MAJOR_STEP);
+  const minStep = normalizePositive(options.step, DEFAULT_STEP);
+  const adaptiveSteps = normalizeAdaptiveSteps(options.adaptiveSteps, minStep);
+  const targetScreenSpacingPx = normalizePositive(
+    options.targetScreenSpacingPx,
+    DEFAULT_TARGET_SCREEN_SPACING_PX,
+  );
   const halfLineCount = Math.max(4, Math.floor(normalizePositive(options.halfLineCount, DEFAULT_HALF_LINE_COUNT)));
-  const lineSpan = halfLineCount * step;
   const name = options.name ?? 'editor-infinite-grid';
   const gridColor = createColor(Color3, options.gridColor ?? { r: 0.18, g: 0.27, b: 0.42 });
   const majorGridColor = createColor(Color3, options.majorGridColor ?? { r: 0.24, g: 0.36, b: 0.56 });
@@ -60,7 +87,8 @@ export function createBabylonEditorInfiniteGrid(
   const lines: GridLine[] = [];
   let visible = true;
   let disposed = false;
-  let lastCenter: GridCenter | null = null;
+  let currentStep = minStep;
+  let lastFrameState: GridFrameState | null = null;
   let renderObserver: unknown = null;
 
   for (let offsetIndex = -halfLineCount; offsetIndex <= halfLineCount; offsetIndex += 1) {
@@ -89,21 +117,33 @@ export function createBabylonEditorInfiniteGrid(
 
   function updateGrid(force: boolean): void {
     if (disposed || !visible) return;
-    const center = readGridCenter(scene, options.camera ?? null, step);
-    if (!force && lastCenter && center.x === lastCenter.x && center.z === lastCenter.z) return;
-    lastCenter = center;
+    const frameState = readGridFrameState();
+    if (!force && lastFrameState && isSameGridFrameState(lastFrameState, frameState)) return;
+    lastFrameState = frameState;
+    currentStep = frameState.step;
     for (const line of lines) {
-      updateGridLine(line, center);
+      updateGridLine(line, frameState);
     }
   }
 
-  function updateGridLine(line: GridLine, center: GridCenter): void {
-    const offset = line.offsetIndex * step;
-    const xMin = center.x - lineSpan;
-    const xMax = center.x + lineSpan;
-    const zMin = center.z - lineSpan;
-    const zMax = center.z + lineSpan;
-    const coordinate = line.direction === 'x' ? center.z + offset : center.x + offset;
+  function readGridFrameState(): GridFrameState {
+    const step = resolveAdaptiveStep(scene, options.camera ?? null, adaptiveSteps, targetScreenSpacingPx);
+    const majorStep = normalizePositive(options.majorStep, step * DEFAULT_MAJOR_STEP_MULTIPLIER);
+    return {
+      center: readGridCenter(scene, options.camera ?? null, step),
+      step,
+      majorStep,
+      lineSpan: halfLineCount * step,
+    };
+  }
+
+  function updateGridLine(line: GridLine, frameState: GridFrameState): void {
+    const offset = line.offsetIndex * frameState.step;
+    const xMin = frameState.center.x - frameState.lineSpan;
+    const xMax = frameState.center.x + frameState.lineSpan;
+    const zMin = frameState.center.z - frameState.lineSpan;
+    const zMax = frameState.center.z + frameState.lineSpan;
+    const coordinate = line.direction === 'x' ? frameState.center.z + offset : frameState.center.x + offset;
     const points = line.direction === 'x'
       ? [new Vector3(xMin, 0, coordinate), new Vector3(xMax, 0, coordinate)]
       : [new Vector3(coordinate, 0, zMin), new Vector3(coordinate, 0, zMax)];
@@ -111,10 +151,10 @@ export function createBabylonEditorInfiniteGrid(
       points,
       instance: line.mesh,
     }, scene);
-    line.mesh.color = resolveLineColor(line.direction, coordinate);
+    line.mesh.color = resolveLineColor(line.direction, coordinate, frameState.step, frameState.majorStep);
   }
 
-  function resolveLineColor(direction: 'x' | 'z', coordinate: number): any {
+  function resolveLineColor(direction: 'x' | 'z', coordinate: number, step: number, majorStep: number): any {
     const axisThreshold = step * 0.25;
     if (Math.abs(coordinate) <= axisThreshold) return direction === 'x' ? axisXColor : axisZColor;
     const majorIndex = Math.round(coordinate / majorStep);
@@ -133,6 +173,9 @@ export function createBabylonEditorInfiniteGrid(
     isVisible() {
       return visible;
     },
+    getStep() {
+      return currentStep;
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -144,9 +187,17 @@ export function createBabylonEditorInfiniteGrid(
         try { line.mesh.dispose?.(); } catch {}
       }
       lines.length = 0;
-      lastCenter = null;
+      lastFrameState = null;
     },
   };
+}
+
+function isSameGridFrameState(left: GridFrameState, right: GridFrameState): boolean {
+  return left.step === right.step
+    && left.majorStep === right.majorStep
+    && left.lineSpan === right.lineSpan
+    && left.center.x === right.center.x
+    && left.center.z === right.center.z;
 }
 
 function readGridCenter(scene: RuntimeScene, camera: RuntimeCamera | null, step: number): GridCenter {
@@ -162,6 +213,80 @@ function normalizePositive(value: number | undefined, fallback: number): number 
   return Number.isFinite(value) && Number(value) > 0 ? Number(value) : fallback;
 }
 
+function normalizeAdaptiveSteps(steps: number[] | undefined, minStep: number): number[] {
+  const source = steps?.length ? steps : DEFAULT_ADAPTIVE_STEPS;
+  const normalized = Array.from(new Set(
+    source
+      .map(value => normalizePositive(value, 0))
+      .filter(value => value >= minStep),
+  )).sort((left, right) => left - right);
+  return normalized.length > 0 ? normalized : [minStep];
+}
+
+function resolveAdaptiveStep(
+  scene: RuntimeScene,
+  camera: RuntimeCamera | null,
+  steps: number[],
+  targetScreenSpacingPx: number,
+): number {
+  const pixelsPerWorldUnit = estimatePixelsPerWorldUnit(scene, camera);
+  if (!Number.isFinite(pixelsPerWorldUnit) || pixelsPerWorldUnit <= 0) return steps[0] ?? DEFAULT_STEP;
+  let bestStep = steps[0] ?? DEFAULT_STEP;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const step of steps) {
+    const screenSpacing = step * pixelsPerWorldUnit;
+    const score = Math.abs(Math.log(Math.max(screenSpacing, 0.0001) / targetScreenSpacingPx));
+    if (score < bestScore) {
+      bestScore = score;
+      bestStep = step;
+    }
+  }
+  return bestStep;
+}
+
+function estimatePixelsPerWorldUnit(scene: RuntimeScene, camera: RuntimeCamera | null): number {
+  const activeCamera = scene?.activeCamera ?? camera;
+  const engine = scene?.getEngine?.();
+  const viewportHeight = readViewportHeight(engine);
+  if (!activeCamera || viewportHeight <= 0) return 1;
+
+  const orthoTop = Number(activeCamera.orthoTop);
+  const orthoBottom = Number(activeCamera.orthoBottom);
+  if (Number.isFinite(orthoTop) && Number.isFinite(orthoBottom) && orthoTop !== orthoBottom) {
+    return viewportHeight / Math.abs(orthoTop - orthoBottom);
+  }
+
+  const distance = estimateCameraDistanceToTarget(activeCamera);
+  const fov = normalizePositive(Number(activeCamera.fov), Math.PI / 4);
+  const visibleHeight = 2 * distance * Math.tan(fov / 2);
+  return visibleHeight > 0 ? viewportHeight / visibleHeight : 1;
+}
+
+function readViewportHeight(engine: any): number {
+  const renderHeight = Number(engine?.getRenderHeight?.());
+  if (Number.isFinite(renderHeight) && renderHeight > 0) return renderHeight;
+  const canvasHeight = Number(engine?.getRenderingCanvas?.()?.clientHeight);
+  if (Number.isFinite(canvasHeight) && canvasHeight > 0) return canvasHeight;
+  return 720;
+}
+
+function estimateCameraDistanceToTarget(camera: any): number {
+  const radius = Number(camera?.radius);
+  if (Number.isFinite(radius) && radius > 0) return radius;
+  const position = camera?.position;
+  const target = camera?.target;
+  if (position && target) {
+    const distance = Math.hypot(
+      (Number(position.x) || 0) - (Number(target.x) || 0),
+      (Number(position.y) || 0) - (Number(target.y) || 0),
+      (Number(position.z) || 0) - (Number(target.z) || 0),
+    );
+    if (Number.isFinite(distance) && distance > 0) return distance;
+  }
+  const height = Math.abs(Number(position?.y) || 0);
+  return height > 0 ? height : 8;
+}
+
 function createColor(Color3: any, color: { r: number; g: number; b: number }): any {
   return new Color3(color.r, color.g, color.b);
 }
@@ -171,6 +296,9 @@ function createNoopGridController(): BabylonEditorGridController {
     setVisible() {},
     isVisible() {
       return false;
+    },
+    getStep() {
+      return DEFAULT_STEP;
     },
     dispose() {},
   };
