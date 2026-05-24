@@ -81,9 +81,11 @@ import {
   createBabylonSceneViewInputController,
   createBabylonTransformGizmoController,
   focusEditorViewportSelection,
+  syncBabylonEditorDisplayScale,
   type BabylonEditorProjection,
   type BabylonProjectionSelectionBox,
   type BabylonProjectionSelectionController,
+  type BabylonEditorDisplayScaleOptions,
   type BabylonSceneViewCameraController,
   type BabylonSceneViewInputController,
   type BabylonEditorProjectionImportContext,
@@ -378,6 +380,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     sky?: BabylonEditorSkyOptions | false;
     useRightHandedSystem?: boolean;
     coordinateAxes?: boolean;
+    displayScale?: BabylonEditorDisplayScaleOptions | false;
   };
   inspector?: LocalEditorHarnessInspectorOptions<TDocument>;
   createGrid?: (
@@ -1050,9 +1053,13 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     projection.syncSelection(selection);
     gizmo.setSelection(selection);
   }
-  const resize = () => engine.resize?.();
+  const resize = () => syncBabylonEditorDisplayScale(engine, canvas, options.world?.displayScale);
   window.addEventListener('resize', resize);
-  engine.runRenderLoop?.(() => world.render());
+  resize();
+  engine.runRenderLoop?.(() => {
+    syncBabylonEditorDisplayScale(engine, canvas, options.world?.displayScale);
+    world.render();
+  });
   state.babylon = babylon;
   state.engine = engine;
   state.world = world;
