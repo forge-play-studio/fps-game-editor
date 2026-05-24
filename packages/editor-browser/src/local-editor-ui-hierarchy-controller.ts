@@ -91,7 +91,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       callbacks.onSceneGraphCreateGroup?.({
         parentId,
         activeId: parentId,
-        name: 'Group',
+        name: 'Empty',
       });
       return;
     }
@@ -528,7 +528,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       callbacks.onSceneGraphCreateGroup?.({
         parentId: action.parentId ?? null,
         activeId: action.activeId ?? null,
-        name: 'Group',
+        name: 'Empty',
       });
     } else if (action.action === 'delete') {
       callbacks.onSceneGraphDelete?.({

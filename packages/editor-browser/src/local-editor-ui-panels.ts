@@ -52,7 +52,7 @@ export function renderHierarchyPanel<TDocument>(
   drop: LocalEditorBrowserSceneGraphDropIntent | null,
 ): void {
   clearElement(panel);
-  const createGroupButton = createToolbarButton(doc, '+ Group', 'group');
+  const createGroupButton = createToolbarButton(doc, '+ Empty', 'object');
   createGroupButton.dataset.editorHierarchyCreateGroup = 'true';
   createGroupButton.style.padding = '3px 7px';
   createGroupButton.style.fontSize = '11px';

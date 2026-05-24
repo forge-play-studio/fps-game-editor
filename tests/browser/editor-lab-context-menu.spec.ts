@@ -27,7 +27,7 @@ test('hierarchy context menu routes actions through EditorWorld input ownership'
 
   const objectCountBeforeGroup = await page.evaluate(() => window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects.length);
   await page.getByRole('button', { name: 'Starter Group' }).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Add Empty Group' }).click();
+  await page.getByRole('menuitem', { name: 'Add Empty' }).click();
   const objectCountAfterGroup = await page.evaluate(() => window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects.length);
   expect(objectCountAfterGroup).toBe((objectCountBeforeGroup ?? 0) + 1);
   await expect(page.locator('text=未保存')).toBeVisible();
@@ -104,7 +104,7 @@ test('hierarchy root is protected and group selection creates a real group', asy
   await page.getByRole('button', { name: 'Blue Box' }).click();
   await page.getByRole('button', { name: 'Green Sphere' }).click({ modifiers: ['Shift'] });
   await page.getByRole('button', { name: 'Blue Box' }).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Group Selection' }).click();
+  await page.getByRole('menuitem', { name: 'Parent Selection' }).click();
 
   const grouped = await page.evaluate(() => {
     const documentState = window.__FPS_EDITOR_LAB__?.getDocument();
