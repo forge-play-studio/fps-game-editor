@@ -398,6 +398,7 @@ export interface LocalEditorBrowserUiOptions<TDocument = unknown> {
   root?: HTMLElement;
   document?: Document;
   theme?: LocalEditorThemeName;
+  localTestActions?: boolean;
   callbacks?: LocalEditorBrowserUiCallbacks;
   inspector?: LocalEditorBrowserInspectorOptions<TDocument>;
 }

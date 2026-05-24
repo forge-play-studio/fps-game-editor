@@ -52,6 +52,7 @@ import {
 } from './local-editor-ui-theme';
 import {
   createDefaultLocalEditorWorkbenchLayout,
+  createLocalEditorWorkbenchLayoutController,
   createLocalEditorWorkbench,
   createSceneHeaderToolbar,
   createWorkbenchPanelContent,
@@ -264,6 +265,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const doc = options.document ?? document;
   const root = options.root ?? doc.body;
   const callbacks = options.callbacks ?? {};
+  const localTestActionsEnabled = options.localTestActions === true;
   ensureLocalEditorTheme(doc);
   let activeTheme: LocalEditorThemeName = normalizeLocalEditorThemeName(options.theme);
   const inputRouter = createLocalEditorWorkbenchInputRouter(doc);
@@ -328,6 +330,38 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const saveButton = LocalEditorShared.createButton(doc, '保存场景', { icon: 'save' });
   const saveAndRunButton = LocalEditorShared.createButton(doc, '保存并运行', { icon: 'execute' });
   const discardRunButton = LocalEditorShared.createButton(doc, '放弃并运行', { icon: 'discard' });
+  const localTestButton = LocalEditorShared.createButton(doc, '本地测试', { icon: 'execute' });
+  localTestButton.dataset.editorLocalTestToggle = 'true';
+  localTestButton.title = '打开本地测试操作';
+  const localTestMenu = doc.createElement('div');
+  localTestMenu.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  localTestMenu.dataset.editorLocalTestMenu = 'true';
+  localTestMenu.style.cssText = [
+    'position:fixed',
+    'z-index:2147483641',
+    'display:none',
+    'flex-direction:column',
+    'gap:6px',
+    'min-width:150px',
+    'padding:8px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-panel)',
+    'box-shadow:var(--fps-editor-shadow-popover)',
+    'pointer-events:auto',
+  ].join(';');
+  for (const button of [saveButton, saveAndRunButton, discardRunButton]) {
+    button.style.justifyContent = 'flex-start';
+    button.style.width = '100%';
+    localTestMenu.appendChild(button);
+  }
+  const localTestGroup = doc.createElement('div');
+  localTestGroup.style.cssText = [
+    `display:${localTestActionsEnabled ? 'flex' : 'none'}`,
+    'align-items:center',
+    'gap:4px',
+  ].join(';');
+  localTestGroup.appendChild(localTestButton);
   const undoButton = LocalEditorShared.createButton(doc, '撤销', { icon: 'undo' });
   const redoButton = LocalEditorShared.createButton(doc, '重做', { icon: 'redo' });
   let helpOpen = false;
@@ -351,6 +385,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   workbench.leftDock.appendChild(hierarchyPanel);
   workbench.rightDock.appendChild(inspectorPanel);
   root.appendChild(workbench.root);
+  const workbenchLayoutController = createLocalEditorWorkbenchLayoutController(doc, workbench);
 
   const sceneToolOverlay = createSceneHeaderToolbar(doc);
   const sceneTitle = doc.createElement('div');
@@ -369,6 +404,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   ].join(';');
   const sceneQuickActions = doc.createElement('div');
   sceneQuickActions.style.cssText = 'display:flex;align-items:center;gap:4px';
+  const sceneUtilityActions = doc.createElement('div');
+  sceneUtilityActions.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'gap:4px',
+    'padding-left:8px',
+    'border-left:1px solid var(--fps-editor-divider)',
+  ].join(';');
   const toolGroup = doc.createElement('div');
   toolGroup.style.cssText = [
     'display:flex',
@@ -546,14 +589,12 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   themeToggleButton.style.padding = '5px 7px';
   const sceneHelpButton = LocalEditorShared.createButton(doc, '快捷键', { icon: 'help' });
   sceneHelpButton.style.padding = '5px 7px';
-  sceneQuickActions.appendChild(saveButton);
-  sceneQuickActions.appendChild(saveAndRunButton);
-  sceneQuickActions.appendChild(discardRunButton);
+  sceneQuickActions.appendChild(localTestGroup);
   sceneQuickActions.appendChild(undoButton);
   sceneQuickActions.appendChild(redoButton);
   sceneQuickActions.appendChild(dirtyBadge);
-  sceneQuickActions.appendChild(themeToggleButton);
-  sceneQuickActions.appendChild(sceneHelpButton);
+  sceneUtilityActions.appendChild(themeToggleButton);
+  sceneUtilityActions.appendChild(sceneHelpButton);
   const cameraPreviewGroup = doc.createElement('div');
   cameraPreviewGroup.style.cssText = [
     'display:flex',
@@ -566,8 +607,33 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneCameraButton.dataset.sceneCameraPreviewToggle = 'true';
   sceneCameraButton.title = '从 Main Camera 查看当前场景';
   cameraPreviewGroup.appendChild(sceneCameraButton);
+  const toolbarOverflowButton = LocalEditorShared.createButton(doc, '更多', { icon: 'chevron-down' });
+  toolbarOverflowButton.dataset.editorToolbarOverflowToggle = 'true';
+  toolbarOverflowButton.title = '显示隐藏的工具栏命令';
+  toolbarOverflowButton.style.display = 'none';
+  const toolbarOverflowMenu = doc.createElement('div');
+  toolbarOverflowMenu.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  toolbarOverflowMenu.dataset.editorToolbarOverflowMenu = 'true';
+  toolbarOverflowMenu.style.cssText = [
+    'position:fixed',
+    'z-index:2147483641',
+    'display:none',
+    'flex-direction:column',
+    'gap:6px',
+    'min-width:220px',
+    'max-width:min(420px, calc(100vw - 16px))',
+    'max-height:calc(100vh - 72px)',
+    'overflow:auto',
+    'padding:8px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-panel)',
+    'box-shadow:var(--fps-editor-shadow-popover)',
+    'pointer-events:auto',
+  ].join(';');
   sceneToolOverlay.appendChild(sceneTitle);
   sceneToolOverlay.appendChild(sceneQuickActions);
+  sceneToolOverlay.appendChild(sceneUtilityActions);
   sceneToolOverlay.appendChild(cameraPreviewGroup);
   sceneToolOverlay.appendChild(toolGroup);
   sceneToolOverlay.appendChild(spaceGroup);
@@ -578,7 +644,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneToolOverlay.appendChild(sceneToolStatus);
   sceneToolOverlay.appendChild(sceneMouseHint);
   sceneToolOverlay.appendChild(status);
+  sceneToolOverlay.appendChild(toolbarOverflowButton);
   workbench.sceneHeader.appendChild(sceneToolOverlay);
+  root.appendChild(localTestMenu);
+  root.appendChild(toolbarOverflowMenu);
 
   const boxSelectionOverlay = doc.createElement('div');
   boxSelectionOverlay.classList.add(LOCAL_EDITOR_THEME_CLASS);
@@ -602,6 +671,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     applyLocalEditorTheme(workbench.root, activeTheme);
     applyLocalEditorTheme(shortcutHelpPanel, activeTheme);
     applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
+    applyLocalEditorTheme(localTestMenu, activeTheme);
+    applyLocalEditorTheme(toolbarOverflowMenu, activeTheme);
     contextMenu.setTheme?.(activeTheme);
   }
 
@@ -618,13 +689,269 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     updateThemeToggleButton();
   }
 
+  let localTestMenuOpen = false;
+
+  function closeLocalTestMenu(): void {
+    localTestMenuOpen = false;
+    localTestMenu.style.display = 'none';
+    LocalEditorShared.applyButtonActiveState(localTestButton, false);
+  }
+
+  function openLocalTestMenu(): void {
+    if (!localTestActionsEnabled || localTestButton.style.display === 'none') return;
+    closeToolbarOverflowMenu();
+    const win = doc.defaultView;
+    const rect = localTestButton.getBoundingClientRect();
+    const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
+    localTestMenu.style.top = `${Math.max(8, rect.bottom + 5)}px`;
+    localTestMenu.style.right = `${Math.max(8, viewportWidth - rect.right)}px`;
+    localTestMenu.style.display = 'flex';
+    localTestMenuOpen = true;
+    LocalEditorShared.applyButtonActiveState(localTestButton, true);
+  }
+
+  const onLocalTestButtonClick = (event: MouseEvent): void => {
+    event.stopPropagation();
+    if (localTestMenuOpen) closeLocalTestMenu();
+    else openLocalTestMenu();
+  };
+
+  type ToolbarOverflowItemKind = 'group' | 'text';
+  interface ToolbarOverflowItem {
+    id: string;
+    element: HTMLElement;
+    kind: ToolbarOverflowItemKind;
+  }
+
+  type ToolbarOverflowStyleProperty =
+    | 'alignSelf'
+    | 'borderLeft'
+    | 'display'
+    | 'flex'
+    | 'height'
+    | 'maxWidth'
+    | 'minHeight'
+    | 'minWidth'
+    | 'overflow'
+    | 'paddingLeft'
+    | 'textOverflow'
+    | 'whiteSpace'
+    | 'width';
+
+  const toolbarOverflowStyleProperties: ToolbarOverflowStyleProperty[] = [
+    'alignSelf',
+    'borderLeft',
+    'display',
+    'flex',
+    'height',
+    'maxWidth',
+    'minHeight',
+    'minWidth',
+    'overflow',
+    'paddingLeft',
+    'textOverflow',
+    'whiteSpace',
+    'width',
+  ];
+  const toolbarButtonOriginalPadding = new WeakMap<HTMLButtonElement, string>();
+  const toolbarOverflowOriginalStyles = new WeakMap<HTMLElement, Partial<Record<ToolbarOverflowStyleProperty, string>>>();
+  const toolbarOrder: HTMLElement[] = [
+    sceneTitle,
+    sceneQuickActions,
+    sceneUtilityActions,
+    cameraPreviewGroup,
+    toolGroup,
+    spaceGroup,
+    handleGroup,
+    snapGroup,
+    placementGroup,
+    actionGroup,
+    sceneToolStatus,
+    sceneMouseHint,
+    status,
+    toolbarOverflowButton,
+  ];
+  const toolbarOverflowItems: ToolbarOverflowItem[] = [
+    { id: 'status', element: status, kind: 'text' },
+    { id: 'mouse-hint', element: sceneMouseHint, kind: 'text' },
+    { id: 'tool-status', element: sceneToolStatus, kind: 'text' },
+    { id: 'transform-actions', element: actionGroup, kind: 'group' },
+    { id: 'placement', element: placementGroup, kind: 'group' },
+    { id: 'snap', element: snapGroup, kind: 'group' },
+    { id: 'handles', element: handleGroup, kind: 'group' },
+    { id: 'space', element: spaceGroup, kind: 'group' },
+    { id: 'camera-preview', element: cameraPreviewGroup, kind: 'group' },
+    { id: 'scene-utilities', element: sceneUtilityActions, kind: 'group' },
+  ];
+  let toolbarOverflowOpen = false;
+  let toolbarOverflowRaf: number | null = null;
+
+  function restoreToolbarOverflowItemStyle(item: ToolbarOverflowItem): void {
+    const original = toolbarOverflowOriginalStyles.get(item.element);
+    if (!original) return;
+    for (const property of toolbarOverflowStyleProperties) {
+      item.element.style[property] = original[property] ?? '';
+    }
+    toolbarOverflowOriginalStyles.delete(item.element);
+    item.element.dataset.editorToolbarOverflowPlacement = 'toolbar';
+  }
+
+  function applyToolbarOverflowMenuStyle(item: ToolbarOverflowItem): void {
+    if (!toolbarOverflowOriginalStyles.has(item.element)) {
+      const original: Partial<Record<ToolbarOverflowStyleProperty, string>> = {};
+      for (const property of toolbarOverflowStyleProperties) {
+        original[property] = item.element.style[property];
+      }
+      toolbarOverflowOriginalStyles.set(item.element, original);
+    }
+    item.element.dataset.editorToolbarOverflowPlacement = 'menu';
+    item.element.style.alignSelf = 'stretch';
+    item.element.style.borderLeft = '0';
+    item.element.style.display = item.kind === 'group' ? 'flex' : 'block';
+    item.element.style.flex = '0 0 auto';
+    item.element.style.height = '';
+    item.element.style.maxWidth = 'none';
+    item.element.style.minHeight = '0';
+    item.element.style.minWidth = '0';
+    item.element.style.overflow = item.kind === 'group' ? 'visible' : 'hidden';
+    item.element.style.paddingLeft = '0';
+    item.element.style.textOverflow = item.kind === 'text' ? 'ellipsis' : '';
+    item.element.style.whiteSpace = item.kind === 'text' ? 'nowrap' : '';
+    item.element.style.width = '100%';
+  }
+
+  function setToolbarButtonCompact(button: HTMLButtonElement, compact: boolean): void {
+    const label = button.querySelector<HTMLElement>('[data-editor-button-label]');
+    if (!label) return;
+    if (!toolbarButtonOriginalPadding.has(button)) {
+      toolbarButtonOriginalPadding.set(button, button.style.padding);
+    }
+    const accessibleLabel = button.dataset.editorToolbarLabel || label.textContent || button.title;
+    button.dataset.editorToolbarLabel = accessibleLabel;
+    button.setAttribute('aria-label', accessibleLabel);
+    if (!button.title) button.title = accessibleLabel;
+    button.style.padding = compact ? '4px 6px' : toolbarButtonOriginalPadding.get(button) ?? '';
+    label.style.display = compact ? 'inline-block' : '';
+    label.style.width = compact ? '0' : '';
+    label.style.maxWidth = compact ? '0' : '';
+    label.style.opacity = compact ? '0' : '';
+    label.style.marginLeft = compact ? '-5px' : '';
+  }
+
+  function setToolbarCompact(compact: boolean): void {
+    for (const button of Array.from(sceneToolOverlay.querySelectorAll<HTMLButtonElement>('button'))) {
+      setToolbarButtonCompact(button, compact);
+    }
+  }
+
+  function closeToolbarOverflowMenu(): void {
+    toolbarOverflowOpen = false;
+    toolbarOverflowMenu.style.display = 'none';
+    LocalEditorShared.applyButtonActiveState(toolbarOverflowButton, false);
+  }
+
+  function openToolbarOverflowMenu(): void {
+    if (toolbarOverflowMenu.childElementCount === 0) return;
+    closeLocalTestMenu();
+    const win = doc.defaultView;
+    const rect = toolbarOverflowButton.getBoundingClientRect();
+    const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
+    toolbarOverflowMenu.style.top = `${Math.max(8, rect.bottom + 5)}px`;
+    toolbarOverflowMenu.style.right = `${Math.max(8, viewportWidth - rect.right)}px`;
+    toolbarOverflowMenu.style.display = 'flex';
+    toolbarOverflowOpen = true;
+    LocalEditorShared.applyButtonActiveState(toolbarOverflowButton, true);
+  }
+
+  function resetToolbarOverflowLayout(): void {
+    setToolbarCompact(false);
+    for (const item of toolbarOverflowItems) restoreToolbarOverflowItemStyle(item);
+    for (const item of toolbarOrder) {
+      item.dataset.editorToolbarOverflowed = 'false';
+      sceneToolOverlay.appendChild(item);
+    }
+    LocalEditorShared.clearElement(toolbarOverflowMenu);
+    toolbarOverflowButton.style.display = 'none';
+    sceneToolOverlay.style.overflowX = 'hidden';
+    closeToolbarOverflowMenu();
+  }
+
+  function layoutToolbarOverflow(): void {
+    toolbarOverflowRaf = null;
+    resetToolbarOverflowLayout();
+    if (sceneToolOverlay.style.display === 'none') return;
+    const availableWidth = sceneToolOverlay.clientWidth;
+    if (availableWidth <= 0) return;
+    const isOverflowing = (): boolean => sceneToolOverlay.scrollWidth > availableWidth + 1;
+    if (!isOverflowing()) return;
+
+    toolbarOverflowButton.style.display = 'inline-flex';
+    for (const item of toolbarOverflowItems) {
+      if (!isOverflowing()) break;
+      if (item.element.style.display === 'none') continue;
+      item.element.dataset.editorToolbarOverflowed = 'true';
+      applyToolbarOverflowMenuStyle(item);
+      toolbarOverflowMenu.appendChild(item.element);
+    }
+
+    if (toolbarOverflowMenu.childElementCount === 0) {
+      toolbarOverflowButton.style.display = 'none';
+    }
+    if (isOverflowing()) {
+      setToolbarCompact(true);
+    }
+    sceneToolOverlay.style.overflowX = isOverflowing() ? 'auto' : 'hidden';
+  }
+
+  function scheduleToolbarOverflowLayout(): void {
+    const win = doc.defaultView;
+    if (!win) {
+      layoutToolbarOverflow();
+      return;
+    }
+    if (toolbarOverflowRaf != null) win.cancelAnimationFrame(toolbarOverflowRaf);
+    toolbarOverflowRaf = win.requestAnimationFrame(layoutToolbarOverflow);
+  }
+
+  const onToolbarOverflowButtonClick = (event: MouseEvent): void => {
+    event.stopPropagation();
+    if (toolbarOverflowOpen) closeToolbarOverflowMenu();
+    else openToolbarOverflowMenu();
+  };
+  const onToolbarOverflowPointerDown = (event: PointerEvent): void => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) return;
+    if (target.closest('[data-editor-local-test-menu]') || target.closest('[data-editor-local-test-toggle]')) return;
+    if (target.closest('[data-editor-toolbar-overflow-menu]') || target.closest('[data-editor-toolbar-overflow-toggle]')) return;
+    closeLocalTestMenu();
+    closeToolbarOverflowMenu();
+  };
+  const ResizeObserverCtor = doc.defaultView?.ResizeObserver;
+  const toolbarResizeObserver = ResizeObserverCtor
+    ? new ResizeObserverCtor(() => scheduleToolbarOverflowLayout())
+    : null;
+  toolbarOverflowButton.addEventListener('click', onToolbarOverflowButtonClick);
+  localTestButton.addEventListener('click', onLocalTestButtonClick);
+  doc.addEventListener('pointerdown', onToolbarOverflowPointerDown);
+  toolbarResizeObserver?.observe(sceneToolOverlay);
+  doc.defaultView?.addEventListener('resize', scheduleToolbarOverflowLayout);
+
   applyThemeToSurfaces();
   updateThemeToggleButton();
 
   enterEditorButton.addEventListener('click', () => callbacks.onEnterEditor?.());
-  saveButton.addEventListener('click', () => callbacks.onSaveScene?.());
-  saveAndRunButton.addEventListener('click', () => callbacks.onSaveAndRunGame?.());
-  discardRunButton.addEventListener('click', () => callbacks.onDiscardAndRunGame?.());
+  saveButton.addEventListener('click', () => {
+    closeLocalTestMenu();
+    if (localTestActionsEnabled) callbacks.onSaveScene?.();
+  });
+  saveAndRunButton.addEventListener('click', () => {
+    closeLocalTestMenu();
+    if (localTestActionsEnabled) callbacks.onSaveAndRunGame?.();
+  });
+  discardRunButton.addEventListener('click', () => {
+    closeLocalTestMenu();
+    if (localTestActionsEnabled) callbacks.onDiscardAndRunGame?.();
+  });
   undoButton.addEventListener('click', () => callbacks.onUndo?.());
   redoButton.addEventListener('click', () => callbacks.onRedo?.());
   sceneCameraButton.addEventListener('click', () => {
@@ -768,7 +1095,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const handleDocumentShortcut = inputRouter.shouldHandleDocumentShortcut(event);
     const handleGlobalShortcut = inputRouter.shouldHandleGlobalShortcut(event);
 
-    if (handleDocumentShortcut && primaryModifier && key === 's') {
+    if (handleDocumentShortcut && localTestActionsEnabled && primaryModifier && key === 's') {
       event.preventDefault();
       callbacks.onSaveScene?.();
       return;
@@ -917,12 +1244,15 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const inEditor = state.mode === 'editor';
     const disabled = state.busy;
     if (!inEditor || disabled) contextMenu.close();
-    hostChrome.style.display = inEditor ? 'none' : 'flex';
+    hostChrome.style.display = !inEditor && localTestActionsEnabled ? 'flex' : 'none';
     enterEditorButton.disabled = disabled;
     for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton]) {
-      button.style.display = '';
+      button.style.display = 'inline-flex';
       button.disabled = disabled;
     }
+    localTestGroup.style.display = inEditor && localTestActionsEnabled ? 'flex' : 'none';
+    localTestButton.disabled = disabled;
+    if (!inEditor || !localTestActionsEnabled) closeLocalTestMenu();
     if (!inEditor) helpOpen = false;
     inputRouter.setModalOpen(inEditor && helpOpen);
     const transformTool = state.transformTool ?? null;
@@ -1015,6 +1345,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       boxSelectionOverlay.style.display = 'none';
     }
 
+    scheduleToolbarOverflowLayout();
     if (!inEditor) return;
     const hierarchyDescriptor = panelRegistry.getActivePanel('left');
     const inspectorDescriptor = panelRegistry.getActivePanel('right');
@@ -1037,11 +1368,23 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       return activeTheme;
     },
     dispose() {
+      if (toolbarOverflowRaf != null) {
+        doc.defaultView?.cancelAnimationFrame(toolbarOverflowRaf);
+        toolbarOverflowRaf = null;
+      }
+      toolbarResizeObserver?.disconnect();
+      toolbarOverflowButton.removeEventListener('click', onToolbarOverflowButtonClick);
+      localTestButton.removeEventListener('click', onLocalTestButtonClick);
+      doc.removeEventListener('pointerdown', onToolbarOverflowPointerDown);
+      doc.defaultView?.removeEventListener('resize', scheduleToolbarOverflowLayout);
       hostChrome.remove();
       workbench.root.remove();
+      localTestMenu.remove();
+      toolbarOverflowMenu.remove();
       boxSelectionOverlay.remove();
       shortcutHelpPanel.remove();
       hierarchyController.dispose();
+      workbenchLayoutController.dispose();
       contextMenu.dispose();
       inputRouter.dispose();
       doc.removeEventListener('keydown', onKeyDown);

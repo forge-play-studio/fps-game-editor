@@ -1,6 +1,16 @@
 /** Browser host adapter for editor runtimes running inside a project page. */
 
 export * from './local-editor-ui';
+export {
+  normalizeLocalEditorWorkbenchLayout,
+  normalizeLocalEditorWorkbenchUserLayout,
+  resolveLocalEditorWorkbenchVisibility,
+} from './local-editor-ui-workbench';
+export type {
+  LocalEditorWorkbenchLayoutState,
+  LocalEditorWorkbenchVisibility,
+  LocalEditorWorkbenchViewport,
+} from './local-editor-ui-workbench';
 
 export type BrowserEventTargetLike = Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
 

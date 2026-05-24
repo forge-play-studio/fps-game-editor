@@ -51,6 +51,31 @@ let livePanelSession: LivePanelSession | null = null;
 /** DEV-only local editor/game mode switcher */
 let localEditorModeSwitcher: LocalEditorModeSwitcher | null = null;
 
+function readBooleanSearchParam(name: string): boolean | null {
+  const value = new URLSearchParams(window.location.search).get(name);
+  if (value == null) return null;
+  if (['1', 'true', 'yes', 'on'].includes(value.toLowerCase())) return true;
+  if (['0', 'false', 'no', 'off'].includes(value.toLowerCase())) return false;
+  return null;
+}
+
+function hasSandboxContext(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return Boolean(params.get('sandboxId')) || window.parent !== window;
+}
+
+function shouldEnableLocalEditorHostUi(): boolean {
+  const override = readBooleanSearchParam('localEditorHostUi');
+  if (override != null) return override;
+  return import.meta.env.DEV && !hasSandboxContext();
+}
+
+function shouldEnableDebugPanels(): boolean {
+  const override = readBooleanSearchParam('debugPanels');
+  if (override != null) return override;
+  return import.meta.env.VITE_ENABLE_MINI_GAME_DEBUG_PANELS === 'true';
+}
+
 async function registerLegacyRuntimeEditorBridge(): Promise<void> {
   const editorModule = await import('./fps-game-editor-adapter/runtime');
   editorModule.registerLumberOrderFpsGameEditorRuntimeBridge();
@@ -114,36 +139,40 @@ async function init(): Promise<void> {
 
     if (import.meta.env.DEV) {
       const sandboxId = new URLSearchParams(window.location.search).get('sandboxId') ?? '';
-      void import('./debug/live-panel')
-        .then(async ({ mountLivePanel }) => {
-          const scene = game?.getScene();
-          if (!scene) return;
-          disposeLivePanelSession();
-          const session = await mountLivePanel(scene, { sandboxId });
-          if (!game || game.getScene() !== scene) {
-            session.dispose();
-            return;
-          }
-          livePanelSession = session;
-        })
-        .catch((error) => console.warn('[live-panel] mount failed', error));
+      const localEditorHostUi = shouldEnableLocalEditorHostUi();
+      if (shouldEnableDebugPanels()) {
+        void import('./debug/live-panel')
+          .then(async ({ mountLivePanel }) => {
+            const scene = game?.getScene();
+            if (!scene) return;
+            disposeLivePanelSession();
+            const session = await mountLivePanel(scene, { sandboxId });
+            if (!game || game.getScene() !== scene) {
+              session.dispose();
+              return;
+            }
+            livePanelSession = session;
+          })
+          .catch((error) => console.warn('[live-panel] mount failed', error));
 
-      void import('./debug/framework-config')
-        .then((module) => {
-          disposeDebugPanelSession();
-          debugPanelSession = module.createDebugPanelSession({
-            root: document.body,
-            getGame: () => game,
-          });
-          return debugPanelSession.init();
-        })
-        .catch((error) => console.warn('[debug-panel-framework] mount failed', error));
+        void import('./debug/framework-config')
+          .then((module) => {
+            disposeDebugPanelSession();
+            debugPanelSession = module.createDebugPanelSession({
+              root: document.body,
+              getGame: () => game,
+            });
+            return debugPanelSession.init();
+          })
+          .catch((error) => console.warn('[debug-panel-framework] mount failed', error));
+      }
 
       void import('./debug/local-editor-mode-switcher')
         .then(({ mountLocalEditorModeSwitcher }) => {
           disposeLocalEditorModeSwitcher();
           localEditorModeSwitcher = mountLocalEditorModeSwitcher({
             root: document.body,
+            localTestActions: localEditorHostUi,
             disposeGameWorld: () => {
               disposeLivePanelSession();
               disposeDebugPanelSession();

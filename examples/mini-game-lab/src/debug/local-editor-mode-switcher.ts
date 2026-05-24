@@ -69,6 +69,7 @@ type BabylonModule = Record<string, any>;
 
 export interface LocalEditorModeSwitcherOptions {
   root?: HTMLElement;
+  localTestActions?: boolean;
   disposeGameWorld: () => void;
   onBeforeReload?: () => void;
 }
@@ -86,6 +87,7 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
   });
   const harness: LocalEditorHarness<EditorSceneDocument> = createLocalEditorHarness<EditorSceneDocument, EditorSceneDocumentPatch, EditorSceneAssetLibraryItem>({
     root: options.root,
+    localTestActions: options.localTestActions === true,
     authoringHost,
     documentAdapter: {
       prepareDocument: (document, assets) => normalizeEditorSceneHierarchyDocument(
