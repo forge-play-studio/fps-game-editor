@@ -552,6 +552,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   tooltipSurfaces.add(hostChrome);
 
   const dirtyBadge = doc.createElement('span');
+  dirtyBadge.dataset.editorDirtyBadge = 'true';
   dirtyBadge.dataset.editorTooltip = '有未保存更改';
   dirtyBadge.setAttribute('role', 'status');
   dirtyBadge.setAttribute('aria-label', '有未保存更改');

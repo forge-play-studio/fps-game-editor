@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 test('hierarchy context menu routes actions through EditorWorld input ownership', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('[data-editor-lab-status]')).toContainText('mode=editor');
+  const dirtyBadge = page.locator('[data-editor-dirty-badge]');
 
   const blueBox = page.locator('[data-editor-hierarchy-id="lab_box_01"]');
   const greenSphere = page.locator('[data-editor-hierarchy-id="lab_sphere_01"]');
@@ -30,7 +31,7 @@ test('hierarchy context menu routes actions through EditorWorld input ownership'
   await page.getByRole('menuitem', { name: 'Add Empty' }).click();
   const objectCountAfterGroup = await page.evaluate(() => window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects.length);
   expect(objectCountAfterGroup).toBe((objectCountBeforeGroup ?? 0) + 1);
-  await expect(page.locator('text=未保存')).toBeVisible();
+  await expect(dirtyBadge).toBeVisible();
 
   await page.getByRole('button', { name: 'Box Context Prime' }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Delete Delete' }).click();
@@ -112,7 +113,7 @@ test('hierarchy root is protected and group selection creates a real group', asy
       gameObject.kind === 'group'
       && gameObject.id !== 'lab_root'
       && gameObject.id !== 'lab_group_01'
-      && gameObject.name === 'Group'
+      && gameObject.name === 'Parent'
     ));
     return group
       ? {
