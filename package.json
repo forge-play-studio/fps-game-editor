@@ -21,6 +21,8 @@
     "test:pack": "node scripts/pack-consumer-smoke.mjs",
     "test": "npm run test:unit && npm run test:browser && npm run test:pack",
     "check:boundaries": "node scripts/check-package-boundaries.mjs",
+    "docs:export-user-guide": "node scripts/docs/export-editor-user-guide-md.mjs",
+    "docs:check-user-guide": "node scripts/docs/check-editor-user-docs.mjs",
     "check": "npm run check:boundaries && npm run typecheck && npm run test:unit",
     "pack:dry-run": "node scripts/pack-dry-run.mjs",
     "release:version": "node scripts/release-version.mjs set",

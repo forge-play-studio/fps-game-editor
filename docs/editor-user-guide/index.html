@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fps-game-editor 用户教学指南</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --surface: #ffffff;
+      --surface-soft: #eef3f8;
+      --ink: #20242c;
+      --muted: #5b6472;
+      --line: #d9e0ea;
+      --accent: #2b6cb0;
+      --accent-strong: #174a7c;
+      --green: #287553;
+      --amber: #8a5a00;
+      --code: #132238;
+      --shadow: 0 18px 48px rgba(24, 35, 58, 0.10);
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.68 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      color: var(--accent-strong);
+      text-decoration: underline;
+    }
+
+    code {
+      border: 1px solid #d6deea;
+      border-radius: 4px;
+      background: #f1f5fa;
+      color: var(--code);
+      padding: 1px 5px;
+      font-size: 0.92em;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+      background: #ffffff;
+      padding: 24px 20px;
+    }
+
+    .brand {
+      margin-bottom: 24px;
+    }
+
+    .brand-title {
+      margin: 0;
+      color: var(--ink);
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .brand-subtitle {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .nav-label {
+      margin: 20px 0 8px;
+      color: #7a8494;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .nav-list {
+      display: grid;
+      gap: 4px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .nav-list a {
+      display: block;
+      border-radius: 6px;
+      color: var(--muted);
+      padding: 7px 9px;
+      line-height: 1.35;
+    }
+
+    .nav-list a:hover {
+      background: var(--surface-soft);
+      color: var(--accent-strong);
+      text-decoration: none;
+    }
+
+    .nav-tree {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .nav-tree details {
+      border-radius: 6px;
+    }
+
+    .nav-tree summary {
+      cursor: pointer;
+      color: #3f4b5d;
+      padding: 7px 9px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .nav-tree summary:hover {
+      background: var(--surface-soft);
+      color: var(--accent-strong);
+    }
+
+    .nav-tree ul {
+      display: grid;
+      gap: 2px;
+      margin: 2px 0 6px 14px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .nav-tree a {
+      display: block;
+      border-radius: 6px;
+      color: var(--muted);
+      padding: 6px 9px;
+      line-height: 1.35;
+    }
+
+    .nav-tree a:hover {
+      background: var(--surface-soft);
+      color: var(--accent-strong);
+      text-decoration: none;
+    }
+
+    .content {
+      min-width: 0;
+    }
+
+    .hero {
+      border-bottom: 1px solid var(--line);
+      background: #e9eef5;
+      padding: 56px clamp(24px, 5vw, 72px) 34px;
+    }
+
+    .hero-inner {
+      max-width: 1120px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 820px;
+      color: #151a22;
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .hero-copy {
+      max-width: 760px;
+      margin: 18px 0 0;
+      color: #3d4654;
+      font-size: 18px;
+      line-height: 1.65;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--accent-strong);
+      padding: 8px 13px;
+      font-weight: 800;
+    }
+
+    .button.primary {
+      border-color: var(--accent-strong);
+      background: var(--accent-strong);
+      color: #ffffff;
+    }
+
+    .button:hover {
+      text-decoration: none;
+    }
+
+    main {
+      max-width: 1120px;
+      padding: 34px clamp(24px, 5vw, 72px) 72px;
+    }
+
+    section {
+      margin: 0 0 42px;
+      scroll-margin-top: 24px;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      color: #151a22;
+      font-size: 28px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 26px 0 10px;
+      color: #1b2533;
+      font-size: 19px;
+      line-height: 1.28;
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    ul,
+    ol {
+      margin: 0 0 16px 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 18px 0;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .panel h3 {
+      margin-top: 0;
+    }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: #edf4fb;
+      padding: 14px 16px;
+      margin: 18px 0;
+    }
+
+    .callout strong {
+      color: var(--accent-strong);
+    }
+
+    .workspace-map {
+      display: grid;
+      grid-template-columns: 1fr 1.7fr 1.1fr;
+      grid-template-rows: 68px 170px 92px;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      padding: 12px;
+      margin: 18px 0;
+    }
+
+    .map-block {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      border: 1px solid #c9d5e4;
+      border-radius: 6px;
+      background: #f3f6fa;
+      color: #263244;
+      padding: 8px;
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .map-scene {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      background: #e5eff7;
+      color: var(--accent-strong);
+    }
+
+    .map-left {
+      grid-column: 1;
+      grid-row: 1 / span 2;
+    }
+
+    .map-right {
+      grid-column: 3;
+      grid-row: 1 / span 3;
+    }
+
+    .map-bottom {
+      grid-column: 1 / span 2;
+      grid-row: 3;
+      background: #eef6f1;
+      color: var(--green);
+    }
+
+    .step {
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+      margin-top: 18px;
+    }
+
+    .check {
+      border-left: 4px solid var(--green);
+      background: #edf8f2;
+      padding: 12px 14px;
+      margin: 12px 0 0;
+    }
+
+    .warn {
+      border-left-color: var(--amber);
+      background: #fff8e8;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 18px;
+      background: var(--surface);
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf2f7;
+      color: #1d2734;
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      padding-top: 20px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 940px) {
+      .shell {
+        display: block;
+      }
+
+      .sidebar {
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace-map {
+        grid-template-columns: 1fr;
+        grid-template-rows: none;
+      }
+
+      .map-left,
+      .map-scene,
+      .map-right,
+      .map-bottom {
+        grid-column: auto;
+        grid-row: auto;
+      }
+    }
+
+    @media print {
+      .shell {
+        display: block;
+      }
+
+      .sidebar,
+      .hero-actions {
+        display: none;
+      }
+
+      .hero,
+      main {
+        padding: 0;
+      }
+
+      .panel,
+      .workspace-map {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h2 class="brand-title">fps-game-editor</h2>
+        <p class="brand-subtitle">面向编辑器使用者的教学指南。</p>
+      </div>
+
+      <p class="nav-label">理解基础知识</p>
+      <ul class="nav-tree">
+        <li>
+          <details open>
+            <summary>基础知识</summary>
+            <ul>
+              <li><a href="#overview">文档定位</a></li>
+              <li><a href="#path">新手学习路径</a></li>
+              <li><a href="#workspace">工具和编辑器</a></li>
+              <li><a href="shortcuts.html">按键/快捷键</a></li>
+              <li><a href="#workspace">坐标系与坐标空间</a></li>
+            </ul>
+          </details>
+        </li>
+      </ul>
+
+      <p class="nav-label">使用编辑器</p>
+      <ul class="nav-tree">
+        <li>
+          <details open>
+            <summary>场景和节点</summary>
+            <ul>
+              <li><a href="#tutorial">创建第一个修改</a></li>
+              <li><a href="#workspace">工作区总览</a></li>
+              <li><a href="#shortcuts">快捷键入口</a></li>
+            </ul>
+          </details>
+        </li>
+        <li>
+          <details>
+            <summary>资产和内容</summary>
+            <ul>
+              <li><a href="#workspace">资产面板</a></li>
+              <li><a href="#tutorial">从资产创建对象</a></li>
+            </ul>
+          </details>
+        </li>
+      </ul>
+
+      <p class="nav-label">参考</p>
+      <ul class="nav-list">
+        <li><a href="shortcuts.html">快捷键和鼠标操作</a></li>
+        <li><a href="#troubleshooting">常见问题排障</a></li>
+      </ul>
+
+    </aside>
+
+    <div class="content">
+      <header class="hero">
+        <div class="hero-inner">
+          <p class="eyebrow">Editor User Guide</p>
+          <h1>fps-game-editor 用户指南</h1>
+          <p class="hero-copy">给关卡设计师、玩法设计师、技术美术和项目接入开发者使用的教学型说明。按学习路径进入，完成第一个可保存修改，再用手册、快捷键和排障内容巩固工作流。</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#tutorial">开始第一个教程</a>
+            <a class="button" href="shortcuts.html">查看快捷键</a>
+            <a class="button" href="#troubleshooting">排查问题</a>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section id="overview">
+          <h2>文档定位</h2>
+          <p>这套文档面向使用 <code>fps-game-editor</code> 的外部读者。它解释用户任务和编辑器概念，而不是复制源码实现细节。</p>
+          <div class="callout">
+            <strong>阅读方式：</strong>第一次使用时先按“新手学习路径”走一遍；已经熟悉界面时，可以直接查工作区、快捷键或排障章节。
+          </div>
+          <div class="grid">
+            <article class="panel">
+              <h3>学习路径</h3>
+              <p>回答“我应该按什么顺序学”，把读者带到一个可完成的目标。</p>
+            </article>
+            <article class="panel">
+              <h3>任务教程</h3>
+              <p>回答“我现在要完成一个具体任务”，包含步骤、检查点、常见错误和下一步。</p>
+            </article>
+            <article class="panel">
+              <h3>手册与参考</h3>
+              <p>解释稳定概念、界面区域、快捷键、限制和排障路径。</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="path">
+          <h2>新手学习路径</h2>
+          <p>这条路径帮助第一次使用编辑器的读者理解工作区，并完成一次从进入编辑模式、创建或选择节点、修改属性、保存场景到回到游戏预览的基础闭环。</p>
+          <h3>完成后你应该能够</h3>
+          <ol>
+            <li>说清楚 Scene View、层级、检查器、资产和历史面板分别负责什么。</li>
+            <li>在示例项目中进入编辑器并找到可操作对象。</li>
+            <li>使用检查器或 Transform 工具做一次可保存修改。</li>
+            <li>判断保存后 authoring source 和 runtime scene 的关系。</li>
+          </ol>
+          <h3>推荐顺序</h3>
+          <ol>
+            <li>先读工作区总览，理解每个面板和基本概念。</li>
+            <li>再按第一个教程完成一次带检查点的操作。</li>
+            <li>操作过程中需要快捷键时，打开 <a href="shortcuts.html">快捷键和鼠标操作</a>。</li>
+            <li>如果保存、选择或资源创建没有达到预期，查常见问题排障。</li>
+            <li>完成一次保存闭环后，再回看工作区总览，补齐选择、资产和保存边界。</li>
+          </ol>
+          <div class="check">
+            完成检查：你应该知道 <code>Q/W/E/R</code> 对应选择、移动、旋转、缩放工具，也知道 <code>Cmd/Ctrl + S</code> 会触发项目 adapter 的保存链路。
+          </div>
+        </section>
+
+        <section id="workspace">
+          <h2>编辑器工作区总览</h2>
+          <p>编辑器工作区是用户进行场景 authoring 的主要界面。公共编辑器负责选择、工具切换、Transform gizmo、Inspector host、历史状态和通用命令；项目 adapter 负责把这些命令落到项目自己的 schema、资源系统、runtime binding 和保存链路。</p>
+          <div class="workspace-map" aria-label="编辑器工作区布局示意">
+            <div class="map-block map-left">层级<br>Hierarchy</div>
+            <div class="map-block map-scene">Scene View<br>选择、相机、Transform Gizmo</div>
+            <div class="map-block map-right">检查器<br>Inspector</div>
+            <div class="map-block map-bottom">资产 / 历史<br>Assets / History</div>
+          </div>
+          <h3>什么时候使用</h3>
+          <ol>
+            <li>创建或调整场景节点。</li>
+            <li>放置资源并修改 Transform。</li>
+            <li>查看和编辑选中节点的 Inspector 属性。</li>
+            <li>保存 authoring source，并让项目生成 runtime scene。</li>
+            <li>排查选择、资源、保存和运行态投影是否一致。</li>
+          </ol>
+          <h3>界面区域</h3>
+          <ol>
+            <li><code>层级</code>：显示场景节点树，支持选择、重命名、分组和上下文操作。</li>
+            <li><code>Scene View</code>：显示可编辑场景，承载选择框、相机导航和 Transform gizmo。</li>
+            <li><code>检查器</code>：显示当前选择的属性，支持 document-backed 字段编辑。</li>
+            <li><code>资产</code>：浏览项目资产，项目 adapter 可以把资源创建为场景节点。</li>
+            <li><code>历史</code>：查看来自 EditorSession 的文档操作历史。</li>
+          </ol>
+          <div class="callout">
+            在 <code>mini-game-lab</code> 示例中，本地保存会写 <code>src/config/editor-scene.json</code>，并编译 <code>src/config/scene.json</code>。其他项目可以使用不同路径和保存宿主。
+          </div>
+        </section>
+
+        <section id="tutorial">
+          <h2>创建第一个可保存场景修改</h2>
+          <p>完成一次最小编辑闭环：进入编辑器，创建或选择一个节点，修改它的位置，保存场景，然后回到游戏运行态检查结果。</p>
+          <div class="callout warn">
+            <strong>示例入口：</strong>在 <code>mini-game-lab</code> 中，<code>Enter Editor</code>、<code>Save Scene</code> 和 <code>Discard & Run Game</code> 是本地开发入口。正式项目可以由平台按钮或自己的宿主流程进入编辑器。
+          </div>
+
+          <article class="step">
+            <h3>1. 进入编辑器</h3>
+            <ol>
+              <li>打开项目页面。</li>
+              <li>点击页面顶部的 <code>Enter Editor</code>。</li>
+              <li>等待中央 Scene View、左侧层级、右侧检查器和底部资产面板出现。</li>
+            </ol>
+            <p>为什么这样做：进入编辑模式后，当前 GameWorld 会切换到编辑器的 EditorWorld，用户动作会进入编辑器会话，而不是直接驱动游戏玩法。</p>
+            <div class="check">检查点：你应该看到完整编辑器工作区。</div>
+          </article>
+
+          <article class="step">
+            <h3>2. 创建或选择一个节点</h3>
+            <ol>
+              <li>如果层级里已经有节点，点击一个可选中节点。</li>
+              <li>如果需要新节点，切到底部 <code>资产</code> 标签，搜索或找到一个资源，然后点击资源创建 GameObject。</li>
+              <li>也可以在层级面板中使用 <code>+ Group</code> 创建一个分组节点。</li>
+            </ol>
+            <p>为什么这样做：编辑器所有后续操作都围绕“当前选择”进行。</p>
+            <div class="check">检查点：被选中的节点应该在层级中高亮，右侧检查器会显示这个节点的属性。</div>
+          </article>
+
+          <article class="step">
+            <h3>3. 修改 Transform</h3>
+            <ol>
+              <li>按 <code>W</code> 切到移动工具，或在 Scene View 工具条选择移动。</li>
+              <li>拖拽移动手柄，让节点在场景中移动一小段距离。</li>
+              <li>也可以在检查器里修改 Transform 数值。</li>
+            </ol>
+            <p>为什么这样做：Transform 是最基础的可保存编辑，可以验证选择、Inspector、gizmo、document patch 和 runtime projection 的完整链路。</p>
+            <div class="check">检查点：节点在 Scene View 中的位置应该变化，检查器里的 Transform 数值也应该反映这次变化。</div>
+          </article>
+
+          <article class="step">
+            <h3>4. 保存并回到游戏运行态</h3>
+            <ol>
+              <li>点击 <code>Save Scene</code>，或使用 <code>Cmd/Ctrl + S</code>。</li>
+              <li>保存后切回 Game Mode 或使用项目提供的运行入口。</li>
+              <li>如果要放弃本次编辑，在 <code>mini-game-lab</code> 中点击 <code>Discard & Run Game</code>。</li>
+            </ol>
+            <p>为什么这样做：公共编辑器会把编辑意图交给项目 adapter，项目 adapter 保存 authoring source，并编译运行时需要的 scene 数据。</p>
+            <div class="check">检查点：游戏运行态重新出现后，你应该能看到刚才保存的节点变化。</div>
+          </article>
+        </section>
+
+        <section id="shortcuts">
+          <h2>快捷键和鼠标操作</h2>
+          <p>快捷键已经拆成独立页面，按工具、视图、鼠标、选择、文档、层级和面板分类。第一次使用编辑器时，可以先记住 <code>Q/W/E/R</code>、<code>F</code>、<code>Esc</code>、<code>Cmd/Ctrl + S</code> 和 Scene View 的鼠标导航。</p>
+          <div class="grid">
+            <article class="panel">
+              <h3>工具切换</h3>
+              <p><code>Q/W/E/R</code> 对应选择、移动、旋转、缩放，是最常用的编辑节奏。</p>
+            </article>
+            <article class="panel">
+              <h3>视图导航</h3>
+              <p>中键平移，滚轮推进/拉远，右键拖拽进入飞行视角，<code>WASD/QE</code> 在飞行视角中移动。</p>
+            </article>
+            <article class="panel">
+              <h3>文档操作</h3>
+              <p><code>Cmd/Ctrl + S</code> 保存，<code>Cmd/Ctrl + Z</code> 撤销，删除和复制行为由项目 adapter 决定是否可用。</p>
+            </article>
+          </div>
+          <p><a class="button primary" href="shortcuts.html">打开快捷键页面</a></p>
+        </section>
+
+        <section id="troubleshooting">
+          <h2>常见问题排障</h2>
+          <h3>你可能看到</h3>
+          <ol>
+            <li>点击 <code>Enter Editor</code> 后没有出现编辑器工作区。</li>
+            <li>Scene View 中无法选中对象，或层级选中和视图选中不一致。</li>
+            <li>点击资产后没有创建节点。</li>
+            <li>Inspector 字段显示了，但输入后没有保存。</li>
+            <li><code>Save Scene</code> 或 <code>Cmd/Ctrl + S</code> 后，游戏运行态没有变化。</li>
+          </ol>
+          <h3>检查顺序</h3>
+          <ol>
+            <li>确认你真的进入了编辑模式。正常时应该看到层级、Scene View、检查器和底部 dock。</li>
+            <li>在层级中点击节点。正常时节点应该高亮，检查器应该显示当前选择。</li>
+            <li>在 Scene View 中点击同一个对象。正常时选择状态应该和层级同步。</li>
+            <li>打开底部 <code>资产</code> 标签。正常时应该能看到项目 adapter 暴露的资源数量和筛选框。</li>
+            <li>修改一个基础 Transform 字段或拖动移动 gizmo。正常时 Scene View 和检查器数值应该同步变化。</li>
+            <li>执行保存。正常时项目 adapter 应该保存 authoring source，并生成或导出 runtime scene。</li>
+          </ol>
+
+          <div class="grid">
+            <article class="panel">
+              <h3>工作区没有出现</h3>
+              <p>确认使用了项目提供的编辑入口，例如 <code>mini-game-lab</code> 中的 <code>Enter Editor</code>，并检查控制台是否有 bridge、Inspector loader 或资源加载错误。</p>
+            </article>
+            <article class="panel">
+              <h3>无法选择或 Inspector 为空</h3>
+              <p>优先从层级面板选择节点，检查项目 adapter 是否为 runtime 对象建立了持久化 binding。</p>
+            </article>
+            <article class="panel">
+              <h3>保存后运行态没有变化</h3>
+              <p>确认保存动作已经触发。在 <code>mini-game-lab</code> 中检查 <code>editor-scene.json</code> 和 <code>scene.json</code> 是否都发生预期变化。</p>
+            </article>
+          </div>
+        </section>
+
+        <footer>
+          <p>Standalone HTML user guide for fps-game-editor.</p>
+        </footer>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
