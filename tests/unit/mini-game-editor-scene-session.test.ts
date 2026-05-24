@@ -241,7 +241,7 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     expect(hierarchyCamera).toMatchObject({
       selectable: true,
       deletable: false,
-      draggable: true,
+      draggable: false,
     });
     expect(createEditorSceneDeleteSubtreePatch(document, {
       ids: ['main_camera'],
@@ -1080,11 +1080,11 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
       }),
       expect.objectContaining({
         path: '$.scene.materials[2].nodeId',
-        message: 'node material nodeId must reference an instance or transform node: group_with_material',
+        message: 'node material nodeId must reference an instance, transform, or primitive node: group_with_material',
       }),
       expect.objectContaining({
         path: '$.scene.materials[3].nodeId',
-        message: 'node material nodeId must reference an instance or transform node: group_with_material',
+        message: 'node material nodeId must reference an instance, transform, or primitive node: group_with_material',
       }),
       expect.objectContaining({
         path: '$.scene.materials[4].nodeId',

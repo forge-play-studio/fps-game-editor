@@ -15,23 +15,26 @@ import {
 } from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-session';
 
 describe('mini-game-lab hierarchy adapter', () => {
-  it('exposes protected root semantics for the editor hierarchy', () => {
+  it('hides the protected root while exposing user-facing hierarchy semantics', () => {
     const items = getEditorSceneHierarchyItems(createMiniEditorSceneDocument());
     const root = items.find(item => item.id === 'mvp_root');
     const tree = items.find(item => item.id === 'mvp_tree_01');
-    expect(root).toMatchObject({
-      role: 'root',
-      protected: true,
-      selectable: false,
-      canHaveChildren: true,
-      draggable: false,
-    });
+    const group = items.find(item => item.id === 'mvp_group_01');
+    expect(root).toBeUndefined();
     expect(tree).toMatchObject({
       role: 'object',
+      parentId: null,
+      depth: 0,
       protected: false,
       selectable: true,
       canHaveChildren: true,
       draggable: true,
+    });
+    expect(group).toMatchObject({
+      role: 'group',
+      parentId: null,
+      depth: 0,
+      canHaveChildren: true,
     });
   });
 
@@ -41,7 +44,7 @@ describe('mini-game-lab hierarchy adapter', () => {
       ids: ['mvp_tree_02'],
       targetId: 'mvp_group_01',
       placement: 'before',
-      parentId: 'mvp_root',
+      parentId: null,
       beforeId: 'mvp_group_01',
       preserveWorldTransform: true,
     })!;
@@ -96,7 +99,7 @@ describe('mini-game-lab hierarchy adapter', () => {
     let document = createMiniEditorSceneDocument();
     const group = createEditorSceneGroupSelectionPatch(document, {
       ids: ['mvp_tree_01', 'mvp_tree_02'],
-      parentId: 'mvp_root',
+      parentId: null,
       name: 'Selection Group',
       pivot: 'selection-center',
       preserveWorldTransform: true,

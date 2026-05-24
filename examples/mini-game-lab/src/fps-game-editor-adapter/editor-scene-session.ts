@@ -417,15 +417,16 @@ export function getEditorSceneHierarchyItems(document: EditorSceneDocument): Sce
     .filter(gameObject => gameObject.id !== EDITOR_SCENE_ROOT_ID)
     .map((gameObject) => {
       const systemProtected = isEditorSceneProtectedSystemGameObject(gameObject);
+      const canHaveChildren = canEditorSceneGameObjectHaveChildren(gameObject);
       return {
         id: gameObject.id,
         label: gameObject.name ?? gameObject.id,
         parentId: gameObject.parentId === EDITOR_SCENE_ROOT_ID ? null : gameObject.parentId ?? null,
         depth: Math.max(0, getEditorSceneGameObjectDepth(document, gameObject) - 1),
-        role: isEditorSceneGroupLikeGameObject(gameObject) ? 'group' : 'object',
+        role: canHaveChildren && isEditorSceneGroupLikeGameObject(gameObject) ? 'group' : 'object',
         selectable: true,
         protected: systemProtected,
-        canHaveChildren: !systemProtected && canEditorSceneGameObjectHaveChildren(gameObject),
+        canHaveChildren: !systemProtected && canHaveChildren,
         renamable: !systemProtected,
         deletable: !systemProtected,
         draggable: !systemProtected,

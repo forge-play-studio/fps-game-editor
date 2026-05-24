@@ -234,7 +234,7 @@ export function toTransformActionLabel(action: LocalEditorBrowserTransformAction
     'align-x': '对齐 X',
     'align-y': '对齐 Y',
     'align-z': '对齐 Z',
-    'align-all': '对齐 XYZ',
+    'align-all': '对齐全',
     'distribute-x': '分布 X',
     'distribute-y': '分布 Y',
     'distribute-z': '分布 Z',
