@@ -52,6 +52,7 @@ import type {
   BabylonEditorProjectionImportResult,
   BabylonEditorProjectionNode,
 } from '@fps-games/editor-babylon';
+import { createBabylonEditorInfiniteGrid } from '@fps-games/editor-babylon';
 
 export interface LabVec3 {
   x: number;
@@ -350,24 +351,13 @@ export function createLabWorldAdapter(canvasId = 'editor-lab-canvas'): LocalEdit
   };
 }
 
-export function createLabGrid(babylon: any, scene: any): void {
-  if (!babylon.MeshBuilder || !babylon.Vector3 || !babylon.Color3) return;
-  const gridSize = 12;
-  const gridColor = new babylon.Color3(0.18, 0.27, 0.42);
-  const axisXColor = new babylon.Color3(0.8, 0.22, 0.22);
-  const axisZColor = new babylon.Color3(0.22, 0.55, 0.85);
-  for (let i = -gridSize; i <= gridSize; i += 1) {
-    const xLine = babylon.MeshBuilder.CreateLines(`lab-grid-x-${i}`, {
-      points: [new babylon.Vector3(-gridSize, 0, i), new babylon.Vector3(gridSize, 0, i)],
-    }, scene);
-    xLine.color = i === 0 ? axisXColor : gridColor;
-    xLine.isPickable = false;
-    const zLine = babylon.MeshBuilder.CreateLines(`lab-grid-z-${i}`, {
-      points: [new babylon.Vector3(i, 0, -gridSize), new babylon.Vector3(i, 0, gridSize)],
-    }, scene);
-    zLine.color = i === 0 ? axisZColor : gridColor;
-    zLine.isPickable = false;
-  }
+export function createLabGrid(babylon: any, scene: any) {
+  return createBabylonEditorInfiniteGrid({
+    babylon,
+    scene,
+    name: 'lab-editor-grid',
+    halfLineCount: 64,
+  });
 }
 
 export function reduceLabSceneDocument(
@@ -561,7 +551,7 @@ export function getLabHierarchyItems(document: LabSceneDocument): SceneGraphTree
     label: gameObject.name,
     parentId: gameObject.parentId,
     depth: getLabGameObjectDepth(document, gameObject),
-    role: gameObject.id === LAB_ROOT_ID ? 'root' : gameObject.kind === 'group' ? 'group' : 'object',
+    role: gameObject.id === LAB_ROOT_ID ? 'root' : 'object',
     selectable: gameObject.id !== LAB_ROOT_ID,
     locked: gameObject.id === LAB_ROOT_ID,
     protected: gameObject.id === LAB_ROOT_ID,
@@ -703,9 +693,9 @@ function createLabSceneGraphCreateGroupPatch(
       kind: 'game-object.create-group',
       id,
       parentId,
-      name: intent.name?.trim() || 'Group',
+      name: intent.name?.trim() || 'Empty',
     },
-    label: 'Create Group',
+    label: 'Create Empty',
     createdId: id,
   };
 }
@@ -872,7 +862,7 @@ function createLabSceneGraphGroupSelectionPatch(
   const id = createNextGroupId(document);
   const gameObject = createLabGameObject({
     id,
-    name: intent.name?.trim() || 'Group',
+    name: intent.name?.trim() || 'Parent',
     parentId,
     kind: 'group',
     position: groupLocal.position,
@@ -902,7 +892,7 @@ function createLabSceneGraphGroupSelectionPatch(
       childTransforms,
       order,
     },
-    label: `Group ${ids.length} object${ids.length === 1 ? '' : 's'}`,
+    label: `Parent ${ids.length} object${ids.length === 1 ? '' : 's'}`,
     createdId: id,
     changedIds: [id, ...ids],
   };

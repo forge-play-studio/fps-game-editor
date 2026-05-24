@@ -8,6 +8,7 @@ import type {
   LocalEditorBrowserInspectorControlKind,
   LocalEditorBrowserInspectorControlRegistration,
   LocalEditorBrowserInspectorControlRenderContext,
+  LocalEditorBrowserInspectorEffectMode,
   LocalEditorBrowserInspectorObject,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserInspectorSection,
@@ -52,7 +53,7 @@ export function renderHierarchyPanel<TDocument>(
   drop: LocalEditorBrowserSceneGraphDropIntent | null,
 ): void {
   clearElement(panel);
-  const createGroupButton = createToolbarButton(doc, '+ Group', 'group');
+  const createGroupButton = createToolbarButton(doc, '+ Empty', 'object');
   createGroupButton.dataset.editorHierarchyCreateGroup = 'true';
   createGroupButton.style.padding = '3px 7px';
   createGroupButton.style.fontSize = '11px';
@@ -345,6 +346,7 @@ export function renderInspectorPanel<TDocument>(
   filter = '',
   options: LocalEditorBrowserInspectorRenderOptions<TDocument> = {},
 ): void {
+  const renderSnapshot = captureInspectorPanelRenderSnapshot(doc, panel);
   clearElement(panel);
   const title = doc.createElement('h2');
   title.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;margin:-8px -8px 8px;padding:7px 8px;border-bottom:1px solid var(--fps-editor-divider);background:var(--fps-editor-chrome-dark);font-weight:800;color:var(--fps-editor-text-strong)';
@@ -365,6 +367,7 @@ export function renderInspectorPanel<TDocument>(
     empty.textContent = '请从层级树或 Scene View 中选择一个 GameObject。';
     empty.style.cssText = 'color:var(--fps-editor-muted);line-height:1.45';
     panel.appendChild(empty);
+    restoreInspectorPanelRenderSnapshot(panel, renderSnapshot);
     return;
   }
 
@@ -375,17 +378,46 @@ export function renderInspectorPanel<TDocument>(
     filter,
   );
   if (visibleSections.length === 0) {
-    if (!filter.trim() && inspectorObject.sections.length === 0) return;
+    if (!filter.trim() && inspectorObject.sections.length === 0) {
+      restoreInspectorPanelRenderSnapshot(panel, renderSnapshot);
+      return;
+    }
     const empty = doc.createElement('div');
     empty.textContent = '没有匹配的 Inspector 字段。';
     empty.style.cssText = 'color:var(--fps-editor-muted);line-height:1.45';
     panel.appendChild(empty);
+    restoreInspectorPanelRenderSnapshot(panel, renderSnapshot);
     return;
   }
 
   for (const section of visibleSections) {
     panel.appendChild(createInspectorSectionBlock(doc, inspectorObject, section, controlRegistry));
   }
+  restoreInspectorPanelRenderSnapshot(panel, renderSnapshot);
+}
+
+interface InspectorPanelRenderSnapshot {
+  preserveScroll: boolean;
+  scrollTop: number;
+  scrollLeft: number;
+}
+
+function captureInspectorPanelRenderSnapshot(doc: Document, panel: HTMLElement): InspectorPanelRenderSnapshot {
+  const activeElement = doc.activeElement;
+  const elementConstructor = doc.defaultView?.HTMLElement;
+  return {
+    preserveScroll: !!activeElement
+      && (elementConstructor ? activeElement instanceof elementConstructor : activeElement instanceof HTMLElement)
+      && panel.contains(activeElement),
+    scrollTop: panel.scrollTop,
+    scrollLeft: panel.scrollLeft,
+  };
+}
+
+function restoreInspectorPanelRenderSnapshot(panel: HTMLElement, snapshot: InspectorPanelRenderSnapshot): void {
+  if (!snapshot.preserveScroll) return;
+  panel.scrollTop = snapshot.scrollTop;
+  panel.scrollLeft = snapshot.scrollLeft;
 }
 
 function createInspectorSearchInput(doc: Document, value: string): HTMLInputElement {
@@ -410,10 +442,14 @@ function appendInspectorSummary<TDocument>(
   selectionCount: number,
 ): void {
   const block = createInspectorComponentBlock(doc);
+  const header = doc.createElement('div');
+  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px';
   const title = doc.createElement('h3');
   title.textContent = selectionCount > 1 ? 'Selection' : 'GameObject';
-  title.style.cssText = 'font-size:12px;margin:0 0 8px;font-weight:900;color:var(--fps-editor-text-strong)';
-  block.appendChild(title);
+  title.style.cssText = 'font-size:12px;margin:0;font-weight:900;color:var(--fps-editor-text-strong)';
+  header.appendChild(title);
+  header.appendChild(createInspectorAccessBadge(doc, 'readonly'));
+  block.appendChild(header);
   appendReadOnlyRow(doc, block, selectionCount > 1 ? 'Selected' : 'Name', inspectorObject.label ?? inspectorObject.activeId ?? inspectorObject.targetIds[0] ?? '无');
   appendReadOnlyRow(doc, block, 'Active ID', inspectorObject.activeId ?? '无');
   if (selectionCount > 1) appendReadOnlyRow(doc, block, 'Count', String(selectionCount));
@@ -461,7 +497,11 @@ function createInspectorSectionBlock<TDocument>(
   const block = doc.createElement('details');
   block.dataset.editorInspectorSection = section.id;
   block.open = section.collapsedByDefault !== true;
-  block.style.cssText = createInspectorBlockStyle();
+  const status = resolveLocalEditorBrowserInspectorSectionStatus(section);
+  const { access, effect } = status;
+  block.dataset.editorInspectorAccess = access;
+  block.dataset.editorInspectorEffect = effect;
+  block.style.cssText = createInspectorBlockStyle(access, effect);
   const sectionTitle = doc.createElement('summary');
   sectionTitle.style.cssText = [
     'font-size:12px',
@@ -486,13 +526,13 @@ function createInspectorSectionBlock<TDocument>(
     summary.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;font-size:11px';
     meta.appendChild(summary);
   }
-  if (section.persistence === 'runtime' || section.runtimeOnly || section.persistence === 'readonly') {
-    const badge = createBadge(doc, section.persistence === 'runtime' || section.runtimeOnly ? 'Runtime' : 'Readonly', {
-      compact: true,
-      tone: section.persistence === 'readonly' ? 'default' : 'warning',
-    });
-    badge.style.flex = '0 0 auto';
-    meta.appendChild(badge);
+  const badge = createInspectorAccessBadge(doc, access);
+  badge.style.flex = '0 0 auto';
+  meta.appendChild(badge);
+  const effectBadge = createInspectorEffectBadge(doc, effect, section.disabledReason);
+  if (effectBadge && status.showEffectBadge) {
+    effectBadge.style.flex = '0 0 auto';
+    meta.appendChild(effectBadge);
   }
   sectionTitle.appendChild(meta);
   block.appendChild(sectionTitle);
@@ -508,18 +548,150 @@ function createInspectorSectionBlock<TDocument>(
 
 function createInspectorComponentBlock(doc: Document): HTMLDivElement {
   const block = doc.createElement('div');
-  block.style.cssText = createInspectorBlockStyle();
+  block.dataset.editorInspectorAccess = 'readonly';
+  block.dataset.editorInspectorEffect = 'active';
+  block.style.cssText = createInspectorBlockStyle('readonly', 'active');
   return block;
 }
 
-function createInspectorBlockStyle(): string {
+export type LocalEditorBrowserInspectorAccessMode = 'editable' | 'mixed' | 'readonly' | 'runtime';
+
+export interface LocalEditorBrowserInspectorSectionStatus {
+  access: LocalEditorBrowserInspectorAccessMode;
+  effect: LocalEditorBrowserInspectorEffectMode;
+  showEffectBadge: boolean;
+}
+
+type InspectorAccessMode = LocalEditorBrowserInspectorAccessMode;
+
+export function resolveLocalEditorBrowserInspectorSectionStatus<TDocument>(
+  section: LocalEditorBrowserInspectorSection<TDocument>,
+): LocalEditorBrowserInspectorSectionStatus {
+  const access = getInspectorSectionAccess(section);
+  const effect = getInspectorSectionEffect(section);
+  return {
+    access,
+    effect,
+    showEffectBadge: effect !== 'active'
+      && !(access === 'runtime' && effect === 'runtime')
+      && !(effect === 'default' && inspectorSummaryLooksDefault(section.summary)),
+  };
+}
+
+function createInspectorBlockStyle(
+  _access: InspectorAccessMode,
+  _effect: LocalEditorBrowserInspectorEffectMode = 'active',
+): string {
   return [
     'margin:0 0 8px',
     'padding:9px',
-    'border:1px solid var(--fps-editor-border)',
+    'border:1px solid var(--fps-editor-inspector-section-border, var(--fps-editor-border))',
     'border-radius:3px',
     'background:var(--fps-editor-panel-soft)',
   ].join(';');
+}
+
+function isInspectorPropertyEditable<TDocument>(property: LocalEditorBrowserInspectorProperty<TDocument>): boolean {
+  return property.readOnly !== true
+    && property.persistence === 'document'
+    && getInspectorPropertyEffect(property) === 'active';
+}
+
+function getInspectorPropertyAccess<TDocument>(property: LocalEditorBrowserInspectorProperty<TDocument>): InspectorAccessMode {
+  if (property.persistence === 'runtime') return 'runtime';
+  if (getInspectorPropertyEffect(property) === 'runtime') return 'runtime';
+  return isInspectorPropertyEditable(property) ? 'editable' : 'readonly';
+}
+
+function getInspectorSectionAccess<TDocument>(section: LocalEditorBrowserInspectorSection<TDocument>): InspectorAccessMode {
+  if (section.runtimeOnly || section.persistence === 'runtime' || getInspectorSectionEffect(section) === 'runtime') return 'runtime';
+  const editableCount = section.properties.filter(isInspectorPropertyEditable).length;
+  if (editableCount === 0) return 'readonly';
+  if (editableCount === section.properties.length) return 'editable';
+  return 'mixed';
+}
+
+function getInspectorPropertyEffect<TDocument>(
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): LocalEditorBrowserInspectorEffectMode {
+  if (property.effect) return property.effect;
+  if (property.persistence === 'runtime') return 'runtime';
+  return 'active';
+}
+
+function getInspectorSectionEffect<TDocument>(
+  section: LocalEditorBrowserInspectorSection<TDocument>,
+): LocalEditorBrowserInspectorEffectMode {
+  if (section.effect) return section.effect;
+  if (section.runtimeOnly || section.persistence === 'runtime') return 'runtime';
+  if (section.properties.some(isInspectorPropertyEditable)) return 'active';
+  const effects = new Set(section.properties.map(getInspectorPropertyEffect));
+  if (effects.size === 1) return [...effects][0] ?? 'active';
+  if (effects.has('unsupported')) return 'unsupported';
+  if (effects.has('default')) return 'default';
+  if (effects.has('derived')) return 'derived';
+  if (effects.has('runtime')) return 'runtime';
+  return 'active';
+}
+
+function createInspectorAccessBadge(doc: Document, access: InspectorAccessMode): HTMLSpanElement {
+  const labels: Record<InspectorAccessMode, string> = {
+    editable: 'EDITABLE',
+    mixed: 'MIXED',
+    readonly: 'READONLY',
+    runtime: 'RUNTIME',
+  };
+  const badge = createBadge(doc, labels[access], {
+    compact: true,
+    tone: access === 'editable' ? 'success' : access === 'mixed' || access === 'runtime' ? 'warning' : 'default',
+  });
+  badge.title = access === 'editable'
+    ? 'This section writes to the document.'
+    : access === 'mixed'
+      ? 'This section contains both editable and read-only fields.'
+      : access === 'runtime'
+        ? 'Runtime-only context, not saved to the document.'
+        : 'Read-only information.';
+  return badge;
+}
+
+function createInspectorEffectBadge(
+  doc: Document,
+  effect: LocalEditorBrowserInspectorEffectMode,
+  disabledReason?: string,
+): HTMLSpanElement | null {
+  if (effect === 'active') return null;
+  const labels: Record<Exclude<LocalEditorBrowserInspectorEffectMode, 'active'>, string> = {
+    default: 'DEFAULTS',
+    derived: 'DERIVED',
+    runtime: 'RUNTIME',
+    unsupported: 'NO EFFECT',
+  };
+  const badge = createBadge(doc, labels[effect], {
+    compact: true,
+    tone: effect === 'unsupported' ? 'danger' : 'warning',
+  });
+  badge.title = disabledReason ?? createInspectorEffectTitle(effect);
+  return badge;
+}
+
+function createInspectorEffectTitle(effect: LocalEditorBrowserInspectorEffectMode): string {
+  switch (effect) {
+    case 'default':
+      return 'Default values are being shown; edits do not affect this object until an override is configured.';
+    case 'derived':
+      return 'Derived from document or runtime state.';
+    case 'runtime':
+      return 'Runtime-only context, not saved to the document.';
+    case 'unsupported':
+      return 'This field is visible but editing is not supported for the current object.';
+    default:
+      return 'Editable field.';
+  }
+}
+
+function inspectorSummaryLooksDefault(summary: string | undefined): boolean {
+  return summary?.trim().toLowerCase() === 'defaults';
 }
 
 type InspectorPropertyGroup<TDocument> =
@@ -554,13 +726,26 @@ function groupInspectorProperties<TDocument>(
     if (vector.length === 3) {
       for (const entry of vector) consumed.add(entry.path);
       const parts = basePath.split('.');
-      groups.push({ kind: 'vector', label: toTitle(parts[parts.length - 1] ?? basePath), properties: vector });
+      groups.push({ kind: 'vector', label: resolveInspectorVectorGroupLabel(vector, parts[parts.length - 1] ?? basePath), properties: vector });
     } else {
       groups.push({ kind: 'property', property });
       consumed.add(property.path);
     }
   }
   return groups;
+}
+
+function resolveInspectorVectorGroupLabel<TDocument>(
+  properties: LocalEditorBrowserInspectorProperty<TDocument>[],
+  fallback: string,
+): string {
+  const labels = properties.map(property => {
+    const match = property.label.match(/^(.*)\.(x|y|z|r|g|b)$/);
+    return match?.[1]?.trim() ?? '';
+  });
+  const first = labels[0];
+  if (first && labels.every(label => label === first)) return first;
+  return toTitle(fallback);
 }
 
 const builtinInspectorControlRegistrations: readonly LocalEditorBrowserInspectorControlRegistration[] = [
@@ -640,7 +825,15 @@ function appendInspectorPropertyRow<TDocument>(
   controlRegistry: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[],
 ): void {
   const control = renderInspectorControl(doc, controlRegistry, inspectorObject, property);
-  parent.appendChild(createPropertyRow(doc, property.label, control));
+  const access = getInspectorPropertyAccess(property);
+  const effect = getInspectorPropertyEffect(property);
+  const row = createPropertyRow(doc, property.label, control);
+  row.dataset.editorInspectorAccess = access;
+  row.dataset.editorInspectorEffect = effect;
+  row.title = createInspectorStatusTitle(access, effect, property.tooltip ?? property.disabledReason);
+  const label = row.firstElementChild as HTMLElement | null;
+  if (label) label.style.cssText = createInspectorPropertyLabelStyle(access, effect);
+  parent.appendChild(row);
 }
 
 export function createLocalEditorBrowserInspectorControlRegistry<TDocument>(
@@ -685,7 +878,7 @@ function renderInspectorControl<TDocument>(
   target: LocalEditorBrowserInspectorObject<TDocument>,
   property: LocalEditorBrowserInspectorProperty<TDocument>,
 ): HTMLElement {
-  if (property.readOnly || property.persistence !== 'document') return createInspectorReadonlyControl(doc, target, property);
+  if (!isInspectorPropertyEditable(property)) return createInspectorReadonlyControl(doc, target, property);
   const context: LocalEditorBrowserInspectorControlRenderContext<TDocument> = {
     doc,
     target,
@@ -727,18 +920,180 @@ function appendInspectorVectorInputs<TDocument>(
 ): void {
   const wrapper = doc.createElement('div');
   wrapper.style.cssText = 'margin:8px 0';
+  const access = getInspectorPropertyGroupAccess(properties);
+  const effect = getInspectorPropertyGroupEffect(properties);
+  wrapper.dataset.editorInspectorAccess = access;
+  wrapper.dataset.editorInspectorEffect = effect;
   const labelElement = doc.createElement('div');
-  labelElement.textContent = label;
-  labelElement.style.cssText = 'color:var(--fps-editor-muted);font-weight:800;margin-bottom:5px';
+  labelElement.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px';
+  const labelText = doc.createElement('span');
+  labelText.textContent = label;
+  labelText.style.cssText = createInspectorPropertyLabelStyle(access, effect);
+  labelElement.appendChild(labelText);
+  if (access !== 'editable') {
+    const badge = createInspectorAccessBadge(doc, access);
+    badge.style.flex = '0 0 auto';
+    labelElement.appendChild(badge);
+  }
+  const effectBadge = createInspectorEffectBadge(doc, effect, getInspectorPropertyGroupDisabledReason(properties));
+  if (effectBadge && !(access === 'runtime' && effect === 'runtime')) {
+    effectBadge.style.flex = '0 0 auto';
+    labelElement.appendChild(effectBadge);
+  }
   wrapper.appendChild(labelElement);
 
   const fields = doc.createElement('div');
   fields.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px';
   for (const property of properties) {
-    fields.appendChild(createInspectorNumberControl(doc, inspectorObject, property));
+    fields.appendChild(isInspectorPropertyEditable(property)
+      ? createInspectorNumberControl(doc, inspectorObject, property)
+      : createInspectorReadonlyControl(doc, inspectorObject, property));
   }
   wrapper.appendChild(fields);
   parent.appendChild(wrapper);
+}
+
+function getInspectorPropertyGroupAccess<TDocument>(
+  properties: LocalEditorBrowserInspectorProperty<TDocument>[],
+): InspectorAccessMode {
+  if (properties.some(property => property.persistence === 'runtime')) return 'runtime';
+  const editableCount = properties.filter(isInspectorPropertyEditable).length;
+  if (editableCount === 0) return 'readonly';
+  if (editableCount === properties.length) return 'editable';
+  return 'mixed';
+}
+
+function getInspectorPropertyGroupEffect<TDocument>(
+  properties: LocalEditorBrowserInspectorProperty<TDocument>[],
+): LocalEditorBrowserInspectorEffectMode {
+  const effects = new Set(properties.map(getInspectorPropertyEffect));
+  if (effects.size === 1) return [...effects][0] ?? 'active';
+  if (effects.has('unsupported')) return 'unsupported';
+  if (effects.has('default')) return 'default';
+  if (effects.has('derived')) return 'derived';
+  if (effects.has('runtime')) return 'runtime';
+  return 'active';
+}
+
+function getInspectorPropertyGroupDisabledReason<TDocument>(
+  properties: LocalEditorBrowserInspectorProperty<TDocument>[],
+): string | undefined {
+  return properties.find(property => property.disabledReason)?.disabledReason;
+}
+
+function createInspectorPropertyLabelStyle(
+  access: InspectorAccessMode,
+  effect: LocalEditorBrowserInspectorEffectMode = 'active',
+): string {
+  return [
+    `color:${effect === 'unsupported' ? 'var(--fps-editor-danger-text)' : effect === 'default' || effect === 'derived' || access === 'runtime' ? 'var(--fps-editor-warn)' : access === 'editable' ? 'var(--fps-editor-muted-strong)' : 'var(--fps-editor-muted)'}`,
+    'font-weight:800',
+    access === 'readonly' ? 'opacity:0.82' : '',
+  ].filter(Boolean).join(';');
+}
+
+function createInspectorAccessTitle(access: InspectorAccessMode, tooltip?: string): string {
+  const accessLabel = access === 'editable'
+    ? 'Editable'
+    : access === 'mixed'
+      ? 'Mixed editable and read-only'
+      : access === 'runtime'
+        ? 'Runtime-only'
+        : 'Read-only';
+  return tooltip ? `${accessLabel}: ${tooltip}` : accessLabel;
+}
+
+function createInspectorStatusTitle(
+  access: InspectorAccessMode,
+  effect: LocalEditorBrowserInspectorEffectMode,
+  detail?: string,
+): string {
+  const parts = [createInspectorAccessTitle(access)];
+  if (effect !== 'active') parts.push(createInspectorEffectTitle(effect));
+  if (detail) parts.push(detail);
+  return [...new Set(parts)].join(' ');
+}
+
+function createInspectorReadonlyValueShell(
+  doc: Document,
+  access: InspectorAccessMode,
+  effect: LocalEditorBrowserInspectorEffectMode = 'active',
+  title?: string,
+): HTMLDivElement {
+  const valueElement = doc.createElement('div');
+  valueElement.dataset.editorInspectorAccess = access;
+  valueElement.dataset.editorInspectorEffect = effect;
+  valueElement.title = title ?? createInspectorStatusTitle(access, effect);
+  const warningLike = effect === 'default' || effect === 'derived' || access === 'runtime' || effect === 'runtime';
+  const unsupported = effect === 'unsupported';
+  valueElement.style.cssText = [
+    'min-width:0',
+    'min-height:24px',
+    'display:flex',
+    'align-items:center',
+    'gap:5px',
+    'padding:3px 6px',
+    `border:1px solid ${unsupported ? 'var(--fps-editor-danger-border)' : warningLike ? 'var(--fps-editor-warn-border)' : 'var(--fps-editor-readonly-border)'}`,
+    'border-radius:3px',
+    `background:${unsupported ? 'var(--fps-editor-danger-soft)' : warningLike ? 'var(--fps-editor-warn-soft)' : 'var(--fps-editor-readonly-bg)'}`,
+    `color:${unsupported ? 'var(--fps-editor-danger-text)' : warningLike ? 'var(--fps-editor-warn)' : 'var(--fps-editor-readonly-text)'}`,
+    warningLike ? 'font-style:italic' : '',
+  ].filter(Boolean).join(';');
+  const icon = createLocalEditorIcon(doc, 'lock', { size: 11, strokeWidth: 2.3 });
+  icon.style.opacity = '0.78';
+  valueElement.appendChild(icon);
+  return valueElement;
+}
+
+function appendInspectorReadonlyTextValue(
+  doc: Document,
+  parent: HTMLElement,
+  value: string,
+  access: InspectorAccessMode,
+  effect: LocalEditorBrowserInspectorEffectMode = 'active',
+  title?: string,
+): void {
+  const valueText = doc.createElement('span');
+  valueText.textContent = value;
+  valueText.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  parent.appendChild(valueText);
+  parent.title = title ?? createInspectorStatusTitle(access, effect);
+}
+
+function createInspectorReadonlyScalarControl(
+  doc: Document,
+  value: string,
+  access: InspectorAccessMode,
+  effect: LocalEditorBrowserInspectorEffectMode = 'active',
+  title?: string,
+): HTMLDivElement {
+  const valueElement = createInspectorReadonlyValueShell(doc, access, effect, title);
+  appendInspectorReadonlyTextValue(doc, valueElement, value, access, effect, title);
+  return valueElement;
+}
+
+function createInspectorReadonlyDetailsShell<TDocument>(
+  doc: Document,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+  access: InspectorAccessMode,
+): HTMLDetailsElement {
+  const effect = getInspectorPropertyEffect(property);
+  const warningLike = effect === 'default' || effect === 'derived' || access === 'runtime' || effect === 'runtime';
+  const unsupported = effect === 'unsupported';
+  const details = doc.createElement('details');
+  details.dataset.editorInspectorAccess = access;
+  details.dataset.editorInspectorEffect = effect;
+  details.title = createInspectorStatusTitle(access, effect, property.tooltip ?? property.disabledReason);
+  details.style.cssText = [
+    'min-width:0',
+    'max-width:100%',
+    'padding:3px 6px',
+    `border:1px solid ${unsupported ? 'var(--fps-editor-danger-border)' : warningLike ? 'var(--fps-editor-warn-border)' : 'var(--fps-editor-readonly-border)'}`,
+    'border-radius:3px',
+    `background:${unsupported ? 'var(--fps-editor-danger-soft)' : warningLike ? 'var(--fps-editor-warn-soft)' : 'var(--fps-editor-readonly-bg)'}`,
+    `color:${unsupported ? 'var(--fps-editor-danger-text)' : warningLike ? 'var(--fps-editor-warn)' : 'var(--fps-editor-readonly-text)'}`,
+  ].join(';');
+  return details;
 }
 
 function createInspectorInputBase<TDocument>(
@@ -785,7 +1140,14 @@ function createInspectorBooleanControl<TDocument>(
   const input = createInspectorInputBase(doc, target, property);
   input.type = 'checkbox';
   input.checked = property.mixed ? false : property.value === true;
-  input.style.cssText = 'width:16px;height:16px;accent-color:var(--fps-editor-accent);justify-self:start';
+  input.style.cssText = [
+    'width:16px',
+    'height:16px',
+    'accent-color:var(--fps-editor-accent)',
+    'justify-self:start',
+    'cursor:pointer',
+    'box-shadow:0 0 0 1px var(--fps-editor-editable-border)',
+  ].join(';');
   return input;
 }
 
@@ -847,7 +1209,7 @@ function createInspectorColorControl<TDocument>(
   const input = createInspectorInputBase(doc, target, property);
   input.type = 'color';
   input.value = colorValueToHex(property.value);
-  input.style.cssText = 'width:34px;height:26px;border:1px solid var(--fps-editor-border);border-radius:3px;background:transparent;padding:0';
+  input.style.cssText = 'width:34px;height:26px;border:1px solid var(--fps-editor-editable-border);border-radius:3px;background:var(--fps-editor-editable-bg);padding:0;box-shadow:var(--fps-editor-editable-shadow)';
   return input;
 }
 
@@ -859,32 +1221,33 @@ function createInspectorReadonlyControl<TDocument>(
   if (!property.mixed && isExpandableInspectorValue(property.value)) {
     return createInspectorObjectReadonlyControl(doc, property);
   }
-  const valueElement = doc.createElement('div');
-  valueElement.textContent = property.mixed ? '--' : formatLocalEditorBrowserInspectorValue(property.value);
-  valueElement.style.cssText = [
-    `color:${property.persistence === 'runtime' ? 'var(--fps-editor-muted)' : 'var(--fps-editor-text)'}`,
-    'overflow:hidden',
-    'text-overflow:ellipsis',
-    'white-space:nowrap',
-    property.persistence === 'runtime' ? 'font-style:italic' : '',
-  ].filter(Boolean).join(';');
-  if (property.persistence === 'runtime') valueElement.title = 'Runtime-only context';
-  return valueElement;
+  const access = getInspectorPropertyAccess(property);
+  const effect = getInspectorPropertyEffect(property);
+  return createInspectorReadonlyScalarControl(
+    doc,
+    property.mixed ? '--' : formatLocalEditorBrowserInspectorValue(property.value),
+    access,
+    effect,
+    createInspectorStatusTitle(access, effect, property.tooltip ?? property.disabledReason),
+  );
 }
 
 function createInspectorObjectReadonlyControl<TDocument>(
   doc: Document,
   property: LocalEditorBrowserInspectorProperty<TDocument>,
 ): HTMLDetailsElement {
-  const details = doc.createElement('details');
-  details.style.cssText = [
-    'min-width:0',
-    'max-width:100%',
-    `color:${property.persistence === 'runtime' ? 'var(--fps-editor-muted)' : 'var(--fps-editor-text)'}`,
-  ].join(';');
+  const access = getInspectorPropertyAccess(property);
+  const effect = getInspectorPropertyEffect(property);
+  const details = createInspectorReadonlyDetailsShell(doc, property, access);
   const summary = doc.createElement('summary');
-  summary.textContent = formatInspectorObjectSummary(property.value);
-  summary.style.cssText = 'cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  summary.style.cssText = 'cursor:pointer;display:flex;align-items:center;gap:5px;overflow:hidden;white-space:nowrap';
+  const icon = createLocalEditorIcon(doc, 'lock', { size: 11, strokeWidth: 2.3 });
+  icon.style.opacity = '0.78';
+  summary.appendChild(icon);
+  const summaryText = doc.createElement('span');
+  summaryText.textContent = formatInspectorObjectSummary(property.value);
+  summaryText.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  summary.appendChild(summaryText);
   details.appendChild(summary);
   const pre = doc.createElement('pre');
   pre.textContent = formatLocalEditorBrowserInspectorValue(property.value);
@@ -895,14 +1258,13 @@ function createInspectorObjectReadonlyControl<TDocument>(
     'word-break:break-word',
     'margin:6px 0 0',
     'padding:7px',
-    'border:1px solid var(--fps-editor-border)',
+    `border:1px solid ${effect === 'unsupported' ? 'var(--fps-editor-danger-border)' : effect === 'default' || effect === 'derived' || effect === 'runtime' || access === 'runtime' ? 'var(--fps-editor-warn-border)' : 'var(--fps-editor-readonly-border)'}`,
     'border-radius:3px',
     'background:var(--fps-editor-field)',
     'font-size:11px',
     'line-height:1.45',
   ].join(';');
   details.appendChild(pre);
-  if (property.persistence === 'runtime') details.title = 'Runtime-only context';
   return details;
 }
 
@@ -919,10 +1281,16 @@ export function applyLocalEditorBrowserInspectorControlBinding<TDocument>(
   element.dataset.serializedValueType = property.valueType;
   element.dataset.serializedCommitMode = property.commitMode;
   element.dataset.serializedPersistence = property.persistence;
+  element.dataset.serializedEffect = getInspectorPropertyEffect(property);
+  if (property.disabledReason) element.dataset.serializedDisabledReason = property.disabledReason;
   if (options?.source) element.dataset.serializedEditSource = options.source;
-  element.title = property.tooltip ?? property.label;
+  const access = getInspectorPropertyAccess(property);
+  const effect = getInspectorPropertyEffect(property);
+  element.title = access === 'editable' && effect === 'active'
+    ? property.tooltip ?? property.label
+    : createInspectorStatusTitle(access, effect, property.tooltip ?? property.disabledReason ?? property.label);
   if ('disabled' in element) {
-    (element as HTMLInputElement | HTMLSelectElement).disabled = property.readOnly === true || property.persistence !== 'document';
+    (element as HTMLInputElement | HTMLSelectElement).disabled = !isInspectorPropertyEditable(property);
   }
 }
 
@@ -930,14 +1298,20 @@ function createInspectorInputStyle(): string {
   return [
     createEditorInputStyle(),
     'padding:0 6px',
+    'background:var(--fps-editor-editable-bg)',
+    'border-color:var(--fps-editor-editable-border)',
+    'color:var(--fps-editor-text-strong)',
+    'box-shadow:var(--fps-editor-editable-shadow)',
   ].join(';');
 }
 
 function appendReadOnlyRow(doc: Document, parent: HTMLElement, label: string, value: string): void {
-  const valueElement = doc.createElement('div');
-  valueElement.textContent = value;
-  valueElement.style.cssText = 'color:var(--fps-editor-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-  parent.appendChild(createPropertyRow(doc, label, valueElement));
+  const valueElement = createInspectorReadonlyScalarControl(doc, value, 'readonly', 'active', 'Read-only summary');
+  const row = createPropertyRow(doc, label, valueElement);
+  row.dataset.editorInspectorAccess = 'readonly';
+  const labelElement = row.firstElementChild as HTMLElement | null;
+  if (labelElement) labelElement.style.cssText = createInspectorPropertyLabelStyle('readonly', 'active');
+  parent.appendChild(row);
 }
 
 function createLegacyInspectorObject<TDocument>(

@@ -1,3 +1,4 @@
+import type { SelectionCommand } from '@fps-games/editor-core';
 import {
   createLocalEditorHierarchyBlankMenu,
   createLocalEditorHierarchyCopyShortcutAction,
@@ -5,6 +6,7 @@ import {
   createLocalEditorHierarchyDuplicateShortcutAction,
   createLocalEditorHierarchyNodeMenu,
   createLocalEditorHierarchyPasteShortcutAction,
+  createLocalEditorHierarchySelectAllShortcutAction,
   type LocalEditorHierarchyAction,
 } from './local-editor-ui-hierarchy-actions';
 import {
@@ -53,6 +55,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   let hierarchyDrag: { id: string } | null = null;
   let hierarchyDrop: LocalEditorBrowserSceneGraphDropIntent | null = null;
   let hierarchyRootDrop = false;
+  let hierarchyShortcutScopeActive = false;
   let hierarchyClipboard: { ids: string[]; activeId: string | null } | null = null;
   let currentModel: LocalEditorHierarchyTreeModel | null = null;
 
@@ -91,7 +94,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       callbacks.onSceneGraphCreateGroup?.({
         parentId,
         activeId: parentId,
-        name: 'Group',
+        name: 'Empty',
       });
       return;
     }
@@ -102,11 +105,24 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
         additive: event.shiftKey && !event.metaKey && !event.ctrlKey,
         toggle: event.metaKey || event.ctrlKey,
       });
+      return;
+    }
+    if (shouldClearSelectionFromBlankClick(event, target)) {
+      event.preventDefault();
+      submitSelectionCommand({ type: 'selection.clear', label: 'Clear Selection' });
     }
   };
 
   const onContextMenu = (event: MouseEvent): void => {
     openHierarchyContextMenu(event);
+  };
+
+  const onDocumentPointerDown = (event: PointerEvent): void => {
+    hierarchyShortcutScopeActive = isEventInsideHierarchyPanel(event);
+  };
+
+  const onDocumentFocusIn = (event: FocusEvent): void => {
+    hierarchyShortcutScopeActive = isEventInsideHierarchyPanel(event);
   };
 
   const onDoubleClick = (event: MouseEvent): void => {
@@ -279,6 +295,8 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   panel.addEventListener('dragleave', onDragLeave);
   panel.addEventListener('dragend', onDragEnd);
   panel.addEventListener('drop', onDrop);
+  doc.addEventListener('pointerdown', onDocumentPointerDown, { capture: true });
+  doc.addEventListener('focusin', onDocumentFocusIn, { capture: true });
 
   return {
     render,
@@ -300,6 +318,8 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       panel.removeEventListener('dragleave', onDragLeave);
       panel.removeEventListener('dragend', onDragEnd);
       panel.removeEventListener('drop', onDrop);
+      doc.removeEventListener('pointerdown', onDocumentPointerDown, { capture: true });
+      doc.removeEventListener('focusin', onDocumentFocusIn, { capture: true });
     },
   };
 
@@ -322,6 +342,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
     const key = event.key.toLowerCase();
     if (key === 'delete' || key === 'backspace') return handleDeleteShortcut(event);
     if (event.altKey || (!event.metaKey && !event.ctrlKey)) return false;
+    if (key === 'a' && (event.shiftKey || !isHierarchyShortcutScope(event))) return false;
     const state = getState();
     if (!state) return false;
     const input = {
@@ -338,6 +359,8 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
         ? createLocalEditorHierarchyCopyShortcutAction(input)
         : key === 'v'
           ? createLocalEditorHierarchyPasteShortcutAction(input)
+          : key === 'a'
+            ? createLocalEditorHierarchySelectAllShortcutAction(input)
           : null;
       if (!action) return false;
       event.preventDefault();
@@ -502,7 +525,36 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       callbacks.onSceneGraphGroupSelection?.(action.intent);
       return;
     }
+    if (action.kind === 'selection-command') {
+      submitSelectionCommand(action.command);
+      return;
+    }
     submitHierarchyContextAction(action.action);
+  }
+
+  function submitSelectionCommand(command: SelectionCommand): void {
+    callbacks.onSelectionCommand?.(command);
+  }
+
+  function shouldClearSelectionFromBlankClick(event: MouseEvent, target: HTMLElement | null): boolean {
+    if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+    if (!target?.closest('[data-editor-hierarchy-root-drop]')) return false;
+    if (hierarchyRename || hierarchyDrag || hierarchyDrop || hierarchyRootDrop) return false;
+    const state = getState();
+    return (state?.selectedIds.length ?? 0) > 0;
+  }
+
+  function isHierarchyShortcutScope(event: KeyboardEvent): boolean {
+    const target = event.target instanceof Node ? event.target : null;
+    const activeElement = doc.activeElement;
+    return hierarchyShortcutScopeActive
+      || (target !== null && panel.contains(target))
+      || (activeElement !== null && panel.contains(activeElement));
+  }
+
+  function isEventInsideHierarchyPanel(event: Event): boolean {
+    const target = event.target instanceof Node ? event.target : null;
+    return target !== null && panel.contains(target);
   }
 
   function submitHierarchyContextAction(action: LocalEditorContextAction): void {
@@ -528,7 +580,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       callbacks.onSceneGraphCreateGroup?.({
         parentId: action.parentId ?? null,
         activeId: action.activeId ?? null,
-        name: 'Group',
+        name: 'Empty',
       });
     } else if (action.action === 'create-primitive') {
       callbacks.onSceneGraphCreatePrimitive?.({

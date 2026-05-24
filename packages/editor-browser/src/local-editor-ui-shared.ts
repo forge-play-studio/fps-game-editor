@@ -8,6 +8,7 @@ import type {
   LocalEditorBrowserPlacementMode,
   LocalEditorBrowserTransformConstraint,
   LocalEditorBrowserTransformAction,
+  LocalEditorBrowserTransformHandleDescriptor,
   LocalEditorBrowserTransformOperationSettings,
   LocalEditorBrowserSceneGraphDropPlacement,
   LocalEditorBrowserTransformSpace,
@@ -203,7 +204,7 @@ export function toTransformConstraintLabel(
 }
 
 export function toTransformHandleListLabel(tool: LocalEditorBrowserTransformTool): string {
-  const handles = DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS[tool].handles;
+  const handles = DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS[tool].handles as readonly LocalEditorBrowserTransformHandleDescriptor[];
   return handles.map(handle => handle.label).join(' / ');
 }
 

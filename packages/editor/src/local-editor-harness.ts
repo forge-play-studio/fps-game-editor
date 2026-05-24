@@ -50,6 +50,7 @@ import {
   mergeInspectorSections,
   normalizeEditorTransformConstraint,
   type ProjectAuthoringHost,
+  resolveEditorSelectionCommand,
   serializedMultiObjectToInspectorObject,
   serializedObjectToInspectorObject,
   validateSceneGraphDelete,
@@ -90,6 +91,7 @@ import {
   type BabylonEditorProjectionNode,
   type BabylonSceneCameraPreviewController,
   type BabylonSceneCameraPreviewRig,
+  type BabylonEditorGridController,
   type BabylonTransformGizmoCommit,
   type BabylonTransformGizmoController,
   type BabylonTransformGizmoDuplicateDragInput,
@@ -358,6 +360,8 @@ export interface LocalEditorHarnessWorldAdapter<TAsset = LocalEditorHarnessAsset
   resolveAssetId?(asset: TAsset): string;
 }
 
+export type LocalEditorHarnessGridController = BabylonEditorGridController;
+
 export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   root?: HTMLElement;
   theme?: LocalEditorThemeName;
@@ -373,9 +377,13 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     clearColor?: { r: number; g: number; b: number; a: number };
     sky?: BabylonEditorSkyOptions | false;
     useRightHandedSystem?: boolean;
+    coordinateAxes?: boolean;
   };
   inspector?: LocalEditorHarnessInspectorOptions<TDocument>;
-  createGrid?: (babylon: BabylonRuntimeGlobal & Record<string, any>, scene: unknown) => void;
+  createGrid?: (
+    babylon: BabylonRuntimeGlobal & Record<string, any>,
+    scene: unknown,
+  ) => LocalEditorHarnessGridController | void;
 }
 
 export interface LocalEditorHarness<TDocument = unknown> {
@@ -403,6 +411,8 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   babylon: (BabylonRuntimeGlobal & Record<string, any>) | null;
   engine: any | null;
   world: BabylonEditorWorld | null;
+  grid: LocalEditorHarnessGridController | null;
+  gridVisible: boolean;
   projection: BabylonEditorProjection | null;
   gizmo: BabylonTransformGizmoController | null;
   sceneCameraPreview: BabylonSceneCameraPreviewController | null;
@@ -446,6 +456,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     babylon: null,
     engine: null,
     world: null,
+    grid: null,
+    gridVisible: true,
     projection: null,
     gizmo: null,
     sceneCameraPreview: null,
@@ -498,6 +510,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       },
       onSelectHierarchyItem: (input) => {
         if (selectItem(state, options, input)) harness.render();
+      },
+      onSelectionCommand: (command) => {
+        if (dispatchSelectionCommand(state, options, command)) harness.render();
       },
       onSceneGraphRename: (intent) => {
         if (renameSceneGraphNode(state, options, intent)) harness.render();
@@ -597,8 +612,14 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       onSceneCameraPreviewToggle: (enabled) => {
         if (setSceneCameraPreviewEnabled(state, options, enabled)) harness.render();
       },
+      onGridVisibleChange: (visible) => {
+        if (setGridVisible(state, visible)) harness.render();
+      },
       onFocusSelection: () => {
         if (focusSelectedProjection(state)) harness.render();
+      },
+      onCancelEditorIntent: () => {
+        if (cancelEditorIntent(state, options)) harness.render();
       },
       onCancelActiveOperation: () => {
         cancelActiveOperation(state);
@@ -870,7 +891,8 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     useRightHandedSystem: options.world?.useRightHandedSystem,
     enableDefaultCameraControls: false,
   });
-  options.createGrid?.(babylon, world.scene);
+  const grid = options.createGrid?.(babylon, world.scene) ?? null;
+  grid?.setVisible(state.gridVisible);
   const projection = createBabylonEditorProjection({
     babylon,
     scene: world.scene,
@@ -1034,6 +1056,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   state.babylon = babylon;
   state.engine = engine;
   state.world = world;
+  state.grid = grid;
   state.projection = projection;
   state.gizmo = gizmo;
   state.sceneCameraPreview = sceneCameraPreview;
@@ -1064,6 +1087,8 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
   state.gizmo = null;
   state.projection?.dispose();
   state.projection = null;
+  state.grid?.dispose();
+  state.grid = null;
   state.engine?.stopRenderLoop?.();
   state.world?.dispose();
   state.engine?.dispose?.();
@@ -1101,26 +1126,15 @@ function selectItem<TDocument, TPatch, TAsset>(
 ): boolean {
   if (state.mode !== 'editor') return false;
   if (!isDocumentNodeSelectable(state, options, input.id)) return false;
-  const command: SelectionCommand = input.toggle
-    ? {
-        type: 'selection.toggle',
-        selectedIds: [input.id],
-        activeId: input.id,
-        label: 'Toggle Selection',
-      }
-    : input.additive
-      ? {
-          type: 'selection.add',
-          selectedIds: [input.id],
-          activeId: input.id,
-          label: 'Add Selection',
-        }
-      : {
-          type: 'selection.replace',
-          selectedIds: [input.id],
-          activeId: input.id,
-          label: 'Select Item',
-        };
+  const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
+  const command = resolveEditorSelectionCommand({
+    selection,
+    targetIds: [input.id],
+    activeId: input.id,
+    gesture: 'click',
+    modifier: input.toggle ? 'toggle' : input.additive ? 'additive' : 'replace',
+  });
+  if (!command) return false;
   return dispatchSelectionCommand(state, options, command);
 }
 
@@ -1147,7 +1161,7 @@ function handleContextAction<TDocument, TPatch, TAsset>(
     return createSceneGraphGroup(state, options, {
       parentId: action.parentId ?? null,
       activeId: action.activeId ?? null,
-      name: 'Group',
+      name: 'Empty',
     });
   }
   if (action.action === 'create-primitive') {
@@ -1239,17 +1253,17 @@ function createSceneGraphGroup<TDocument, TPatch, TAsset>(
   cancelActiveOperation(state);
   const patch = options.documentAdapter.createSceneGraphCreateGroupPatch?.(document, intent);
   if (!patch) {
-    state.status = 'Create group rejected';
+    state.status = 'Create empty rejected';
     return true;
   }
   const result = state.session.dispatch({
     type: 'document.patch',
-    label: patch.label ?? 'Create Empty Group',
+    label: patch.label ?? 'Create Empty',
     patch: patch.patch,
     targetId: patch.createdId ?? undefined,
   });
   if (!result.documentChanged) {
-    state.status = 'Create group unchanged';
+    state.status = 'Create empty unchanged';
     return true;
   }
   const createdId = patch.createdId ?? null;
@@ -1259,12 +1273,12 @@ function createSceneGraphGroup<TDocument, TPatch, TAsset>(
       type: 'selection.replace',
       selectedIds: [createdId],
       activeId: createdId,
-      label: 'Select Created Group',
+      label: 'Select Created Empty',
     }).selection;
   }
   rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
-  state.status = patch.label ?? (createdId ? `Created group ${createdId}` : 'Created group');
+  state.status = patch.label ?? (createdId ? `Created empty ${createdId}` : 'Created empty');
   return true;
 }
 
@@ -1510,27 +1524,27 @@ function groupSceneGraphSelection<TDocument, TPatch, TAsset>(
   const hierarchy = options.documentAdapter.getHierarchyItems(document);
   const coreValidation = validateSceneGraphGroupSelection(hierarchy, intent);
   if (!coreValidation.ok) {
-    state.status = `Group selection rejected: ${coreValidation.reason ?? 'invalid scene graph group selection'}`;
+    state.status = `Parent selection rejected: ${coreValidation.reason ?? 'invalid scene graph parent selection'}`;
     return true;
   }
   const projectValidation = options.documentAdapter.validateSceneGraphGroupSelection?.(document, intent);
   if (projectValidation && !projectValidation.ok) {
-    state.status = `Group selection rejected: ${projectValidation.reason ?? 'project validation failed'}`;
+    state.status = `Parent selection rejected: ${projectValidation.reason ?? 'project validation failed'}`;
     return true;
   }
   const patch = options.documentAdapter.createSceneGraphGroupSelectionPatch?.(document, intent);
   if (!patch) {
-    state.status = 'Group selection rejected';
+    state.status = 'Parent selection rejected';
     return true;
   }
   const result = state.session.dispatch({
     type: 'document.patch',
-    label: patch.label ?? 'Group Selection',
+    label: patch.label ?? 'Parent Selection',
     patch: patch.patch,
     targetId: patch.createdId,
   });
   if (!result.documentChanged) {
-    state.status = 'Group selection unchanged';
+    state.status = 'Parent selection unchanged';
     return true;
   }
   let selection = result.selection;
@@ -1539,14 +1553,14 @@ function groupSceneGraphSelection<TDocument, TPatch, TAsset>(
       type: 'selection.replace',
       selectedIds: [patch.createdId],
       activeId: patch.createdId,
-      label: 'Select Created Group',
+      label: 'Select Created Parent',
     }).selection;
   } else {
     selection = sanitizeSelection(state, options, result.workingDocument, selection) ?? selection;
   }
   rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
-  state.status = patch.label ?? `Grouped ${patch.changedIds?.length ?? intent.ids.length} node(s)`;
+  state.status = patch.label ?? `Parented ${patch.changedIds?.length ?? intent.ids.length} node(s)`;
   return true;
 }
 
@@ -2188,6 +2202,19 @@ function cancelActiveOperation<TDocument, TPatch, TAsset>(
   clearArmedPlacement(state);
 }
 
+function cancelEditorIntent<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+): boolean {
+  if (state.mode !== 'editor') return false;
+  const selection = state.session?.getSelection();
+  if (selection && selection.selectedIds.length > 0) {
+    return dispatchSelectionCommand(state, options, { type: 'selection.clear', label: 'Clear Selection' });
+  }
+  cancelActiveOperation(state);
+  return true;
+}
+
 function focusSelectedProjection<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
 ): boolean {
@@ -2356,6 +2383,21 @@ function setSceneCameraPreviewEnabled<TDocument, TPatch, TAsset>(
   return true;
 }
 
+function setGridVisible<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  visible: boolean,
+): boolean {
+  const nextVisible = visible === true;
+  if (state.gridVisible === nextVisible) return false;
+  state.gridVisible = nextVisible;
+  state.grid?.setVisible(nextVisible);
+  state.status = nextVisible ? 'Grid visible' : 'Grid hidden';
+  state.statusTone = 'default';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
+  return true;
+}
+
 function syncSceneCameraPreview<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -2434,6 +2476,9 @@ function createUiState<TDocument, TPatch, TAsset>(
     inspectorObject,
     inspectorMultiObject,
     boxSelection: state.boxSelection,
+    coordinateAxes: options.world?.coordinateAxes === false
+      ? null
+      : createSceneViewCoordinateAxesState(state),
     transformTool: {
       activeTool: state.gizmo?.getState().tool ?? state.transformTool,
       activeSpace: state.gizmo?.getState().space ?? state.transformSpace,
@@ -2452,6 +2497,10 @@ function createUiState<TDocument, TPatch, TAsset>(
       enabled: state.sceneCameraPreviewEnabled,
       available: hasSceneCameraPreviewRig(state, options),
     },
+    grid: {
+      visible: state.gridVisible,
+      available: !!state.grid,
+    },
     session: sessionState
       ? {
           source: sessionState.source,
@@ -2462,6 +2511,105 @@ function createUiState<TDocument, TPatch, TAsset>(
         }
       : null,
   };
+}
+
+interface SceneViewAxisVec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function createSceneViewCoordinateAxesState<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): LocalEditorBrowserUiState['coordinateAxes'] | null {
+  if (state.mode !== 'editor') return null;
+  const scene = state.world?.scene ?? null;
+  const camera = scene?.activeCamera ?? state.world?.camera ?? null;
+  const Vector3 = state.babylon?.Vector3;
+  if (!scene || !camera || !Vector3) return null;
+
+  const right = readSceneViewCameraDirection(camera, Vector3, { x: 1, y: 0, z: 0 });
+  const up = readSceneViewCameraDirection(camera, Vector3, { x: 0, y: 1, z: 0 });
+  const forward = readSceneViewCameraForward(scene, camera, Vector3);
+  if (!right || !up || !forward) return null;
+
+  return {
+    axes: [
+      createSceneViewCoordinateAxis('x', 'X', '#ff4b70', { x: 1, y: 0, z: 0 }, right, up, forward),
+      createSceneViewCoordinateAxis('y', 'Y', '#75ff42', { x: 0, y: 1, z: 0 }, right, up, forward),
+      createSceneViewCoordinateAxis('z', 'Z', '#4f86ff', { x: 0, y: 0, z: 1 }, right, up, forward),
+    ],
+  };
+}
+
+function createSceneViewCoordinateAxis(
+  id: 'x' | 'y' | 'z',
+  label: string,
+  color: string,
+  worldAxis: SceneViewAxisVec3,
+  cameraRight: SceneViewAxisVec3,
+  cameraUp: SceneViewAxisVec3,
+  cameraForward: SceneViewAxisVec3,
+): NonNullable<LocalEditorBrowserUiState['coordinateAxes']>['axes'][number] {
+  const screenX = dotSceneViewAxisVec3(worldAxis, cameraRight);
+  const screenY = -dotSceneViewAxisVec3(worldAxis, cameraUp);
+  const projectedLength = Math.hypot(screenX, screenY);
+  const fallback = getSceneViewAxisFallbackDirection(id);
+  const direction = projectedLength > 0.0001
+    ? { x: screenX / projectedLength, y: screenY / projectedLength }
+    : fallback;
+  return {
+    id,
+    label,
+    color,
+    x: direction.x,
+    y: direction.y,
+    depth: dotSceneViewAxisVec3(worldAxis, cameraForward),
+    scale: clampNumber(projectedLength, 0.36, 1),
+  };
+}
+
+function readSceneViewCameraDirection(camera: any, Vector3: any, local: SceneViewAxisVec3): SceneViewAxisVec3 | null {
+  if (!camera?.getDirection) return null;
+  try {
+    return normalizeSceneViewAxisVec3(camera.getDirection(new Vector3(local.x, local.y, local.z)));
+  } catch {
+    return null;
+  }
+}
+
+function readSceneViewCameraForward(scene: any, camera: any, Vector3: any): SceneViewAxisVec3 | null {
+  const rayDirection = normalizeSceneViewAxisVec3(camera?.getForwardRay?.()?.direction);
+  if (rayDirection) return rayDirection;
+  return readSceneViewCameraDirection(camera, Vector3, {
+    x: 0,
+    y: 0,
+    z: scene?.useRightHandedSystem ? -1 : 1,
+  });
+}
+
+function normalizeSceneViewAxisVec3(value: any): SceneViewAxisVec3 | null {
+  const x = Number(value?.x) || 0;
+  const y = Number(value?.y) || 0;
+  const z = Number(value?.z) || 0;
+  const length = Math.hypot(x, y, z);
+  if (!Number.isFinite(length) || length <= 0.000001) return null;
+  return { x: x / length, y: y / length, z: z / length };
+}
+
+function dotSceneViewAxisVec3(left: SceneViewAxisVec3, right: SceneViewAxisVec3): number {
+  return left.x * right.x + left.y * right.y + left.z * right.z;
+}
+
+function getSceneViewAxisFallbackDirection(id: 'x' | 'y' | 'z'): { x: number; y: number } {
+  if (id === 'x') return { x: 1, y: 0 };
+  if (id === 'y') return { x: 0, y: -1 };
+  return { x: -1, y: 0 };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }
 
 function withRuntimeInspectorSections<TDocument, TPatch, TAsset>(

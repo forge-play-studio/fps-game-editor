@@ -4,6 +4,7 @@ import {
   createLocalEditorHierarchyCopyShortcutAction,
   createLocalEditorHierarchyNodeMenu,
   createLocalEditorHierarchyPasteShortcutAction,
+  createLocalEditorHierarchySelectAllShortcutAction,
   canLocalEditorHierarchyNodeHaveChildren,
   createLocalEditorHierarchyTreeModel,
   isLocalEditorHierarchyNodeMovable,
@@ -212,6 +213,7 @@ describe('local editor hierarchy action registry', () => {
       intent: {
         ids: ['box', 'sphere'],
         parentId: 'group_a',
+        name: 'Parent',
         pivot: 'selection-center',
         preserveWorldTransform: true,
       },
@@ -291,6 +293,51 @@ describe('local editor hierarchy action registry', () => {
         action: 'paste',
         sourceIds: ['box'],
         activeId: 'box',
+      },
+    });
+  });
+
+  it('selects all visible selectable hierarchy nodes while preserving an included active id', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, ['box'], 'box', { collapsedIds: ['socket'] });
+    const action = createLocalEditorHierarchySelectAllShortcutAction({
+      state: createHierarchyState(['box'], 'box'),
+      model,
+    });
+
+    expect(action).toMatchObject({
+      kind: 'selection-command',
+      command: {
+        type: 'selection.replace',
+        selectedIds: [
+          'group_a',
+          'box',
+          'sphere',
+          'socket',
+          'group_b',
+          'label_group',
+          'locked_child',
+          'visual_root_peer',
+        ],
+        activeId: 'box',
+      },
+    });
+  });
+
+  it('uses the last visible selectable hierarchy node as active when the current active id is excluded', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, ['locked_group'], 'locked_group', {
+      collapsedIds: ['group_a'],
+    });
+    const action = createLocalEditorHierarchySelectAllShortcutAction({
+      state: createHierarchyState(['locked_group'], 'locked_group'),
+      model,
+    });
+
+    expect(action).toMatchObject({
+      kind: 'selection-command',
+      command: {
+        type: 'selection.replace',
+        selectedIds: ['group_a', 'group_b', 'label_group', 'locked_child', 'visual_root_peer'],
+        activeId: 'visual_root_peer',
       },
     });
   });
@@ -420,28 +467,28 @@ describe('scene graph protected capability contracts', () => {
     expect(validateSceneGraphGroupSelection(hierarchy, {
       ids: ['box', 'sphere'],
       parentId: 'group_a',
-      name: 'Group',
+      name: 'Parent',
       pivot: 'selection-center',
       preserveWorldTransform: true,
     })).toMatchObject({ ok: true });
     expect(validateSceneGraphGroupSelection(hierarchy, {
       ids: ['box'],
       parentId: 'socket',
-      name: 'Group',
+      name: 'Parent',
       pivot: 'selection-center',
       preserveWorldTransform: true,
     })).toMatchObject({ ok: true });
     expect(validateSceneGraphGroupSelection(hierarchy, {
       ids: ['box', 'missing_node'],
       parentId: 'group_a',
-      name: 'Group',
+      name: 'Parent',
       pivot: 'selection-center',
       preserveWorldTransform: true,
     })).toMatchObject({ ok: false, reason: 'missing-node' });
     expect(validateSceneGraphGroupSelection(hierarchy, {
       ids: ['box'],
       parentId: 'locked_group',
-      name: 'Group',
+      name: 'Parent',
       pivot: 'selection-center',
       preserveWorldTransform: true,
     })).toMatchObject({ ok: false, reason: 'parent-cannot-have-children' });
@@ -449,7 +496,7 @@ describe('scene graph protected capability contracts', () => {
       ids: ['box'],
       parentId: 'group_a',
       insertBeforeId: 'group_b',
-      name: 'Group',
+      name: 'Parent',
       pivot: 'selection-center',
       preserveWorldTransform: true,
     })).toMatchObject({ ok: false, reason: 'invalid-before-anchor' });
@@ -457,7 +504,7 @@ describe('scene graph protected capability contracts', () => {
       ids: ['box'],
       parentId: null,
       insertBeforeId: 'root',
-      name: 'Group',
+      name: 'Parent',
       pivot: 'selection-center',
       preserveWorldTransform: true,
     })).toMatchObject({ ok: false, reason: 'invalid-before-anchor' });
@@ -465,7 +512,7 @@ describe('scene graph protected capability contracts', () => {
       ids: ['box'],
       parentId: null,
       insertBeforeId: 'visual_root_peer',
-      name: 'Group',
+      name: 'Parent',
       pivot: 'selection-center',
       preserveWorldTransform: true,
     })).toMatchObject({ ok: true });

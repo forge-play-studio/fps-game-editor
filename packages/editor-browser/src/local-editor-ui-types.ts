@@ -1,13 +1,14 @@
 import type {
   EditorPlacementMode,
-  EditorTransformConstraint,
   EditorTransformAction,
+  EditorTransformConstraint,
   EditorTransformHandleDescriptor,
   EditorTransformOperationSettings,
   EditorTransformSpace,
   EditorTransformTool,
   EditorTransformToolDescriptor,
   SceneGraphPrimitiveShape,
+  SelectionCommand,
 } from '@fps-games/editor-core';
 import type { LocalEditorThemeName } from './local-editor-ui-theme';
 
@@ -62,6 +63,8 @@ export type LocalEditorBrowserInspectorControlKind =
 
 export type LocalEditorBrowserInspectorCommitMode = 'live' | 'blur' | 'change' | 'immediate';
 
+export type LocalEditorBrowserInspectorEffectMode = 'active' | 'default' | 'derived' | 'runtime' | 'unsupported';
+
 export type LocalEditorBrowserInspectorEditSource =
   | 'input'
   | 'toggle'
@@ -101,6 +104,8 @@ export interface LocalEditorBrowserInspectorProperty<TDocument = unknown> {
   order?: number;
   tags?: readonly string[];
   tooltip?: string;
+  effect?: LocalEditorBrowserInspectorEffectMode;
+  disabledReason?: string;
   placeholder?: string;
   min?: number;
   max?: number;
@@ -118,6 +123,8 @@ export interface LocalEditorBrowserInspectorSection<TDocument = unknown> {
   collapsedByDefault?: boolean;
   persistence?: LocalEditorBrowserInspectorPersistenceMode;
   runtimeOnly?: boolean;
+  effect?: LocalEditorBrowserInspectorEffectMode;
+  disabledReason?: string;
   tags?: readonly string[];
   properties: LocalEditorBrowserInspectorProperty<TDocument>[];
 }
@@ -235,10 +242,15 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
     width: number;
     height: number;
   } | null;
+  coordinateAxes?: LocalEditorBrowserCoordinateAxesState | null;
   transformTool?: LocalEditorBrowserTransformToolState | null;
   transformOperations?: LocalEditorBrowserTransformOperationState | null;
   sceneCameraPreview?: {
     enabled: boolean;
+    available: boolean;
+  } | null;
+  grid?: {
+    visible: boolean;
     available: boolean;
   } | null;
   session?: {
@@ -248,6 +260,22 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
     canRedo: boolean;
     history?: LocalEditorBrowserHistoryView;
   } | null;
+}
+
+export type LocalEditorBrowserCoordinateAxisId = 'x' | 'y' | 'z';
+
+export interface LocalEditorBrowserCoordinateAxis {
+  id: LocalEditorBrowserCoordinateAxisId;
+  label: string;
+  color: string;
+  x: number;
+  y: number;
+  depth: number;
+  scale: number;
+}
+
+export interface LocalEditorBrowserCoordinateAxesState {
+  axes: LocalEditorBrowserCoordinateAxis[];
 }
 
 export interface LocalEditorBrowserUiPropertyInput {
@@ -390,6 +418,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onUndo?: () => void;
   onRedo?: () => void;
   onSelectHierarchyItem?: (input: LocalEditorBrowserHierarchySelectionInput) => void;
+  onSelectionCommand?: (command: SelectionCommand) => void;
   onCreateFromAsset?: (assetId: string) => void;
   onAssetFilterChange?: (value: string) => void;
   onPropertyInput?: (input: LocalEditorBrowserUiPropertyInput) => void;
@@ -401,7 +430,9 @@ export interface LocalEditorBrowserUiCallbacks {
   onPlacementModeChange?: (mode: LocalEditorBrowserPlacementMode) => void;
   onTransformAction?: (action: LocalEditorBrowserTransformAction) => void;
   onSceneCameraPreviewToggle?: (enabled: boolean) => void;
+  onGridVisibleChange?: (visible: boolean) => void;
   onFocusSelection?: () => void;
+  onCancelEditorIntent?: () => void;
   onCancelActiveOperation?: () => void;
   onSceneGraphRename?: (intent: LocalEditorBrowserSceneGraphRenameIntent) => void;
   onSceneGraphCreateGroup?: (intent: LocalEditorBrowserSceneGraphCreateGroupIntent) => void;

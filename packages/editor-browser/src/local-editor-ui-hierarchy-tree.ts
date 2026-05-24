@@ -190,7 +190,6 @@ export function canLocalEditorHierarchyNodeHaveChildren(node: LocalEditorHierarc
 function resolveHierarchyNodeRole(item: LocalEditorBrowserUiHierarchyItem): LocalEditorHierarchyNodeRole {
   if (item.role) return item.role;
   if (item.parentId == null && item.selectable === false) return 'root';
-  if (item.canHaveChildren === true) return 'group';
   return 'object';
 }
 

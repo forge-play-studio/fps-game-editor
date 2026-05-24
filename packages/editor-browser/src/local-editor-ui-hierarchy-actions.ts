@@ -1,3 +1,4 @@
+import type { SelectionCommand } from '@fps-games/editor-core';
 import type {
   LocalEditorBrowserPrimitiveShape,
   LocalEditorBrowserSceneGraphGroupSelectionIntent,
@@ -23,7 +24,8 @@ export type LocalEditorHierarchyAction =
   | { kind: 'context-action'; action: LocalEditorContextAction }
   | { kind: 'begin-rename'; targetId: string }
   | { kind: 'copy-selection'; targetIds: string[]; activeId: string | null }
-  | { kind: 'group-selection'; intent: LocalEditorBrowserSceneGraphGroupSelectionIntent };
+  | { kind: 'group-selection'; intent: LocalEditorBrowserSceneGraphGroupSelectionIntent }
+  | { kind: 'selection-command'; command: SelectionCommand };
 
 export interface LocalEditorHierarchyMenuDefinition {
   items: LocalEditorContextMenuItem[];
@@ -96,7 +98,7 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
     items: [
       menuItem('hierarchy.focus', 'Focus in Preview', { shortcut: 'F', disabled: !selectable, disabledReason: 'Protected or locked nodes cannot be focused from Hierarchy.' }),
       menuItem('hierarchy.rename', 'Rename', { disabled: !canRename, disabledReason: 'This node is protected or read-only.' }),
-      menuItem('hierarchy.create-child-group', 'Add Empty Group', {
+      menuItem('hierarchy.create-child-group', 'Add Empty', {
         disabled: !canCreateChildGroup,
         disabledReason: 'This node cannot contain children.',
       }),
@@ -104,7 +106,7 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
         disabled: !canCreateChildGroup,
         disabledReason: 'This node cannot contain children.',
       }),
-      menuItem('hierarchy.group-selection', 'Group Selection', {
+      menuItem('hierarchy.group-selection', 'Parent Selection', {
         disabled: groupSelection.disabled,
         disabledReason: groupSelection.disabledReason,
       }),
@@ -163,9 +165,9 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
   return {
     actions,
     items: [
-      menuItem('hierarchy.create-group', 'Create Empty Group'),
+      menuItem('hierarchy.create-group', 'Create Empty'),
       primitiveItemGroup('hierarchy.create-primitive', 'Create'),
-      menuItem('hierarchy.group-selection', 'Group Selection', {
+      menuItem('hierarchy.group-selection', 'Parent Selection', {
         disabled: groupSelection.disabled,
         disabledReason: groupSelection.disabledReason,
       }),
@@ -241,6 +243,24 @@ export function createLocalEditorHierarchyDeleteShortcutAction<TDocument>(
   };
 }
 
+export function createLocalEditorHierarchySelectAllShortcutAction<TDocument>(
+  input: LocalEditorHierarchyActionInput<TDocument>,
+): LocalEditorHierarchyAction | null {
+  const selectedIds = input.model.visibleRows
+    .filter(isNodeSelectable)
+    .map(node => node.id);
+  if (selectedIds.length === 0) return null;
+  return {
+    kind: 'selection-command',
+    command: {
+      type: 'selection.replace',
+      label: 'Select All Visible Hierarchy Nodes',
+      selectedIds,
+      activeId: resolveActionActiveId(selectedIds, input.state.activeId),
+    },
+  };
+}
+
 function getDuplicateDisabledReason<TDocument>(
   input: LocalEditorHierarchyActionInput<TDocument>,
   ids: readonly string[],
@@ -267,11 +287,11 @@ function createGroupSelectionAction<TDocument>(
   ids: string[],
 ): { disabled: boolean; disabledReason?: string; action?: LocalEditorHierarchyAction } {
   if (!input.hasGroupSelectionHandler) {
-    return { disabled: true, disabledReason: 'Group Selection pipeline is not connected yet.' };
+    return { disabled: true, disabledReason: 'Parent Selection pipeline is not connected yet.' };
   }
   if (ids.length === 0) return { disabled: true, disabledReason: 'Select one or more movable nodes first.' };
   if (ids.some(id => !isLocalEditorHierarchyNodeMovable(input.model.getNode(id)))) {
-    return { disabled: true, disabledReason: 'Protected or locked nodes cannot be grouped.' };
+    return { disabled: true, disabledReason: 'Protected or locked nodes cannot be parented.' };
   }
   const parentId = resolveCommonParentId(input.model, ids);
   return {
@@ -281,7 +301,7 @@ function createGroupSelectionAction<TDocument>(
       intent: {
         ids,
         parentId,
-        name: 'Group',
+        name: 'Parent',
         pivot: 'selection-center',
         preserveWorldTransform: true,
       },

@@ -13,6 +13,7 @@ export {
   createLocalEditorHierarchyDuplicateShortcutAction,
   createLocalEditorHierarchyNodeMenu,
   createLocalEditorHierarchyPasteShortcutAction,
+  createLocalEditorHierarchySelectAllShortcutAction,
 } from './local-editor-ui-hierarchy-actions';
 export {
   createLocalEditorHierarchyController,
@@ -68,6 +69,7 @@ import {
 import { createLocalEditorIcon, type LocalEditorIconName } from './local-editor-ui-icons';
 import type {
   LocalEditorBottomDockTab,
+  LocalEditorBrowserCoordinateAxesState,
   LocalEditorBrowserInspectorCommitMode,
   LocalEditorBrowserInspectorControlKind,
   LocalEditorBrowserInspectorEditSource,
@@ -90,9 +92,14 @@ export {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
   formatLocalEditorBrowserInspectorValue,
+  resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
 } from './local-editor-ui-panels';
-export type { LocalEditorBrowserInspectorRenderOptions } from './local-editor-ui-panels';
+export type {
+  LocalEditorBrowserInspectorAccessMode,
+  LocalEditorBrowserInspectorRenderOptions,
+  LocalEditorBrowserInspectorSectionStatus,
+} from './local-editor-ui-panels';
 
 export type {
   LocalEditorThemeName,
@@ -120,6 +127,9 @@ export type {
 export type {
   LocalEditorBottomDockTab,
   LocalEditorBrowserAuthoringSource,
+  LocalEditorBrowserCoordinateAxis,
+  LocalEditorBrowserCoordinateAxesState,
+  LocalEditorBrowserCoordinateAxisId,
   LocalEditorBrowserHierarchySelectionInput,
   LocalEditorBrowserHistoryEntry,
   LocalEditorBrowserHistoryView,
@@ -130,6 +140,7 @@ export type {
   LocalEditorBrowserInspectorControlRegistration,
   LocalEditorBrowserInspectorControlRenderContext,
   LocalEditorBrowserInspectorControlRenderer,
+  LocalEditorBrowserInspectorEffectMode,
   LocalEditorBrowserInspectorEditSource,
   LocalEditorBrowserInspectorObject,
   LocalEditorBrowserInspectorOptions,
@@ -346,6 +357,142 @@ function readInspectorImmediateSource(input: HTMLInputElement | HTMLSelectElemen
   return 'input';
 }
 
+interface CoordinateAxesOverlayElements {
+  root: HTMLDivElement;
+  lineLayer: SVGGElement;
+  labelLayer: SVGGElement;
+  axisGroups: Map<string, SVGGElement>;
+  axisLines: Map<string, SVGLineElement>;
+  axisLabels: Map<string, SVGTextElement>;
+  axisDiscs: Map<string, SVGCircleElement>;
+  centerDot: SVGCircleElement;
+}
+
+function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElements {
+  const root = doc.createElement('div');
+  root.dataset.editorCoordinateAxesOverlay = 'true';
+  root.style.cssText = [
+    'position:absolute',
+    'right:14px',
+    'bottom:14px',
+    'width:112px',
+    'height:112px',
+    'display:none',
+    'z-index:2',
+    'box-sizing:border-box',
+    'border:1px solid color-mix(in srgb, var(--fps-editor-border) 78%, transparent)',
+    'border-radius:8px',
+    'background:color-mix(in srgb, var(--fps-editor-chrome) 58%, transparent)',
+    'box-shadow:var(--fps-editor-shadow-panel)',
+    'pointer-events:none',
+    'overflow:hidden',
+  ].join(';');
+
+  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 112 112');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.cssText = 'display:block;width:100%;height:100%';
+  root.appendChild(svg);
+
+  const lineLayer = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const labelLayer = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  svg.appendChild(lineLayer);
+  svg.appendChild(labelLayer);
+
+  const axisGroups = new Map<string, SVGGElement>();
+  const axisLines = new Map<string, SVGLineElement>();
+  const axisLabels = new Map<string, SVGTextElement>();
+  const axisDiscs = new Map<string, SVGCircleElement>();
+  for (const axis of ['x', 'y', 'z']) {
+    const group = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const line = doc.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('stroke-width', '3.2');
+    line.setAttribute('stroke-linecap', 'round');
+    line.setAttribute('x1', '56');
+    line.setAttribute('y1', '56');
+    const disc = doc.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    disc.setAttribute('r', '7');
+    const label = doc.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('dominant-baseline', 'middle');
+    label.setAttribute('dy', '0.04em');
+    label.style.cssText = [
+      'fill:#172033',
+      'font-size:10px',
+      'font-weight:900',
+      'font-family:Arial, Helvetica, sans-serif',
+      'letter-spacing:0',
+    ].join(';');
+    group.appendChild(disc);
+    group.appendChild(label);
+    lineLayer.appendChild(line);
+    labelLayer.appendChild(group);
+    axisGroups.set(axis, group);
+    axisLines.set(axis, line);
+    axisLabels.set(axis, label);
+    axisDiscs.set(axis, disc);
+  }
+
+  const centerDot = doc.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  centerDot.setAttribute('cx', '56');
+  centerDot.setAttribute('cy', '56');
+  centerDot.setAttribute('r', '3.2');
+  centerDot.setAttribute('fill', 'color-mix(in srgb, var(--fps-editor-text) 82%, transparent)');
+  labelLayer.appendChild(centerDot);
+
+  return {
+    root,
+    lineLayer,
+    labelLayer,
+    axisGroups,
+    axisLines,
+    axisLabels,
+    axisDiscs,
+    centerDot,
+  };
+}
+
+function renderCoordinateAxesOverlay(
+  overlay: CoordinateAxesOverlayElements,
+  state: LocalEditorBrowserCoordinateAxesState | null,
+): void {
+  if (!state?.axes?.length) {
+    overlay.root.style.display = 'none';
+    return;
+  }
+  overlay.root.style.display = '';
+  const center = 56;
+  const lineLength = 38;
+  const sortedAxes = [...state.axes].sort((left, right) => right.depth - left.depth);
+  for (const axis of sortedAxes) {
+    const group = overlay.axisGroups.get(axis.id);
+    const line = overlay.axisLines.get(axis.id);
+    const disc = overlay.axisDiscs.get(axis.id);
+    const label = overlay.axisLabels.get(axis.id);
+    if (!group || !line || !disc || !label) continue;
+    const length = lineLength * axis.scale;
+    const endX = center + axis.x * length;
+    const endY = center + axis.y * length;
+    line.setAttribute('x2', formatSvgNumber(endX));
+    line.setAttribute('y2', formatSvgNumber(endY));
+    line.setAttribute('stroke', axis.color);
+    disc.setAttribute('cx', formatSvgNumber(endX));
+    disc.setAttribute('cy', formatSvgNumber(endY));
+    disc.setAttribute('fill', axis.color);
+    label.setAttribute('x', formatSvgNumber(endX));
+    label.setAttribute('y', formatSvgNumber(endY));
+    label.textContent = axis.label;
+    group.style.opacity = String(0.72 + axis.scale * 0.28);
+    overlay.lineLayer.appendChild(line);
+    overlay.labelLayer.appendChild(group);
+  }
+  overlay.labelLayer.appendChild(overlay.centerDot);
+}
+
+function formatSvgNumber(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : '0';
+}
+
 export function createLocalEditorBrowserUi<TDocument = unknown>(
   options: LocalEditorBrowserUiOptions<TDocument> = {},
 ): LocalEditorBrowserUi<TDocument> & LocalEditorThemeController {
@@ -507,7 +654,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
   const toolButtons = new Map<LocalEditorBrowserTransformTool, HTMLButtonElement>();
-  const transformToolDescriptors = Object.values(DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS);
+  const transformToolDescriptors = Object.values(
+    DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS,
+  ) as LocalEditorBrowserTransformToolDescriptor[];
   for (const descriptor of transformToolDescriptors) {
     const tooltip = createTransformToolTooltip(descriptor);
     const button = LocalEditorShared.createButton(doc, descriptor.label, {
@@ -740,11 +889,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   actionGroup.appendChild(transformActionButton);
   const themeToggleButton = createToolbarIconButton(doc, '主题', 'theme', '切换主题');
   themeToggleButton.dataset.editorThemeToggle = 'true';
+  const gridToggleButton = createToolbarIconButton(doc, '网格', 'grid', '显示 / 隐藏 Scene View 网格');
+  gridToggleButton.dataset.editorGridToggle = 'true';
   const sceneHelpButton = createToolbarIconButton(doc, '快捷键', 'help', '快捷键与操作说明');
   sceneQuickActions.appendChild(localTestGroup);
   sceneQuickActions.appendChild(undoButton);
   sceneQuickActions.appendChild(redoButton);
   sceneQuickActions.appendChild(dirtyBadge);
+  sceneUtilityActions.appendChild(gridToggleButton);
   sceneUtilityActions.appendChild(themeToggleButton);
   sceneUtilityActions.appendChild(sceneHelpButton);
   const cameraPreviewGroup = doc.createElement('div');
@@ -781,6 +933,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'box-shadow:var(--fps-editor-shadow-popover)',
     'pointer-events:auto',
   ].join(';');
+  const coordinateAxesOverlay = createCoordinateAxesOverlay(doc);
   sceneToolOverlay.appendChild(sceneTitle);
   sceneToolOverlay.appendChild(sceneQuickActions);
   sceneToolOverlay.appendChild(sceneUtilityActions);
@@ -793,6 +946,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneToolOverlay.appendChild(editorStatusButton);
   sceneToolOverlay.appendChild(toolbarOverflowButton);
   workbench.sceneHeader.appendChild(sceneToolOverlay);
+  workbench.sceneFrame.appendChild(coordinateAxesOverlay.root);
   root.appendChild(localTestMenu);
   root.appendChild(toolbarOverflowMenu);
   root.appendChild(snapSettingsPopover);
@@ -1219,6 +1373,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   });
   undoButton.addEventListener('click', () => callbacks.onUndo?.());
   redoButton.addEventListener('click', () => callbacks.onRedo?.());
+  gridToggleButton.addEventListener('click', () => {
+    const visible = currentState?.grid?.visible ?? true;
+    callbacks.onGridVisibleChange?.(!visible);
+  });
   sceneCameraButton.addEventListener('click', () => {
     const enabled = currentState?.sceneCameraPreview?.enabled ?? false;
     callbacks.onSceneCameraPreviewToggle?.(!enabled);
@@ -1433,7 +1591,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     }
     if (key === 'escape') {
       event.preventDefault();
-      callbacks.onCancelActiveOperation?.();
+      if (callbacks.onCancelEditorIntent) callbacks.onCancelEditorIntent();
+      else callbacks.onCancelActiveOperation?.();
     }
   };
   doc.addEventListener('keydown', onKeyDown);
@@ -1515,7 +1674,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!inEditor || disabled) contextMenu.close();
     hostChrome.style.display = !inEditor && localTestActionsEnabled ? 'flex' : 'none';
     enterEditorButton.disabled = disabled;
-    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton]) {
+    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton, gridToggleButton]) {
       button.style.display = 'inline-flex';
       button.disabled = disabled;
     }
@@ -1538,6 +1697,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       : '当前场景没有可预览的 Main Camera';
     setToolbarButtonTooltip(sceneCameraButton, sceneCameraTooltip);
     LocalEditorShared.applyButtonActiveState(sceneCameraButton, sceneCameraPreview.enabled);
+    const gridState = state.grid ?? { visible: false, available: false };
+    gridToggleButton.disabled = disabled || !gridState.available;
+    setToolbarButtonTooltip(gridToggleButton, gridState.visible ? '隐藏 Scene View 网格' : '显示 Scene View 网格');
+    LocalEditorShared.applyButtonActiveState(gridToggleButton, gridState.visible);
     for (const [tool, button] of toolButtons) {
       button.disabled = disabled;
       LocalEditorShared.applyButtonActiveState(button, transformTool?.activeTool === tool);
@@ -1628,6 +1791,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     editorStatusButton.style.borderColor = state.statusTone == null || state.statusTone === 'default'
       ? 'var(--fps-editor-border)'
       : statusToneColor;
+    renderCoordinateAxesOverlay(coordinateAxesOverlay, inEditor ? state.coordinateAxes ?? null : null);
     const boxSelection = state.boxSelection;
     if (inEditor && boxSelection?.active) {
       boxSelectionOverlay.style.display = '';

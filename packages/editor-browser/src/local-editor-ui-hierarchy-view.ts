@@ -33,13 +33,17 @@ export function renderLocalEditorHierarchyPanel(
   input: LocalEditorHierarchyViewInput,
 ): void {
   clearElement(panel);
-  const createGroupButton = createToolbarButton(doc, '+ Group', 'group');
+  panel.style.display = 'flex';
+  panel.style.flexDirection = 'column';
+  const createGroupButton = createToolbarButton(doc, '+ Empty', 'object');
   createGroupButton.dataset.editorHierarchyCreateGroup = 'true';
   createGroupButton.style.padding = '3px 7px';
   createGroupButton.style.fontSize = '11px';
   panel.appendChild(createPanelHeader(doc, 'Hierarchy', [createGroupButton], 'hierarchy'));
 
   const list = createTreeView(doc);
+  list.style.flex = '1';
+  list.style.minHeight = '0';
   list.dataset.editorHierarchyRootDrop = input.rootDrop ? 'active' : 'ready';
   if (input.rootDrop) {
     list.style.boxShadow = 'inset 0 -2px 0 var(--fps-editor-warn-strong)';

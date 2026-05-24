@@ -138,6 +138,10 @@ describe('mini-game-lab hierarchy adapter', () => {
       patch: childGroup.patch,
     });
     expect(findMiniGameObject(document, childGroup.createdId)?.parentId).toBe('mvp_tree_01');
+    expect(findMiniGameObject(document, childGroup.createdId)).toMatchObject({
+      kind: 'transform',
+      transformType: 'plain',
+    });
 
     const grouped = createEditorSceneGroupSelectionPatch(document, {
       ids: ['mvp_tree_02'],
@@ -152,6 +156,10 @@ describe('mini-game-lab hierarchy adapter', () => {
       patch: grouped.patch,
     });
     expect(findMiniGameObject(document, grouped.createdId)?.parentId).toBe('mvp_tree_01');
+    expect(findMiniGameObject(document, grouped.createdId)).toMatchObject({
+      kind: 'transform',
+      transformType: 'plain',
+    });
     expect(findMiniGameObject(document, 'mvp_tree_02')?.parentId).toBe(grouped.createdId);
   });
 
@@ -161,7 +169,7 @@ describe('mini-game-lab hierarchy adapter', () => {
     });
 
     expect(getEditorSceneHierarchyItems(document).find(item => item.id === 'no_transform_parent')).toMatchObject({
-      role: 'group',
+      role: 'object',
       canHaveChildren: false,
     });
     expect(createEditorSceneHierarchyMovePatch(document, {
