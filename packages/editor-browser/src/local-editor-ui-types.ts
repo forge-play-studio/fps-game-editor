@@ -1,12 +1,13 @@
 import type {
   EditorPlacementMode,
-  EditorTransformConstraint,
   EditorTransformAction,
+  EditorTransformConstraint,
   EditorTransformHandleDescriptor,
   EditorTransformOperationSettings,
   EditorTransformSpace,
   EditorTransformTool,
   EditorTransformToolDescriptor,
+  SelectionCommand,
 } from '@fps-games/editor-core';
 import type { LocalEditorThemeName } from './local-editor-ui-theme';
 
@@ -400,6 +401,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onUndo?: () => void;
   onRedo?: () => void;
   onSelectHierarchyItem?: (input: LocalEditorBrowserHierarchySelectionInput) => void;
+  onSelectionCommand?: (command: SelectionCommand) => void;
   onCreateFromAsset?: (assetId: string) => void;
   onAssetFilterChange?: (value: string) => void;
   onPropertyInput?: (input: LocalEditorBrowserUiPropertyInput) => void;
@@ -413,6 +415,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onSceneCameraPreviewToggle?: (enabled: boolean) => void;
   onGridVisibleChange?: (visible: boolean) => void;
   onFocusSelection?: () => void;
+  onCancelEditorIntent?: () => void;
   onCancelActiveOperation?: () => void;
   onSceneGraphRename?: (intent: LocalEditorBrowserSceneGraphRenameIntent) => void;
   onSceneGraphCreateGroup?: (intent: LocalEditorBrowserSceneGraphCreateGroupIntent) => void;

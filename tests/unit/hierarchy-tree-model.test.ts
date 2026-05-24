@@ -4,6 +4,7 @@ import {
   createLocalEditorHierarchyCopyShortcutAction,
   createLocalEditorHierarchyNodeMenu,
   createLocalEditorHierarchyPasteShortcutAction,
+  createLocalEditorHierarchySelectAllShortcutAction,
   canLocalEditorHierarchyNodeHaveChildren,
   createLocalEditorHierarchyTreeModel,
   isLocalEditorHierarchyNodeMovable,
@@ -292,6 +293,51 @@ describe('local editor hierarchy action registry', () => {
         action: 'paste',
         sourceIds: ['box'],
         activeId: 'box',
+      },
+    });
+  });
+
+  it('selects all visible selectable hierarchy nodes while preserving an included active id', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, ['box'], 'box', { collapsedIds: ['socket'] });
+    const action = createLocalEditorHierarchySelectAllShortcutAction({
+      state: createHierarchyState(['box'], 'box'),
+      model,
+    });
+
+    expect(action).toMatchObject({
+      kind: 'selection-command',
+      command: {
+        type: 'selection.replace',
+        selectedIds: [
+          'group_a',
+          'box',
+          'sphere',
+          'socket',
+          'group_b',
+          'label_group',
+          'locked_child',
+          'visual_root_peer',
+        ],
+        activeId: 'box',
+      },
+    });
+  });
+
+  it('uses the last visible selectable hierarchy node as active when the current active id is excluded', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, ['locked_group'], 'locked_group', {
+      collapsedIds: ['group_a'],
+    });
+    const action = createLocalEditorHierarchySelectAllShortcutAction({
+      state: createHierarchyState(['locked_group'], 'locked_group'),
+      model,
+    });
+
+    expect(action).toMatchObject({
+      kind: 'selection-command',
+      command: {
+        type: 'selection.replace',
+        selectedIds: ['group_a', 'group_b', 'label_group', 'locked_child', 'visual_root_peer'],
+        activeId: 'visual_root_peer',
       },
     });
   });

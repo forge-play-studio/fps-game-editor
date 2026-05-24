@@ -33,6 +33,8 @@ export function renderLocalEditorHierarchyPanel(
   input: LocalEditorHierarchyViewInput,
 ): void {
   clearElement(panel);
+  panel.style.display = 'flex';
+  panel.style.flexDirection = 'column';
   const createGroupButton = createToolbarButton(doc, '+ Empty', 'object');
   createGroupButton.dataset.editorHierarchyCreateGroup = 'true';
   createGroupButton.style.padding = '3px 7px';
@@ -40,6 +42,8 @@ export function renderLocalEditorHierarchyPanel(
   panel.appendChild(createPanelHeader(doc, 'Graph', [createGroupButton], 'hierarchy'));
 
   const list = createTreeView(doc);
+  list.style.flex = '1';
+  list.style.minHeight = '0';
   list.dataset.editorHierarchyRootDrop = input.rootDrop ? 'active' : 'ready';
   if (input.rootDrop) {
     list.style.boxShadow = 'inset 0 -2px 0 var(--fps-editor-warn-strong)';
