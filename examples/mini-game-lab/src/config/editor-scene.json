@@ -5,7 +5,7 @@
     "authoringSource": {
       "sourceId": "scene.main",
       "sourceType": "scene",
-      "revision": 17
+      "revision": 18
     }
   },
   "assets": [
@@ -185,14 +185,14 @@
           {
             "type": "Transform",
             "position": {
-              "x": -2.002983570098877,
-              "y": 8.766771486534708e-8,
-              "z": 8.917222023010254
+              "x": -4.127793084653442,
+              "y": 8.881784197001252e-16,
+              "z": 9.180815165578407
             },
             "rotation": {
+              "z": 0,
               "x": 0,
-              "y": 0,
-              "z": 0
+              "y": 0
             },
             "scale": {
               "x": 1,
@@ -204,7 +204,8 @@
             "type": "ModelRenderer",
             "assetId": "asset_tree_lv1"
           }
-        ]
+        ],
+        "parentId": "mvp_root"
       },
       {
         "id": "fence",
@@ -214,14 +215,14 @@
           {
             "type": "Transform",
             "position": {
-              "x": 7.183664269001214,
-              "y": 8.766771397716866e-8,
-              "z": 12.058139923904239
+              "x": 5.0588547544466484,
+              "y": 0,
+              "z": 12.321733066472392
             },
             "rotation": {
+              "z": 0,
               "x": 0,
-              "y": 0,
-              "z": 0
+              "y": 0
             },
             "scale": {
               "x": 1,
@@ -233,7 +234,8 @@
             "type": "ModelRenderer",
             "assetId": "asset_fence"
           }
-        ]
+        ],
+        "parentId": "mvp_root"
       },
       {
         "id": "board_compressor_lv1",
@@ -243,14 +245,14 @@
           {
             "type": "Transform",
             "position": {
-              "x": -3.496782064437866,
-              "y": -0.40842053294181824,
-              "z": 8.736801147460938
+              "x": -5.621591578992431,
+              "y": -0.4084206206095322,
+              "z": 9.00039429002909
             },
             "rotation": {
+              "z": 0,
               "x": 0,
-              "y": 0,
-              "z": 0
+              "y": 0
             },
             "scale": {
               "x": 1,
@@ -262,7 +264,8 @@
             "type": "ModelRenderer",
             "assetId": "asset_compressor"
           }
-        ]
+        ],
+        "parentId": "mvp_root"
       },
       {
         "id": "fence_2",
@@ -272,14 +275,14 @@
           {
             "type": "Transform",
             "position": {
-              "x": -12.590632438659668,
-              "y": 8.766771486534708e-8,
-              "z": -4.553765296936035
+              "x": -14.715441953214233,
+              "y": 8.881784197001252e-16,
+              "z": -4.290172154367882
             },
             "rotation": {
+              "z": 0,
               "x": 0,
-              "y": -1.5674126408514428,
-              "z": 0
+              "y": -1.567412640851443
             },
             "scale": {
               "x": 0.9999998834125985,
@@ -291,7 +294,8 @@
             "type": "ModelRenderer",
             "assetId": "asset_fence"
           }
-        ]
+        ],
+        "parentId": "mvp_root"
       },
       {
         "id": "peeler",
@@ -301,9 +305,48 @@
           {
             "type": "Transform",
             "position": {
-              "x": 6.328696250915527,
-              "y": 0,
-              "z": 14.931673049926758
+              "x": 4.203886736360962,
+              "y": -8.766771397716866e-8,
+              "z": 15.19526619249491
+            },
+            "rotation": {
+              "z": 0,
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          {
+            "type": "ModelRenderer",
+            "assetId": "asset_peeler"
+          }
+        ],
+        "parentId": "mvp_root"
+      },
+      {
+        "id": "main_camera",
+        "name": "Main Camera",
+        "kind": "transform",
+        "parentId": "mvp_root",
+        "active": true,
+        "transformType": "camera",
+        "camera": {
+          "alpha": 3.9269908169872414,
+          "beta": 0.8,
+          "radius": 14,
+          "orthoSize": 6
+        },
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 0,
+              "y": 5,
+              "z": -8
             },
             "rotation": {
               "x": 0,
@@ -315,10 +358,220 @@
               "y": 1,
               "z": 1
             }
+          }
+        ]
+      },
+      {
+        "id": "sun_light",
+        "name": "Sun Light",
+        "kind": "transform",
+        "parentId": "mvp_root",
+        "active": true,
+        "transformType": "light",
+        "light": {
+          "type": "directional",
+          "intensity": 2,
+          "direction": {
+            "x": -0.3,
+            "y": -1,
+            "z": -0.2
           },
+          "diffuseColor": {
+            "r": 1,
+            "g": 1,
+            "b": 1
+          }
+        },
+        "components": [
           {
-            "type": "ModelRenderer",
-            "assetId": "asset_peeler"
+            "type": "Transform",
+            "position": {
+              "x": 0,
+              "y": 4,
+              "z": -3
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "group_2",
+        "name": "Group",
+        "parentId": "mvp_root",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": -5.719079982312744,
+              "y": -8.766771397716866e-8,
+              "z": -0.43562012380452764
+            },
+            "rotation": {
+              "z": 0,
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "group",
+        "name": "Group",
+        "parentId": "group_2",
+        "active": true,
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotation": {
+              "z": 0,
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "cube",
+        "name": "Cube",
+        "kind": "primitive",
+        "parentId": "group",
+        "active": true,
+        "primitive": {
+          "shape": "cube"
+        },
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotation": {
+              "z": 0,
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "sphere",
+        "name": "Sphere",
+        "kind": "primitive",
+        "parentId": "mvp_root",
+        "active": true,
+        "primitive": {
+          "shape": "sphere"
+        },
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": -3.264646898778503,
+              "y": -8.766771397716866e-8,
+              "z": 0.9191969686141426
+            },
+            "rotation": {
+              "z": 0,
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "capsule",
+        "name": "Capsule",
+        "kind": "primitive",
+        "parentId": "sphere",
+        "active": true,
+        "primitive": {
+          "shape": "capsule"
+        },
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": 4.739837384223938,
+              "y": 0,
+              "z": 2.94439617395401
+            },
+            "rotation": {
+              "z": 0,
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "plane",
+        "name": "Plane",
+        "kind": "primitive",
+        "parentId": "capsule",
+        "active": true,
+        "primitive": {
+          "shape": "plane"
+        },
+        "components": [
+          {
+            "type": "Transform",
+            "position": {
+              "x": -7.199999999999999,
+              "y": 0,
+              "z": 1.8000000000000003
+            },
+            "rotation": {
+              "z": 0,
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 10,
+              "y": 1,
+              "z": 10
+            }
           }
         ]
       }

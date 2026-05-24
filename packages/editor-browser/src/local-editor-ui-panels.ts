@@ -57,7 +57,7 @@ export function renderHierarchyPanel<TDocument>(
   createGroupButton.dataset.editorHierarchyCreateGroup = 'true';
   createGroupButton.style.padding = '3px 7px';
   createGroupButton.style.fontSize = '11px';
-  panel.appendChild(createPanelHeader(doc, 'Graph', [createGroupButton], 'hierarchy'));
+  panel.appendChild(createPanelHeader(doc, 'Hierarchy', [createGroupButton], 'hierarchy'));
 
   const list = createTreeView(doc);
   for (const item of state.hierarchy) {

@@ -5,6 +5,7 @@ import type {
   SceneCameraRigConfig,
   SceneDirectionalLightConfig,
   SceneNodeConfig,
+  ScenePrimitiveShape,
   SceneNodeVisualOverrides,
   SceneTransformNode,
 } from '../config';
@@ -51,6 +52,10 @@ export interface EditorSceneModelRendererComponent {
   assetId: string;
 }
 
+export interface EditorScenePrimitiveRenderer {
+  shape: ScenePrimitiveShape;
+}
+
 export type EditorSceneCameraRig = SceneCameraRigConfig;
 
 export interface EditorSceneDirectionalLight extends Omit<SceneDirectionalLightConfig, 'direction' | 'diffuseColor'> {
@@ -71,6 +76,7 @@ export interface EditorSceneGameObject {
   transformType?: SceneTransformNode['transformType'];
   camera?: EditorSceneCameraRig;
   light?: EditorSceneDirectionalLight;
+  primitive?: EditorScenePrimitiveRenderer;
   groundDecal?: SceneTransformNode['groundDecal'];
   overrides?: SceneNodeVisualOverrides;
   metadata?: Record<string, unknown>;
@@ -116,10 +122,17 @@ export function findEditorSceneModelRenderer(
   ) ?? null;
 }
 
+export function findEditorScenePrimitiveRenderer(
+  gameObject: EditorSceneGameObject,
+): EditorScenePrimitiveRenderer | null {
+  return gameObject.primitive ?? null;
+}
+
 export function readEditorSceneNodeKind(gameObject: EditorSceneGameObject): SceneNodeConfig['kind'] {
-  if (gameObject.kind === 'group' || gameObject.kind === 'instance' || gameObject.kind === 'transform') {
+  if (gameObject.kind === 'group' || gameObject.kind === 'instance' || gameObject.kind === 'transform' || gameObject.kind === 'primitive') {
     return gameObject.kind;
   }
+  if (findEditorScenePrimitiveRenderer(gameObject)) return 'primitive';
   if (findEditorSceneModelRenderer(gameObject)) return 'instance';
   if (gameObject.transformType || gameObject.groundDecal) return 'transform';
   return 'group';

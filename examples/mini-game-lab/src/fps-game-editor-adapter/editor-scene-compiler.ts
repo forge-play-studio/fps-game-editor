@@ -5,6 +5,7 @@ import type {
 } from './editor-scene-document';
 import {
   findEditorSceneModelRenderer,
+  findEditorScenePrimitiveRenderer,
   findEditorSceneTransform,
   readEditorSceneNodeKind,
 } from './editor-scene-document';
@@ -15,6 +16,7 @@ import type {
   SceneGroupNode,
   SceneInstanceNode,
   SceneNodeConfig,
+  ScenePrimitiveNode,
   SceneRuntimeSourceBinding,
   SceneTransformNode,
 } from '../config';
@@ -89,8 +91,9 @@ function compileGameObject(
 ): SceneNodeConfig {
   const transform = findEditorSceneTransform(gameObject);
   const modelRenderer = findEditorSceneModelRenderer(gameObject);
+  const primitiveRenderer = findEditorScenePrimitiveRenderer(gameObject);
   const nodeKind = readEditorSceneNodeKind(gameObject);
-  const visualOverrides = (nodeKind === 'instance' || nodeKind === 'transform') && gameObject.overrides
+  const visualOverrides = (nodeKind === 'instance' || nodeKind === 'transform' || nodeKind === 'primitive') && gameObject.overrides
     ? structuredClone(gameObject.overrides)
     : undefined;
   const source: SceneRuntimeSourceBinding = {
@@ -98,7 +101,7 @@ function compileGameObject(
     sourceType: sourceRef.sourceType,
     revision: sourceRef.revision,
     objectId: gameObject.id,
-    component: modelRenderer ? 'ModelRenderer' : nodeKind === 'transform' ? 'Transform' : 'GameObject',
+    component: modelRenderer ? 'ModelRenderer' : (primitiveRenderer || nodeKind === 'primitive') ? 'PrimitiveRenderer' : nodeKind === 'transform' ? 'Transform' : 'GameObject',
   };
   const base = {
     id: gameObject.id,
@@ -116,6 +119,17 @@ function compileGameObject(
         }
       : {}),
   };
+
+  if (nodeKind === 'primitive') {
+    return {
+      ...base,
+      kind: 'primitive',
+      primitive: {
+        shape: primitiveRenderer?.shape ?? 'cube',
+      },
+      ...(visualOverrides ? { overrides: visualOverrides } : {}),
+    } satisfies ScenePrimitiveNode;
+  }
 
   if (!modelRenderer) {
     if (nodeKind === 'transform') {

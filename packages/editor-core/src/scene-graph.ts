@@ -8,6 +8,8 @@ export type SceneGraphMovePlacement = SceneGraphDropPlacement | 'root';
 
 export type SceneGraphGroupPivot = 'selection-center' | 'active' | 'parent-origin';
 
+export type SceneGraphPrimitiveShape = 'cube' | 'sphere' | 'plane' | 'capsule';
+
 export interface SceneGraphTreeItem {
   id: SceneGraphNodeId;
   label: string;
@@ -57,6 +59,13 @@ export interface SceneGraphRenameIntent {
 export interface SceneGraphCreateGroupIntent {
   parentId?: SceneGraphNodeId | null;
   activeId?: SceneGraphNodeId | null;
+  name?: string;
+}
+
+export interface SceneGraphCreatePrimitiveIntent {
+  parentId?: SceneGraphNodeId | null;
+  activeId?: SceneGraphNodeId | null;
+  shape: SceneGraphPrimitiveShape;
   name?: string;
 }
 

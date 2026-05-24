@@ -24,6 +24,7 @@ import {
   type EditorTransformVec3,
   type SelectionCommand,
   type SceneGraphCreateGroupIntent,
+  type SceneGraphCreatePrimitiveIntent,
   type SceneGraphDeleteIntent,
   type SceneGraphDropIntent,
   type SceneGraphGroupSelectionIntent,
@@ -96,6 +97,7 @@ import {
   type BabylonTransformGizmoDuplicateDragInput,
   type BabylonTransformGizmoDuplicateDragResult,
   type BabylonEditorWorld,
+  type BabylonEditorSkyOptions,
   type BabylonRuntimeGlobal,
 } from '@fps-games/editor-babylon';
 
@@ -212,6 +214,14 @@ export interface LocalEditorHarnessSceneGraphCreateGroupPatch<TPatch> {
   createdId: string;
 }
 
+export interface LocalEditorHarnessSceneGraphCreatePrimitivePatch<TPatch> {
+  patch: TPatch;
+  label?: string;
+  createdId: string;
+  changedIds?: string[];
+  reprojectIds?: string[];
+}
+
 export interface LocalEditorHarnessSceneGraphDeletePatch<TPatch> {
   patch: TPatch;
   label?: string;
@@ -309,6 +319,7 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   validateSceneGraphDrop?(document: TDocument, intent: SceneGraphDropIntent): SceneGraphValidationResult;
   createSceneGraphRenamePatch?(document: TDocument, intent: SceneGraphRenameIntent): LocalEditorHarnessSceneGraphRenamePatch<TPatch> | null;
   createSceneGraphCreateGroupPatch?(document: TDocument, intent: SceneGraphCreateGroupIntent): LocalEditorHarnessSceneGraphCreateGroupPatch<TPatch> | null;
+  createSceneGraphCreatePrimitivePatch?(document: TDocument, intent: SceneGraphCreatePrimitiveIntent): LocalEditorHarnessSceneGraphCreatePrimitivePatch<TPatch> | null;
   createSceneGraphDeletePatch?(document: TDocument, intent: SceneGraphDeleteIntent): LocalEditorHarnessSceneGraphDeletePatch<TPatch> | null;
   createSceneGraphDropPatch?(document: TDocument, intent: SceneGraphDropIntent): LocalEditorHarnessSceneGraphDropPatch<TPatch> | null;
   validateSceneGraphMove?(document: TDocument, intent: SceneGraphMoveIntent): SceneGraphValidationResult;
@@ -364,6 +375,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     cameraTarget?: { x: number; y: number; z: number };
     cameraRadius?: number;
     clearColor?: { r: number; g: number; b: number; a: number };
+    sky?: BabylonEditorSkyOptions | false;
     useRightHandedSystem?: boolean;
     coordinateAxes?: boolean;
   };
@@ -508,6 +520,11 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       onSceneGraphCreateGroup: (intent) => {
         if (createSceneGraphGroup(state, options, intent)) harness.render();
       },
+      onSceneGraphCreatePrimitive: options.documentAdapter.createSceneGraphCreatePrimitivePatch
+        ? (intent) => {
+            if (createSceneGraphPrimitive(state, options, intent)) harness.render();
+          }
+        : undefined,
       onSceneGraphDelete: (intent) => {
         if (deleteSceneGraphNodes(state, options, intent)) harness.render();
       },
@@ -870,6 +887,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     cameraTarget: options.world?.cameraTarget,
     cameraRadius: options.world?.cameraRadius,
     clearColor: options.world?.clearColor,
+    sky: options.world?.sky,
     useRightHandedSystem: options.world?.useRightHandedSystem,
     enableDefaultCameraControls: false,
   });
@@ -1146,6 +1164,14 @@ function handleContextAction<TDocument, TPatch, TAsset>(
       name: 'Empty',
     });
   }
+  if (action.action === 'create-primitive') {
+    return createSceneGraphPrimitive(state, options, {
+      parentId: action.parentId ?? null,
+      activeId: action.activeId ?? null,
+      shape: action.shape,
+      name: action.name,
+    });
+  }
   if (action.action === 'delete') {
     return deleteSceneGraphNodes(state, options, {
       ids: action.targetIds,
@@ -1253,6 +1279,45 @@ function createSceneGraphGroup<TDocument, TPatch, TAsset>(
   rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
   state.status = patch.label ?? (createdId ? `Created empty ${createdId}` : 'Created empty');
+  return true;
+}
+
+function createSceneGraphPrimitive<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  intent: SceneGraphCreatePrimitiveIntent,
+): boolean {
+  const document = state.session?.getState().workingDocument;
+  if (state.mode !== 'editor' || !state.session || !document) return false;
+  cancelActiveOperation(state);
+  const patch = options.documentAdapter.createSceneGraphCreatePrimitivePatch?.(document, intent);
+  if (!patch) {
+    state.status = `Create ${intent.shape} rejected`;
+    return true;
+  }
+  const result = state.session.dispatch({
+    type: 'document.patch',
+    label: patch.label ?? `Create ${intent.shape}`,
+    patch: patch.patch,
+    targetId: patch.createdId ?? undefined,
+  });
+  if (!result.documentChanged) {
+    state.status = `Create ${intent.shape} unchanged`;
+    return true;
+  }
+  const createdId = patch.createdId ?? null;
+  let selection = result.selection;
+  if (createdId && isNodeSelectableInDocument(options, result.workingDocument, createdId)) {
+    selection = state.session.dispatch({
+      type: 'selection.replace',
+      selectedIds: [createdId],
+      activeId: createdId,
+      label: 'Select Created Primitive',
+    }).selection;
+  }
+  rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
+  state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
+  state.status = patch.label ?? (createdId ? `Created ${intent.shape} ${createdId}` : `Created ${intent.shape}`);
   return true;
 }
 

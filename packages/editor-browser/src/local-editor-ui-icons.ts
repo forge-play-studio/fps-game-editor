@@ -1,5 +1,6 @@
 export const LOCAL_EDITOR_ICON_NAMES = [
   'asset',
+  'arrange',
   'camera',
   'chevron-down',
   'chevron-right',
@@ -25,6 +26,7 @@ export const LOCAL_EDITOR_ICON_NAMES = [
   'scale',
   'select',
   'snap',
+  'status',
   'theme',
   'undo',
   'world',
@@ -51,6 +53,10 @@ const LOCAL_EDITOR_ICON_DEFINITIONS = {
     { tag: 'rect', attrs: { x: '4', y: '5', width: '16', height: '14', rx: '2' } },
     { tag: 'path', attrs: { d: 'M8 9h8M8 13h5' } },
     { tag: 'path', attrs: { d: 'M7 19l5-4 5 4' } },
+  ],
+  arrange: [
+    { tag: 'path', attrs: { d: 'M5 6h14M8 6v12M16 6v12M5 18h14' } },
+    { tag: 'path', attrs: { d: 'M10 10h4M9 14h6' } },
   ],
   camera: [
     { tag: 'path', attrs: { d: 'M4 8.5A2.5 2.5 0 0 1 6.5 6h2l1.5-2h4l1.5 2h2A2.5 2.5 0 0 1 20 8.5v7A2.5 2.5 0 0 1 17.5 18h-11A2.5 2.5 0 0 1 4 15.5z' } },
@@ -155,6 +161,11 @@ const LOCAL_EDITOR_ICON_DEFINITIONS = {
   snap: [
     { tag: 'path', attrs: { d: 'M8 4v6a4 4 0 0 0 8 0V4' } },
     { tag: 'path', attrs: { d: 'M8 8h4M16 8h-4M8 4h4M16 4h-4M12 14v6' } },
+  ],
+  status: [
+    { tag: 'circle', attrs: { cx: '12', cy: '12', r: '9' } },
+    { tag: 'path', attrs: { d: 'M12 8v5' } },
+    { tag: 'line', attrs: { x1: '12', y1: '16', x2: '12.01', y2: '16' } },
   ],
   theme: [
     { tag: 'circle', attrs: { cx: '12', cy: '12', r: '9' } },

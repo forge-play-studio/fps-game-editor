@@ -50,6 +50,8 @@ export interface TransformConfig {
 
 export type TransformType = 'plain' | 'light' | 'camera' | 'groundDecal';
 
+export type ScenePrimitiveShape = 'cube' | 'sphere' | 'plane' | 'capsule';
+
 export interface SceneCameraRigConfig {
   alpha: number;
   beta: number;
@@ -145,7 +147,7 @@ export interface SceneRuntimeSourceBinding extends SceneAuthoringSourceRef {
 export interface SceneNodeBase {
   id: string;
   name?: string;
-  kind: 'group' | 'instance' | 'transform';
+  kind: 'group' | 'instance' | 'transform' | 'primitive';
   parentId?: string;
   enabled?: boolean;
   transform?: TransformConfig;
@@ -242,6 +244,14 @@ export interface SceneInstanceNode extends SceneNodeBase {
   overrides?: SceneNodeVisualOverrides;
 }
 
+export interface ScenePrimitiveNode extends SceneNodeBase {
+  kind: 'primitive';
+  primitive: {
+    shape: ScenePrimitiveShape;
+  };
+  overrides?: SceneNodeVisualOverrides;
+}
+
 export interface SceneTransformNode extends SceneNodeBase {
   kind: 'transform';
   transformType?: TransformType;
@@ -261,7 +271,7 @@ export interface SceneTransformNode extends SceneNodeBase {
   };
 }
 
-export type SceneNodeConfig = SceneGroupNode | SceneInstanceNode | SceneTransformNode;
+export type SceneNodeConfig = SceneGroupNode | SceneInstanceNode | SceneTransformNode | ScenePrimitiveNode;
 
 export interface SceneDocumentScene {
   rootId: string;

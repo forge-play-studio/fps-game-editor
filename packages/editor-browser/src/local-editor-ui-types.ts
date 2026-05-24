@@ -7,6 +7,7 @@ import type {
   EditorTransformSpace,
   EditorTransformTool,
   EditorTransformToolDescriptor,
+  SceneGraphPrimitiveShape,
   SelectionCommand,
 } from '@fps-games/editor-core';
 import type { LocalEditorThemeName } from './local-editor-ui-theme';
@@ -344,6 +345,15 @@ export interface LocalEditorBrowserSceneGraphCreateGroupIntent {
   name?: string;
 }
 
+export type LocalEditorBrowserPrimitiveShape = SceneGraphPrimitiveShape;
+
+export interface LocalEditorBrowserSceneGraphCreatePrimitiveIntent {
+  parentId?: string | null;
+  activeId?: string | null;
+  shape: LocalEditorBrowserPrimitiveShape;
+  name?: string;
+}
+
 export interface LocalEditorBrowserSceneGraphDeleteIntent {
   ids: string[];
   activeId?: string | null;
@@ -395,6 +405,7 @@ export type LocalEditorContextAction =
   | { region: 'hierarchy'; action: 'focus'; targetIds: string[]; activeId: string | null }
   | { region: 'hierarchy'; action: 'rename'; targetId: string }
   | { region: 'hierarchy'; action: 'create-group'; parentId?: string | null; activeId?: string | null }
+  | { region: 'hierarchy'; action: 'create-primitive'; parentId?: string | null; activeId?: string | null; shape: LocalEditorBrowserPrimitiveShape; name?: string }
   | { region: 'hierarchy'; action: 'delete'; targetIds: string[]; activeId?: string | null }
   | { region: 'hierarchy'; action: 'duplicate'; targetIds: string[]; activeId?: string | null }
   | { region: 'hierarchy'; action: 'paste'; sourceIds: string[]; activeId?: string | null };
@@ -425,6 +436,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onCancelActiveOperation?: () => void;
   onSceneGraphRename?: (intent: LocalEditorBrowserSceneGraphRenameIntent) => void;
   onSceneGraphCreateGroup?: (intent: LocalEditorBrowserSceneGraphCreateGroupIntent) => void;
+  onSceneGraphCreatePrimitive?: (intent: LocalEditorBrowserSceneGraphCreatePrimitiveIntent) => void;
   onSceneGraphDelete?: (intent: LocalEditorBrowserSceneGraphDeleteIntent) => void;
   onSceneGraphDuplicate?: (intent: LocalEditorBrowserSceneGraphDuplicateIntent) => void;
   onSceneGraphDrop?: (intent: LocalEditorBrowserSceneGraphDropIntent) => void;

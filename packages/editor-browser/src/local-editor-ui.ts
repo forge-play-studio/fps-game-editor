@@ -1,6 +1,7 @@
 import * as LocalEditorPanels from './local-editor-ui-panels';
 import { createLocalEditorHierarchyController } from './local-editor-ui-hierarchy-controller';
 import { createLocalEditorContextMenuController } from './local-editor-ui-context-menu';
+import { createLocalEditorTooltipController } from './local-editor-ui-tooltip';
 import {
   DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
   DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS,
@@ -27,6 +28,10 @@ export {
   type LocalEditorContextMenuController,
   type LocalEditorContextMenuOpenInput,
 } from './local-editor-ui-context-menu';
+export {
+  createLocalEditorTooltipController,
+  type LocalEditorTooltipController,
+} from './local-editor-ui-tooltip';
 export type {
   LocalEditorHierarchyAction,
   LocalEditorHierarchyActionInput,
@@ -61,7 +66,7 @@ import {
   createSceneHeaderToolbar,
   createWorkbenchPanelContent,
 } from './local-editor-ui-workbench';
-import type { LocalEditorIconName } from './local-editor-ui-icons';
+import { createLocalEditorIcon, type LocalEditorIconName } from './local-editor-ui-icons';
 import type {
   LocalEditorBottomDockTab,
   LocalEditorBrowserCoordinateAxesState,
@@ -75,7 +80,7 @@ import type {
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformSnapStepKind,
   LocalEditorBrowserTransformTool,
-  LocalEditorBrowserTransformToolState,
+  LocalEditorBrowserTransformToolDescriptor,
   LocalEditorBrowserUi,
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
@@ -143,7 +148,9 @@ export type {
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserInspectorSection,
   LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserPrimitiveShape,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
+  LocalEditorBrowserSceneGraphCreatePrimitiveIntent,
   LocalEditorBrowserSceneGraphDeleteIntent,
   LocalEditorBrowserSceneGraphDuplicateIntent,
   LocalEditorBrowserSceneGraphDropIntent,
@@ -226,6 +233,82 @@ const PLACEMENT_MODE_ICONS: Record<LocalEditorBrowserPlacementMode, LocalEditorI
   ground: 'place-ground',
   surface: 'place-surface',
 };
+
+const PLACEMENT_MODE_DESCRIPTIONS: Record<LocalEditorBrowserPlacementMode, string> = {
+  off: '关闭放置模式',
+  ground: '放置到 XZ 地面',
+  surface: '放置到场景表面',
+};
+
+const TRANSFORM_ACTION_GROUPS = [
+  {
+    title: '对齐到 Active Object',
+    hint: '需要至少 2 个选中对象',
+    actions: ['align-x', 'align-y', 'align-z', 'align-all'],
+  },
+  {
+    title: '均匀分布',
+    hint: '需要至少 3 个选中对象',
+    actions: ['distribute-x', 'distribute-y', 'distribute-z'],
+  },
+] as const satisfies ReadonlyArray<{
+  title: string;
+  hint: string;
+  actions: ReadonlyArray<LocalEditorBrowserTransformAction>;
+}>;
+
+const TRANSFORM_ACTION_LABELS: Record<LocalEditorBrowserTransformAction, string> = {
+  'align-x': '对齐 X',
+  'align-y': '对齐 Y',
+  'align-z': '对齐 Z',
+  'align-all': '对齐全',
+  'distribute-x': '分布 X',
+  'distribute-y': '分布 Y',
+  'distribute-z': '分布 Z',
+};
+
+function createTransformToolTooltip(
+  descriptor: LocalEditorBrowserTransformToolDescriptor,
+): string {
+  const toolLabel = descriptor.shortcut
+    ? `${descriptor.label}工具 (${descriptor.shortcut})`
+    : `${descriptor.label}工具`;
+  return `${toolLabel} · ${LocalEditorShared.toTransformMouseHint(descriptor.tool)}`;
+}
+
+function createToolbarIconButton(
+  doc: Document,
+  label: string,
+  icon: LocalEditorIconName,
+  tooltip = label,
+  toolbarRole: 'command' | 'toggle' | 'settings' = 'command',
+): HTMLButtonElement {
+  return LocalEditorShared.createButton(doc, label, {
+    icon,
+    labelMode: 'icon-only',
+    variant: 'toolbar-icon',
+    tooltip,
+    ariaLabel: tooltip,
+    toolbarRole,
+  });
+}
+
+function setToolbarButtonTooltip(button: HTMLButtonElement, tooltip: string): void {
+  button.dataset.editorTooltip = tooltip;
+  button.setAttribute('aria-label', tooltip);
+}
+
+function setToolbarButtonIcon(
+  doc: Document,
+  button: HTMLButtonElement,
+  icon: LocalEditorIconName,
+): void {
+  const currentIcon = button.querySelector<HTMLElement>('[data-editor-icon]');
+  if (currentIcon?.dataset.editorIcon === icon) return;
+  const nextIcon = createLocalEditorIcon(doc, icon);
+  if (currentIcon) currentIcon.replaceWith(nextIcon);
+  else button.prepend(nextIcon);
+}
 
 function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, number> {
   const wrapper = input.closest<HTMLElement>('[data-inspector-vector-control]');
@@ -423,6 +506,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const contextMenu = createLocalEditorContextMenuController(doc, (open) => {
     inputRouter.setContextMenuOpen(open);
   }, activeTheme);
+  const tooltipSurfaces = new Set<HTMLElement>();
+  const tooltipController = createLocalEditorTooltipController(doc, root, activeTheme, {
+    scope: () => tooltipSurfaces,
+  });
   let currentState: LocalEditorBrowserUiState<TDocument> | null = null;
   let inspectorFilter = '';
   const workbenchLayout = createDefaultLocalEditorWorkbenchLayout();
@@ -462,28 +549,31 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   hostChrome.appendChild(hostModeLabel);
   hostChrome.appendChild(enterEditorButton);
   root.appendChild(hostChrome);
+  tooltipSurfaces.add(hostChrome);
 
   const dirtyBadge = doc.createElement('span');
+  dirtyBadge.dataset.editorDirtyBadge = 'true';
+  dirtyBadge.dataset.editorTooltip = '有未保存更改';
+  dirtyBadge.setAttribute('role', 'status');
+  dirtyBadge.setAttribute('aria-label', '有未保存更改');
   dirtyBadge.style.cssText = [
     'display:none',
-    'height:20px',
+    'width:8px',
+    'height:8px',
     'align-items:center',
-    'padding:0 7px',
+    'justify-content:center',
+    'padding:0',
     'border-radius:999px',
-    'background:var(--fps-editor-danger-soft)',
+    'background:var(--fps-editor-danger-strong)',
     'border:1px solid var(--fps-editor-danger-border)',
-    'color:var(--fps-editor-danger-text)',
-    'font-size:11px',
-    'font-weight:800',
+    'box-shadow:0 0 0 3px var(--fps-editor-danger-soft)',
   ].join(';');
-  dirtyBadge.textContent = '未保存';
 
   const saveButton = LocalEditorShared.createButton(doc, '保存场景', { icon: 'save' });
   const saveAndRunButton = LocalEditorShared.createButton(doc, '保存并运行', { icon: 'execute' });
   const discardRunButton = LocalEditorShared.createButton(doc, '放弃并运行', { icon: 'discard' });
-  const localTestButton = LocalEditorShared.createButton(doc, '本地测试', { icon: 'execute' });
+  const localTestButton = createToolbarIconButton(doc, '本地测试', 'execute', '打开本地测试操作');
   localTestButton.dataset.editorLocalTestToggle = 'true';
-  localTestButton.title = '打开本地测试操作';
   const localTestMenu = doc.createElement('div');
   localTestMenu.classList.add(LOCAL_EDITOR_THEME_CLASS);
   localTestMenu.dataset.editorLocalTestMenu = 'true';
@@ -513,21 +603,13 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'gap:4px',
   ].join(';');
   localTestGroup.appendChild(localTestButton);
-  const undoButton = LocalEditorShared.createButton(doc, '撤销', { icon: 'undo' });
-  const redoButton = LocalEditorShared.createButton(doc, '重做', { icon: 'redo' });
+  const undoButton = createToolbarIconButton(doc, '撤销', 'undo', '撤销');
+  const redoButton = createToolbarIconButton(doc, '重做', 'redo', '重做');
   let helpOpen = false;
 
-  const status = doc.createElement('span');
-  status.style.cssText = [
-    'flex:0 1 300px',
-    'min-width:120px',
-    'max-width:320px',
-    'overflow:hidden',
-    'text-overflow:ellipsis',
-    'white-space:nowrap',
-    'color:var(--fps-editor-muted)',
-    'font-size:11px',
-  ].join(';');
+  const editorStatusButton = createToolbarIconButton(doc, '编辑器状态', 'status', '编辑器状态');
+  editorStatusButton.dataset.editorStatusButton = 'true';
+  editorStatusButton.style.cursor = 'help';
 
   const workbench = createLocalEditorWorkbench(doc);
   const hierarchyPanel = createWorkbenchPanelContent(doc);
@@ -536,6 +618,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   workbench.leftDock.appendChild(hierarchyPanel);
   workbench.rightDock.appendChild(inspectorPanel);
   root.appendChild(workbench.root);
+  tooltipSurfaces.add(workbench.root);
   const workbenchLayoutController = createLocalEditorWorkbenchLayoutController(doc, workbench);
 
   const sceneToolOverlay = createSceneHeaderToolbar(doc);
@@ -572,16 +655,19 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
   const toolButtons = new Map<LocalEditorBrowserTransformTool, HTMLButtonElement>();
-  const transformToolDescriptors = Object.values(DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS);
+  const transformToolDescriptors = Object.values(
+    DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS,
+  ) as LocalEditorBrowserTransformToolDescriptor[];
   for (const descriptor of transformToolDescriptors) {
-    const shortcut = descriptor.shortcut ? `${descriptor.shortcut} ` : '';
-    const button = LocalEditorShared.createButton(doc, `${shortcut}${descriptor.label}`, {
+    const tooltip = createTransformToolTooltip(descriptor);
+    const button = LocalEditorShared.createButton(doc, descriptor.label, {
       icon: TRANSFORM_TOOL_ICONS[descriptor.tool],
+      labelMode: 'icon-only',
+      variant: 'toolbar-icon',
+      tooltip,
+      ariaLabel: tooltip,
     });
     button.dataset.transformTool = descriptor.tool;
-    button.title = descriptor.handles.length > 0
-      ? `${descriptor.label} · ${descriptor.handles.map(handle => handle.label).join(' / ')}`
-      : descriptor.label;
     toolButtons.set(descriptor.tool, button);
     toolGroup.appendChild(button);
   }
@@ -594,21 +680,13 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
   const spaceButtons = {
-    world: LocalEditorShared.createButton(doc, '世界', { icon: TRANSFORM_SPACE_ICONS.world }),
-    local: LocalEditorShared.createButton(doc, '本地', { icon: TRANSFORM_SPACE_ICONS.local }),
+    world: createToolbarIconButton(doc, '世界', TRANSFORM_SPACE_ICONS.world, '世界坐标空间'),
+    local: createToolbarIconButton(doc, '本地', TRANSFORM_SPACE_ICONS.local, '本地坐标空间'),
   } satisfies Record<LocalEditorBrowserTransformSpace, HTMLButtonElement>;
   for (const [space, button] of Object.entries(spaceButtons) as Array<[LocalEditorBrowserTransformSpace, HTMLButtonElement]>) {
     button.dataset.transformSpace = space;
     spaceGroup.appendChild(button);
   }
-  const handleGroup = doc.createElement('div');
-  handleGroup.style.cssText = [
-    'display:flex',
-    'align-items:center',
-    'gap:4px',
-    'padding-left:8px',
-    'border-left:1px solid var(--fps-editor-divider)',
-  ].join(';');
   const snapGroup = doc.createElement('div');
   snapGroup.style.cssText = [
     'display:flex',
@@ -617,24 +695,71 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const snapButton = LocalEditorShared.createButton(doc, '吸附', { icon: 'snap' });
+  const snapButton = createToolbarIconButton(doc, '吸附设置', 'snap', '吸附设置', 'settings');
   snapButton.dataset.transformSnapToggle = 'true';
-  snapButton.title = '移动 / 旋转 / 缩放吸附';
+  const snapSettingsPopover = doc.createElement('div');
+  snapSettingsPopover.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  snapSettingsPopover.dataset.transformSnapSettingsPopover = 'true';
+  snapSettingsPopover.setAttribute('role', 'dialog');
+  snapSettingsPopover.setAttribute('aria-label', '吸附设置');
+  snapSettingsPopover.style.cssText = [
+    'position:fixed',
+    'z-index:2147483641',
+    'display:none',
+    'flex-direction:column',
+    'gap:8px',
+    'width:220px',
+    'padding:10px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-panel)',
+    'box-shadow:var(--fps-editor-shadow-popover)',
+    'pointer-events:auto',
+  ].join(';');
+  const snapSettingsHeader = doc.createElement('label');
+  snapSettingsHeader.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
+    'gap:8px',
+    'color:var(--fps-editor-text)',
+    'font-size:12px',
+    'font-weight:900',
+  ].join(';');
+  const snapSettingsHeaderText = doc.createElement('span');
+  snapSettingsHeaderText.textContent = '启用吸附';
+  const snapEnabledInput = doc.createElement('input');
+  snapEnabledInput.type = 'checkbox';
+  snapEnabledInput.dataset.transformSnapEnabled = 'true';
+  snapSettingsHeader.appendChild(snapSettingsHeaderText);
+  snapSettingsHeader.appendChild(snapEnabledInput);
+  snapSettingsPopover.appendChild(snapSettingsHeader);
   const snapStepInputs = new Map<LocalEditorBrowserTransformSnapStepKind, HTMLInputElement>();
-  for (const [kind, label, title] of [
-    ['move', 'M', '移动吸附步长'],
-    ['rotate', 'R', '旋转吸附角度'],
-    ['scale', 'S', '缩放吸附步长'],
+  for (const [kind, label, unit] of [
+    ['move', '位移', '单位'],
+    ['rotate', '旋转', '度'],
+    ['scale', '缩放', '倍数'],
   ] as Array<[LocalEditorBrowserTransformSnapStepKind, string, string]>) {
+    const row = doc.createElement('label');
+    row.style.cssText = [
+      'display:grid',
+      'grid-template-columns:54px 1fr 34px',
+      'align-items:center',
+      'gap:8px',
+      'color:var(--fps-editor-muted-strong)',
+      'font-size:11px',
+      'font-weight:800',
+    ].join(';');
+    const rowLabel = doc.createElement('span');
+    rowLabel.textContent = label;
     const input = doc.createElement('input');
     input.type = 'number';
     input.min = '0.0001';
     input.step = kind === 'rotate' ? '1' : '0.1';
     input.dataset.transformSnapStep = kind;
-    input.title = `${label} · ${title}`;
     input.style.cssText = [
-      'width:46px',
       'height:26px',
+      'min-width:0',
       'box-sizing:border-box',
       'border:1px solid var(--fps-editor-border)',
       'border-radius:3px',
@@ -644,10 +769,16 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       'font-weight:800',
       'padding:0 4px',
     ].join(';');
+    const rowUnit = doc.createElement('span');
+    rowUnit.textContent = unit;
+    rowUnit.style.cssText = 'color:var(--fps-editor-muted);font-size:10px;font-weight:800';
+    row.appendChild(rowLabel);
+    row.appendChild(input);
+    row.appendChild(rowUnit);
+    snapSettingsPopover.appendChild(row);
     snapStepInputs.set(kind, input);
   }
   snapGroup.appendChild(snapButton);
-  for (const input of snapStepInputs.values()) snapGroup.appendChild(input);
   const placementGroup = doc.createElement('div');
   placementGroup.style.cssText = [
     'display:flex',
@@ -656,22 +787,42 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const placementLabel = doc.createElement('span');
-  placementLabel.textContent = '放置';
-  placementLabel.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;font-weight:900;white-space:nowrap';
-  const placementButtons = {
-    off: LocalEditorShared.createButton(doc, '关', { icon: PLACEMENT_MODE_ICONS.off }),
-    ground: LocalEditorShared.createButton(doc, '地', { icon: PLACEMENT_MODE_ICONS.ground }),
-    surface: LocalEditorShared.createButton(doc, '表', { icon: PLACEMENT_MODE_ICONS.surface }),
-  } satisfies Record<LocalEditorBrowserPlacementMode, HTMLButtonElement>;
-  placementButtons.off.title = '关闭放置模式';
-  placementButtons.ground.title = '放置到 XZ 地面';
-  placementButtons.surface.title = '放置到场景表面';
-  placementGroup.appendChild(placementLabel);
-  for (const [mode, button] of Object.entries(placementButtons) as Array<[LocalEditorBrowserPlacementMode, HTMLButtonElement]>) {
-    button.dataset.placementMode = mode;
-    placementGroup.appendChild(button);
-  }
+  const placementButton = createToolbarIconButton(doc, '放置模式', PLACEMENT_MODE_ICONS.off, '放置模式', 'settings');
+  placementButton.dataset.placementModeToggle = 'true';
+  const placementSettingsPopover = doc.createElement('div');
+  placementSettingsPopover.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  placementSettingsPopover.dataset.placementSettingsPopover = 'true';
+  placementSettingsPopover.setAttribute('role', 'dialog');
+  placementSettingsPopover.setAttribute('aria-label', '放置模式');
+  placementSettingsPopover.style.cssText = [
+    'position:fixed',
+    'z-index:2147483641',
+    'display:none',
+    'flex-direction:column',
+    'gap:5px',
+    'width:180px',
+    'padding:8px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-panel)',
+    'box-shadow:var(--fps-editor-shadow-popover)',
+    'pointer-events:auto',
+  ].join(';');
+  const placementButtons = Object.fromEntries(
+    (Object.keys(PLACEMENT_MODE_ICONS) as LocalEditorBrowserPlacementMode[]).map((mode) => {
+      const button = LocalEditorShared.createButton(doc, PLACEMENT_MODE_DESCRIPTIONS[mode], {
+        icon: PLACEMENT_MODE_ICONS[mode],
+        tooltip: PLACEMENT_MODE_DESCRIPTIONS[mode],
+        ariaLabel: PLACEMENT_MODE_DESCRIPTIONS[mode],
+      });
+      button.dataset.placementMode = mode;
+      button.style.justifyContent = 'flex-start';
+      button.style.width = '100%';
+      placementSettingsPopover.appendChild(button);
+      return [mode, button];
+    }),
+  ) as Record<LocalEditorBrowserPlacementMode, HTMLButtonElement>;
+  placementGroup.appendChild(placementButton);
   const actionGroup = doc.createElement('div');
   actionGroup.style.cssText = [
     'display:flex',
@@ -680,70 +831,68 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const transformActionSelect = doc.createElement('select');
-  transformActionSelect.dataset.transformActionSelect = 'true';
-  transformActionSelect.title = '多选对齐 / 分布';
-  transformActionSelect.style.cssText = [
-    'height:26px',
+  const transformActionButton = createToolbarIconButton(doc, '对齐与分布', 'arrange', '对齐与分布', 'settings');
+  transformActionButton.dataset.transformActionToggle = 'true';
+  const transformActionPopover = doc.createElement('div');
+  transformActionPopover.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  transformActionPopover.dataset.transformActionPopover = 'true';
+  transformActionPopover.setAttribute('role', 'dialog');
+  transformActionPopover.setAttribute('aria-label', '对齐与分布');
+  transformActionPopover.style.cssText = [
+    'position:fixed',
+    'z-index:2147483641',
+    'display:none',
+    'flex-direction:column',
+    'gap:9px',
+    'width:236px',
+    'padding:10px',
     'border:1px solid var(--fps-editor-border)',
     'border-radius:3px',
-    'background:var(--fps-editor-field)',
-    'color:var(--fps-editor-text)',
-    'font-size:11px',
-    'font-weight:800',
-    'padding:0 4px',
+    'background:var(--fps-editor-panel)',
+    'box-shadow:var(--fps-editor-shadow-popover)',
+    'pointer-events:auto',
   ].join(';');
-  let selectedTransformAction: LocalEditorBrowserTransformAction = 'align-all';
-  for (const action of [
-    'align-x',
-    'align-y',
-    'align-z',
-    'align-all',
-    'distribute-x',
-    'distribute-y',
-    'distribute-z',
-  ] as LocalEditorBrowserTransformAction[]) {
-    const option = doc.createElement('option');
-    option.value = action;
-    option.textContent = LocalEditorShared.toTransformActionLabel(action);
-    transformActionSelect.appendChild(option);
+  const transformActionButtons = new Map<LocalEditorBrowserTransformAction, HTMLButtonElement>();
+  for (const group of TRANSFORM_ACTION_GROUPS) {
+    const section = doc.createElement('section');
+    section.style.cssText = 'display:flex;flex-direction:column;gap:5px';
+    const heading = doc.createElement('div');
+    heading.textContent = group.title;
+    heading.style.cssText = [
+      'color:var(--fps-editor-text-strong)',
+      'font-size:11px',
+      'font-weight:900',
+    ].join(';');
+    const hint = doc.createElement('div');
+    hint.textContent = group.hint;
+    hint.style.cssText = [
+      'color:var(--fps-editor-muted)',
+      'font-size:10px',
+      'font-weight:700',
+      'margin-top:-3px',
+    ].join(';');
+    section.appendChild(heading);
+    section.appendChild(hint);
+    for (const action of group.actions) {
+      const button = LocalEditorShared.createButton(doc, TRANSFORM_ACTION_LABELS[action], {
+        icon: 'arrange',
+        tooltip: TRANSFORM_ACTION_LABELS[action],
+        ariaLabel: TRANSFORM_ACTION_LABELS[action],
+      });
+      button.dataset.transformAction = action;
+      button.style.justifyContent = 'flex-start';
+      button.style.width = '100%';
+      transformActionButtons.set(action, button);
+      section.appendChild(button);
+    }
+    transformActionPopover.appendChild(section);
   }
-  transformActionSelect.value = selectedTransformAction;
-  const transformActionButton = LocalEditorShared.createButton(doc, '执行', { icon: 'execute' });
-  transformActionButton.dataset.transformActionRun = 'true';
-  transformActionButton.title = '对当前多选执行 Transform 操作';
-  actionGroup.appendChild(transformActionSelect);
   actionGroup.appendChild(transformActionButton);
-  const sceneToolStatus = doc.createElement('span');
-  sceneToolStatus.style.cssText = [
-    'max-width:220px',
-    'overflow:hidden',
-    'text-overflow:ellipsis',
-    'white-space:nowrap',
-    'color:var(--fps-editor-muted-strong)',
-    'font-size:11px',
-  ].join(';');
-  const sceneMouseHint = doc.createElement('span');
-  sceneMouseHint.style.cssText = [
-    'padding-left:8px',
-    'border-left:1px solid var(--fps-editor-divider)',
-    'max-width:360px',
-    'overflow:hidden',
-    'text-overflow:ellipsis',
-    'white-space:nowrap',
-    'color:var(--fps-editor-muted)',
-    'font-size:11px',
-  ].join(';');
-  sceneMouseHint.textContent = '左键选择 · 空白拖拽框选 · 中键平移 · Alt+左键环绕 · 右键飞行 · 滚轮缩放';
-  const themeToggleButton = LocalEditorShared.createButton(doc, '主题', { icon: 'theme' });
+  const themeToggleButton = createToolbarIconButton(doc, '主题', 'theme', '切换主题');
   themeToggleButton.dataset.editorThemeToggle = 'true';
-  themeToggleButton.style.padding = '5px 7px';
-  const gridToggleButton = LocalEditorShared.createButton(doc, '网格', { icon: 'grid' });
+  const gridToggleButton = createToolbarIconButton(doc, '网格', 'grid', '显示 / 隐藏 Scene View 网格');
   gridToggleButton.dataset.editorGridToggle = 'true';
-  gridToggleButton.title = '显示 / 隐藏 Scene View 网格';
-  gridToggleButton.style.padding = '5px 7px';
-  const sceneHelpButton = LocalEditorShared.createButton(doc, '快捷键', { icon: 'help' });
-  sceneHelpButton.style.padding = '5px 7px';
+  const sceneHelpButton = createToolbarIconButton(doc, '快捷键', 'help', '快捷键与操作说明');
   sceneQuickActions.appendChild(localTestGroup);
   sceneQuickActions.appendChild(undoButton);
   sceneQuickActions.appendChild(redoButton);
@@ -759,13 +908,11 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const sceneCameraButton = LocalEditorShared.createButton(doc, 'Scene Camera', { icon: 'camera' });
+  const sceneCameraButton = createToolbarIconButton(doc, '从 Main Camera 查看场景', 'camera');
   sceneCameraButton.dataset.sceneCameraPreviewToggle = 'true';
-  sceneCameraButton.title = '从 Main Camera 查看当前场景';
   cameraPreviewGroup.appendChild(sceneCameraButton);
-  const toolbarOverflowButton = LocalEditorShared.createButton(doc, '更多', { icon: 'chevron-down' });
+  const toolbarOverflowButton = createToolbarIconButton(doc, '更多', 'chevron-down', '显示隐藏的工具栏命令');
   toolbarOverflowButton.dataset.editorToolbarOverflowToggle = 'true';
-  toolbarOverflowButton.title = '显示隐藏的工具栏命令';
   toolbarOverflowButton.style.display = 'none';
   const toolbarOverflowMenu = doc.createElement('div');
   toolbarOverflowMenu.classList.add(LOCAL_EDITOR_THEME_CLASS);
@@ -794,18 +941,23 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneToolOverlay.appendChild(cameraPreviewGroup);
   sceneToolOverlay.appendChild(toolGroup);
   sceneToolOverlay.appendChild(spaceGroup);
-  sceneToolOverlay.appendChild(handleGroup);
   sceneToolOverlay.appendChild(snapGroup);
   sceneToolOverlay.appendChild(placementGroup);
   sceneToolOverlay.appendChild(actionGroup);
-  sceneToolOverlay.appendChild(sceneToolStatus);
-  sceneToolOverlay.appendChild(sceneMouseHint);
-  sceneToolOverlay.appendChild(status);
+  sceneToolOverlay.appendChild(editorStatusButton);
   sceneToolOverlay.appendChild(toolbarOverflowButton);
   workbench.sceneHeader.appendChild(sceneToolOverlay);
   workbench.sceneFrame.appendChild(coordinateAxesOverlay.root);
   root.appendChild(localTestMenu);
   root.appendChild(toolbarOverflowMenu);
+  root.appendChild(snapSettingsPopover);
+  root.appendChild(placementSettingsPopover);
+  root.appendChild(transformActionPopover);
+  tooltipSurfaces.add(localTestMenu);
+  tooltipSurfaces.add(toolbarOverflowMenu);
+  tooltipSurfaces.add(snapSettingsPopover);
+  tooltipSurfaces.add(placementSettingsPopover);
+  tooltipSurfaces.add(transformActionPopover);
 
   const boxSelectionOverlay = doc.createElement('div');
   boxSelectionOverlay.classList.add(LOCAL_EDITOR_THEME_CLASS);
@@ -819,10 +971,12 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'pointer-events:none',
   ].join(';');
   root.appendChild(boxSelectionOverlay);
+  tooltipSurfaces.add(boxSelectionOverlay);
 
   const shortcutHelpPanel = createLocalEditorShortcutHelpPanel(doc);
   shortcutHelpPanel.classList.add(LOCAL_EDITOR_THEME_CLASS);
   root.appendChild(shortcutHelpPanel);
+  tooltipSurfaces.add(shortcutHelpPanel);
 
   function applyThemeToSurfaces(): void {
     applyLocalEditorTheme(hostChrome, activeTheme);
@@ -831,6 +985,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
     applyLocalEditorTheme(localTestMenu, activeTheme);
     applyLocalEditorTheme(toolbarOverflowMenu, activeTheme);
+    applyLocalEditorTheme(snapSettingsPopover, activeTheme);
+    applyLocalEditorTheme(placementSettingsPopover, activeTheme);
+    applyLocalEditorTheme(transformActionPopover, activeTheme);
+    tooltipController.setTheme(activeTheme);
     contextMenu.setTheme?.(activeTheme);
   }
 
@@ -838,7 +996,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const nextTheme = activeTheme === 'dark' ? 'light' : 'dark';
     themeToggleButton.dataset.editorTheme = activeTheme;
     themeToggleButton.setAttribute('aria-pressed', activeTheme === 'light' ? 'true' : 'false');
-    themeToggleButton.title = nextTheme === 'light' ? '切换为浅色主题' : '切换为深色主题';
+    setToolbarButtonTooltip(themeToggleButton, nextTheme === 'light' ? '切换为浅色主题' : '切换为深色主题');
   }
 
   function setActiveTheme(theme: unknown): void {
@@ -848,6 +1006,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   }
 
   let localTestMenuOpen = false;
+  let snapSettingsOpen = false;
+  let placementSettingsOpen = false;
+  let transformActionOpen = false;
 
   function closeLocalTestMenu(): void {
     localTestMenuOpen = false;
@@ -855,9 +1016,37 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     LocalEditorShared.applyButtonActiveState(localTestButton, false);
   }
 
+  function closeSnapSettingsPopover(): void {
+    snapSettingsOpen = false;
+    snapSettingsPopover.style.display = 'none';
+    snapButton.setAttribute('aria-expanded', 'false');
+    const enabled = currentState?.transformOperations?.settings.snap.enabled
+      ?? DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS.snap.enabled;
+    LocalEditorShared.applyButtonActiveState(snapButton, enabled);
+  }
+
+  function closePlacementSettingsPopover(): void {
+    placementSettingsOpen = false;
+    placementSettingsPopover.style.display = 'none';
+    placementButton.setAttribute('aria-expanded', 'false');
+    const mode = currentState?.transformOperations?.settings.placementMode
+      ?? DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS.placementMode;
+    LocalEditorShared.applyButtonActiveState(placementButton, mode !== 'off');
+  }
+
+  function closeTransformActionPopover(): void {
+    transformActionOpen = false;
+    transformActionPopover.style.display = 'none';
+    transformActionButton.setAttribute('aria-expanded', 'false');
+    LocalEditorShared.applyButtonActiveState(transformActionButton, false);
+  }
+
   function openLocalTestMenu(): void {
     if (!localTestActionsEnabled || localTestButton.style.display === 'none') return;
     closeToolbarOverflowMenu();
+    closeSnapSettingsPopover();
+    closePlacementSettingsPopover();
+    closeTransformActionPopover();
     const win = doc.defaultView;
     const rect = localTestButton.getBoundingClientRect();
     const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
@@ -866,6 +1055,75 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     localTestMenu.style.display = 'flex';
     localTestMenuOpen = true;
     LocalEditorShared.applyButtonActiveState(localTestButton, true);
+  }
+
+  function openSnapSettingsPopover(): void {
+    if (snapButton.disabled || snapGroup.style.display === 'none') return;
+    closeToolbarOverflowMenu();
+    closeLocalTestMenu();
+    closePlacementSettingsPopover();
+    closeTransformActionPopover();
+    const win = doc.defaultView;
+    const rect = snapButton.getBoundingClientRect();
+    const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
+    snapSettingsPopover.style.display = 'flex';
+    const popoverWidth = snapSettingsPopover.offsetWidth || 220;
+    snapSettingsPopover.style.top = `${Math.max(8, rect.bottom + 5)}px`;
+    snapSettingsPopover.style.left = `${Math.max(8, Math.min(rect.left, viewportWidth - popoverWidth - 8))}px`;
+    snapSettingsOpen = true;
+    snapButton.setAttribute('aria-expanded', 'true');
+    LocalEditorShared.applyButtonActiveState(snapButton, true);
+  }
+
+  function toggleSnapSettingsPopover(): void {
+    if (snapSettingsOpen) closeSnapSettingsPopover();
+    else openSnapSettingsPopover();
+  }
+
+  function openPlacementSettingsPopover(): void {
+    if (placementButton.disabled || placementGroup.style.display === 'none') return;
+    closeToolbarOverflowMenu();
+    closeLocalTestMenu();
+    closeSnapSettingsPopover();
+    closeTransformActionPopover();
+    const win = doc.defaultView;
+    const rect = placementButton.getBoundingClientRect();
+    const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
+    placementSettingsPopover.style.display = 'flex';
+    const popoverWidth = placementSettingsPopover.offsetWidth || 180;
+    placementSettingsPopover.style.top = `${Math.max(8, rect.bottom + 5)}px`;
+    placementSettingsPopover.style.left = `${Math.max(8, Math.min(rect.left, viewportWidth - popoverWidth - 8))}px`;
+    placementSettingsOpen = true;
+    placementButton.setAttribute('aria-expanded', 'true');
+    LocalEditorShared.applyButtonActiveState(placementButton, true);
+  }
+
+  function togglePlacementSettingsPopover(): void {
+    if (placementSettingsOpen) closePlacementSettingsPopover();
+    else openPlacementSettingsPopover();
+  }
+
+  function openTransformActionPopover(): void {
+    if (transformActionButton.disabled || actionGroup.style.display === 'none') return;
+    closeToolbarOverflowMenu();
+    closeLocalTestMenu();
+    closeSnapSettingsPopover();
+    closePlacementSettingsPopover();
+    const win = doc.defaultView;
+    const rect = transformActionButton.getBoundingClientRect();
+    const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
+    transformActionPopover.style.display = 'flex';
+    const popoverWidth = transformActionPopover.offsetWidth || 236;
+    transformActionPopover.style.top = `${Math.max(8, rect.bottom + 5)}px`;
+    transformActionPopover.style.left = `${Math.max(8, Math.min(rect.left, viewportWidth - popoverWidth - 8))}px`;
+    transformActionOpen = true;
+    transformActionButton.setAttribute('aria-expanded', 'true');
+    LocalEditorShared.applyButtonActiveState(transformActionButton, true);
+  }
+
+  function toggleTransformActionPopover(): void {
+    if (transformActionOpen) closeTransformActionPopover();
+    else openTransformActionPopover();
   }
 
   const onLocalTestButtonClick = (event: MouseEvent): void => {
@@ -920,23 +1178,17 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     cameraPreviewGroup,
     toolGroup,
     spaceGroup,
-    handleGroup,
     snapGroup,
     placementGroup,
     actionGroup,
-    sceneToolStatus,
-    sceneMouseHint,
-    status,
+    editorStatusButton,
     toolbarOverflowButton,
   ];
   const toolbarOverflowItems: ToolbarOverflowItem[] = [
-    { id: 'status', element: status, kind: 'text' },
-    { id: 'mouse-hint', element: sceneMouseHint, kind: 'text' },
-    { id: 'tool-status', element: sceneToolStatus, kind: 'text' },
+    { id: 'editor-status', element: editorStatusButton, kind: 'group' },
     { id: 'transform-actions', element: actionGroup, kind: 'group' },
     { id: 'placement', element: placementGroup, kind: 'group' },
     { id: 'snap', element: snapGroup, kind: 'group' },
-    { id: 'handles', element: handleGroup, kind: 'group' },
     { id: 'space', element: spaceGroup, kind: 'group' },
     { id: 'camera-preview', element: cameraPreviewGroup, kind: 'group' },
     { id: 'scene-utilities', element: sceneUtilityActions, kind: 'group' },
@@ -979,6 +1231,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   }
 
   function setToolbarButtonCompact(button: HTMLButtonElement, compact: boolean): void {
+    if (button.dataset.editorButtonLabelMode === 'icon-only') return;
     const label = button.querySelector<HTMLElement>('[data-editor-button-label]');
     if (!label) return;
     if (!toolbarButtonOriginalPadding.has(button)) {
@@ -1011,6 +1264,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   function openToolbarOverflowMenu(): void {
     if (toolbarOverflowMenu.childElementCount === 0) return;
     closeLocalTestMenu();
+    closeSnapSettingsPopover();
+    closePlacementSettingsPopover();
+    closeTransformActionPopover();
     const win = doc.defaultView;
     const rect = toolbarOverflowButton.getBoundingClientRect();
     const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
@@ -1081,8 +1337,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!target) return;
     if (target.closest('[data-editor-local-test-menu]') || target.closest('[data-editor-local-test-toggle]')) return;
     if (target.closest('[data-editor-toolbar-overflow-menu]') || target.closest('[data-editor-toolbar-overflow-toggle]')) return;
+    if (target.closest('[data-transform-snap-settings-popover]') || target.closest('[data-transform-snap-toggle]')) return;
+    if (target.closest('[data-placement-settings-popover]') || target.closest('[data-placement-mode-toggle]')) return;
+    if (target.closest('[data-transform-action-popover]') || target.closest('[data-transform-action-toggle]')) return;
     closeLocalTestMenu();
     closeToolbarOverflowMenu();
+    closeSnapSettingsPopover();
+    closePlacementSettingsPopover();
+    closeTransformActionPopover();
   };
   const ResizeObserverCtor = doc.defaultView?.ResizeObserver;
   const toolbarResizeObserver = ResizeObserverCtor
@@ -1149,12 +1411,18 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const space = target?.closest<HTMLButtonElement>('[data-transform-space]')?.dataset.transformSpace as LocalEditorBrowserTransformSpace | undefined;
     if (space) callbacks.onTransformSpaceChange?.(space);
   });
-  snapButton.addEventListener('click', () => {
-    const enabled = currentState?.transformOperations?.settings.snap.enabled
-      ?? DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS.snap.enabled;
-    callbacks.onTransformSnapEnabledChange?.(!enabled);
+  snapButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleSnapSettingsPopover();
   });
-  snapGroup.addEventListener('change', (event) => {
+  snapSettingsPopover.addEventListener('change', (event) => {
+    const enabledInput = event.target instanceof HTMLInputElement
+      ? event.target.closest<HTMLInputElement>('[data-transform-snap-enabled]')
+      : null;
+    if (enabledInput) {
+      callbacks.onTransformSnapEnabledChange?.(enabledInput.checked);
+      return;
+    }
     const input = event.target instanceof HTMLInputElement ? event.target : null;
     const kind = input?.dataset.transformSnapStep as LocalEditorBrowserTransformSnapStepKind | undefined;
     if (!input || !kind) return;
@@ -1167,16 +1435,28 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     callbacks.onTransformSnapStepChange?.({ kind, value });
   });
   placementGroup.addEventListener('click', (event) => {
+    event.stopPropagation();
+    togglePlacementSettingsPopover();
+  });
+  placementSettingsPopover.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
     const mode = target?.closest<HTMLButtonElement>('[data-placement-mode]')?.dataset.placementMode as LocalEditorBrowserPlacementMode | undefined;
-    if (mode) callbacks.onPlacementModeChange?.(mode);
+    if (!mode) return;
+    callbacks.onPlacementModeChange?.(mode);
+    closePlacementSettingsPopover();
   });
-  transformActionSelect.addEventListener('change', () => {
-    selectedTransformAction = transformActionSelect.value as LocalEditorBrowserTransformAction;
-    if (currentState) render(currentState);
+  actionGroup.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleTransformActionPopover();
   });
-  transformActionButton.addEventListener('click', () => {
-    callbacks.onTransformAction?.(selectedTransformAction);
+  transformActionPopover.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const action = target?.closest<HTMLButtonElement>('[data-transform-action]')?.dataset.transformAction as LocalEditorBrowserTransformAction | undefined;
+    if (!action) return;
+    const transformOperations = currentState?.transformOperations;
+    if (!transformOperations || !isTransformActionEnabled(action, transformOperations)) return;
+    callbacks.onTransformAction?.(action);
+    closeTransformActionPopover();
   });
   assetPanel.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -1253,6 +1533,21 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (event.defaultPrevented) return;
     if (currentState?.mode !== 'editor' || currentState.busy) return;
     const key = event.key.toLowerCase();
+    if (key === 'escape' && snapSettingsOpen) {
+      event.preventDefault();
+      closeSnapSettingsPopover();
+      return;
+    }
+    if (key === 'escape' && placementSettingsOpen) {
+      event.preventDefault();
+      closePlacementSettingsPopover();
+      return;
+    }
+    if (key === 'escape' && transformActionOpen) {
+      event.preventDefault();
+      closeTransformActionPopover();
+      return;
+    }
     const primaryModifier = event.metaKey || event.ctrlKey;
     const handleDocumentShortcut = inputRouter.shouldHandleDocumentShortcut(event);
     const handleGlobalShortcut = inputRouter.shouldHandleGlobalShortcut(event);
@@ -1351,34 +1646,6 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       : value.replace(/["\\]/g, '\\$&');
   }
 
-  function renderTransformHandleBadges(transformTool: LocalEditorBrowserTransformToolState | null): void {
-    LocalEditorShared.clearElement(handleGroup);
-    const tool = transformTool?.activeTool ?? 'select';
-    const descriptor = DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS[tool];
-    handleGroup.style.display = descriptor.handles.length > 0 ? 'flex' : 'none';
-    for (const handle of descriptor.handles) {
-      const badge = doc.createElement('span');
-      badge.dataset.transformHandle = handle.constraint;
-      badge.title = handle.description;
-      badge.textContent = handle.label;
-      badge.style.cssText = [
-        'height:22px',
-        'display:inline-flex',
-        'align-items:center',
-        'padding:0 7px',
-        'border:1px solid var(--fps-editor-border)',
-        'border-radius:3px',
-        'background:var(--fps-editor-field)',
-        'color:var(--fps-editor-muted-strong)',
-        'font-size:11px',
-        'font-weight:800',
-        'white-space:nowrap',
-        'pointer-events:none',
-      ].join(';');
-      handleGroup.appendChild(badge);
-    }
-  }
-
   function formatSnapStepInputValue(
     snap: { moveStep: number; rotateStepDegrees: number; scaleStep: number },
     kind: LocalEditorBrowserTransformSnapStepKind,
@@ -1420,16 +1687,20 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const transformTool = state.transformTool ?? null;
     workbench.root.style.display = inEditor ? '' : 'none';
     sceneToolOverlay.style.display = inEditor ? 'flex' : 'none';
+    if (!inEditor) closeSnapSettingsPopover();
+    if (!inEditor) closePlacementSettingsPopover();
+    if (!inEditor) closeTransformActionPopover();
     const sceneCameraPreview = state.sceneCameraPreview ?? { enabled: false, available: false };
     cameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
     sceneCameraButton.disabled = disabled || !sceneCameraPreview.available;
-    sceneCameraButton.title = sceneCameraPreview.available
+    const sceneCameraTooltip = sceneCameraPreview.available
       ? '从 Main Camera 查看当前场景'
       : '当前场景没有可预览的 Main Camera';
+    setToolbarButtonTooltip(sceneCameraButton, sceneCameraTooltip);
     LocalEditorShared.applyButtonActiveState(sceneCameraButton, sceneCameraPreview.enabled);
     const gridState = state.grid ?? { visible: false, available: false };
     gridToggleButton.disabled = disabled || !gridState.available;
-    gridToggleButton.title = gridState.visible ? '隐藏 Scene View 网格' : '显示 Scene View 网格';
+    setToolbarButtonTooltip(gridToggleButton, gridState.visible ? '隐藏 Scene View 网格' : '显示 Scene View 网格');
     LocalEditorShared.applyButtonActiveState(gridToggleButton, gridState.visible);
     for (const [tool, button] of toolButtons) {
       button.disabled = disabled;
@@ -1440,7 +1711,6 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       LocalEditorShared.applyButtonActiveState(button, transformTool?.activeSpace === space);
     }
     sceneHelpButton.disabled = disabled;
-    renderTransformHandleBadges(transformTool);
     const transformOperations = state.transformOperations ?? {
       settings: DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
       selectedCount: state.selectedIds.length,
@@ -1451,55 +1721,77 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const operationSettings = transformOperations.settings;
     snapGroup.style.display = inEditor ? 'flex' : 'none';
     snapButton.disabled = disabled;
-    LocalEditorShared.applyButtonActiveState(snapButton, operationSettings.snap.enabled);
+    snapEnabledInput.disabled = disabled;
+    snapEnabledInput.checked = operationSettings.snap.enabled;
+    LocalEditorShared.applyButtonActiveState(snapButton, operationSettings.snap.enabled || snapSettingsOpen);
+    setToolbarButtonTooltip(
+      snapButton,
+      `吸附设置 · 位移 ${formatSnapStepInputValue(operationSettings.snap, 'move')} · 旋转 ${formatSnapStepInputValue(operationSettings.snap, 'rotate')}° · 缩放 ${formatSnapStepInputValue(operationSettings.snap, 'scale')}`,
+    );
     for (const [kind, input] of snapStepInputs) {
       input.disabled = disabled;
       if (doc.activeElement !== input) input.value = formatSnapStepInputValue(operationSettings.snap, kind);
     }
+    if (!inEditor || disabled || snapGroup.style.display === 'none') closeSnapSettingsPopover();
     placementGroup.style.display = inEditor ? 'flex' : 'none';
+    placementButton.disabled = disabled;
+    setToolbarButtonIcon(doc, placementButton, PLACEMENT_MODE_ICONS[operationSettings.placementMode]);
+    setToolbarButtonTooltip(placementButton, `放置模式 · ${PLACEMENT_MODE_DESCRIPTIONS[operationSettings.placementMode]}`);
+    LocalEditorShared.applyButtonActiveState(placementButton, operationSettings.placementMode !== 'off' || placementSettingsOpen);
     for (const [mode, button] of Object.entries(placementButtons) as Array<[LocalEditorBrowserPlacementMode, HTMLButtonElement]>) {
       button.disabled = disabled;
       LocalEditorShared.applyButtonActiveState(button, operationSettings.placementMode === mode);
     }
+    if (!inEditor || disabled || placementGroup.style.display === 'none') closePlacementSettingsPopover();
     actionGroup.style.display = inEditor ? 'flex' : 'none';
-    transformActionSelect.disabled = disabled;
-    transformActionButton.disabled = disabled || !isTransformActionEnabled(selectedTransformAction, transformOperations);
-    transformActionButton.title = selectedTransformAction.startsWith('align-')
-      ? '需要至少 2 个选中对象，并以 active object 为目标'
-      : '需要至少 3 个选中对象';
+    const hasTransformAction = transformOperations.canAlign || transformOperations.canDistribute;
+    transformActionButton.disabled = disabled || !hasTransformAction;
+    setToolbarButtonTooltip(
+      transformActionButton,
+      hasTransformAction ? '对齐与分布' : '选择至少 2 个对象后可用',
+    );
+    LocalEditorShared.applyButtonActiveState(transformActionButton, transformActionOpen);
+    for (const [action, button] of transformActionButtons) {
+      const enabled = isTransformActionEnabled(action, transformOperations);
+      button.disabled = disabled || !enabled;
+      button.style.opacity = button.disabled ? '0.45' : '1';
+      button.style.cursor = button.disabled ? 'not-allowed' : 'pointer';
+    }
+    if (!inEditor || disabled || !hasTransformAction || actionGroup.style.display === 'none') closeTransformActionPopover();
     undoButton.disabled = disabled || !state.session?.canUndo;
     redoButton.disabled = disabled || !state.session?.canRedo;
     LocalEditorShared.applyButtonActiveState(sceneHelpButton, inEditor && helpOpen);
     shortcutHelpPanel.style.display = inEditor && helpOpen ? '' : 'none';
     dirtyBadge.style.display = inEditor && state.session?.dirty ? 'inline-flex' : 'none';
-    const dragSuffix = transformTool?.dragPhase === 'dragging'
-      ? ` | dragging ${transformTool.draggingNodeId ?? 'selection'}`
-      : '';
-    status.textContent = [
+    const editorStatusText = [
       state.status,
-      state.session?.dirty ? '*' : '',
+      state.session?.dirty ? '有未保存更改' : '',
       LocalEditorShared.formatAuthoringSourceLabel(state.session?.source),
       state.summary,
     ].filter(Boolean).join(' | ');
-    status.textContent += dragSuffix;
-    status.title = state.statusDetails || status.textContent;
-    status.style.color = state.statusTone === 'error'
+    const transformStatusText = transformTool?.dragPhase === 'dragging'
+      ? `正在拖拽 ${transformTool.draggingNodeId ?? '选择对象'}`
+      : LocalEditorShared.toTransformToolStatusLabel(
+          transformTool?.activeTool ?? 'select',
+          transformTool?.activeSpace ?? 'world',
+        );
+    const statusToneColor = state.statusTone === 'error'
       ? 'var(--fps-editor-danger-strong)'
       : state.statusTone === 'warning'
         ? 'var(--fps-editor-warn)'
         : state.statusTone === 'success'
           ? 'var(--fps-editor-success)'
           : 'var(--fps-editor-muted)';
-    sceneToolStatus.textContent = transformTool?.dragPhase === 'dragging'
-      ? `正在拖拽 ${transformTool.draggingNodeId ?? '选择对象'}`
-      : LocalEditorShared.toTransformToolStatusLabel(
-          transformTool?.activeTool ?? 'select',
-          transformTool?.activeSpace ?? 'world',
-        );
-    sceneMouseHint.textContent = [
-      LocalEditorShared.toTransformMouseHint(transformTool?.activeTool ?? 'select'),
+    setToolbarButtonTooltip(editorStatusButton, [
+      `编辑器状态：${editorStatusText}`,
+      state.statusDetails && state.statusDetails !== state.status ? state.statusDetails : '',
+      transformStatusText,
       LocalEditorShared.toTransformOperationStatusLabel(operationSettings),
-    ].join(' · ');
+    ].filter(Boolean).join(' · '));
+    editorStatusButton.style.color = statusToneColor;
+    editorStatusButton.style.borderColor = state.statusTone == null || state.statusTone === 'default'
+      ? 'var(--fps-editor-border)'
+      : statusToneColor;
     renderCoordinateAxesOverlay(coordinateAxesOverlay, inEditor ? state.coordinateAxes ?? null : null);
     const boxSelection = state.boxSelection;
     if (inEditor && boxSelection?.active) {
@@ -1548,10 +1840,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       workbench.root.remove();
       localTestMenu.remove();
       toolbarOverflowMenu.remove();
+      snapSettingsPopover.remove();
+      placementSettingsPopover.remove();
+      transformActionPopover.remove();
       boxSelectionOverlay.remove();
       shortcutHelpPanel.remove();
       hierarchyController.dispose();
       workbenchLayoutController.dispose();
+      tooltipController.dispose();
       contextMenu.dispose();
       inputRouter.dispose();
       doc.removeEventListener('keydown', onKeyDown);

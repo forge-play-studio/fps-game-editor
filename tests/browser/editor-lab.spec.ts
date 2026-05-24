@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 test('editor-lab opens EditorWorld and supports selection, edit, undo, redo, and save', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('[data-editor-lab-status]')).toContainText('mode=editor');
+  const dirtyBadge = page.locator('[data-editor-dirty-badge]');
   const canvas = page.locator('canvas#editor-lab-canvas');
   await expect(canvas).toBeVisible();
 
@@ -14,7 +15,7 @@ test('editor-lab opens EditorWorld and supports selection, edit, undo, redo, and
 
   const xInput = page.locator('input[data-serialized-path="transform.position.x"]').first();
   await xInput.fill('2.5');
-  await expect(page.locator('text=未保存')).toBeVisible();
+  await expect(dirtyBadge).toBeVisible();
 
   const movedX = await page.evaluate(() => window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects.find(gameObject => gameObject.id === 'lab_box_01')?.transform.position.x);
   expect(movedX).toBe(2.5);
@@ -30,18 +31,19 @@ test('editor-lab opens EditorWorld and supports selection, edit, undo, redo, and
   await page.getByRole('button', { name: '本地测试' }).click();
   await page.getByRole('button', { name: '保存场景' }).click();
   await expect(page.locator('[data-editor-lab-status]')).toContainText('revision=2');
-  await expect(page.getByText('未保存', { exact: true })).toBeHidden();
+  await expect(dirtyBadge).toBeHidden();
 });
 
 test('editor-lab inspector edits boolean, enum asset, and color fields', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('[data-editor-lab-status]')).toContainText('mode=editor');
+  const dirtyBadge = page.locator('[data-editor-dirty-badge]');
   await page.getByRole('button', { name: 'Blue Box' }).click();
 
   const activeInput = page.locator('input[data-serialized-path="gameObject.active"]');
   await expect(activeInput).toBeChecked();
   await activeInput.uncheck();
-  await expect(page.locator('text=未保存')).toBeVisible();
+  await expect(dirtyBadge).toBeVisible();
   const activeValue = await page.evaluate(() => window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects.find(gameObject => gameObject.id === 'lab_box_01')?.active);
   expect(activeValue).toBe(false);
 

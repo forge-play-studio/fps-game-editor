@@ -8,6 +8,7 @@ import type {
   LocalEditorBrowserPlacementMode,
   LocalEditorBrowserTransformConstraint,
   LocalEditorBrowserTransformAction,
+  LocalEditorBrowserTransformHandleDescriptor,
   LocalEditorBrowserTransformOperationSettings,
   LocalEditorBrowserSceneGraphDropPlacement,
   LocalEditorBrowserTransformSpace,
@@ -16,6 +17,11 @@ import type {
 
 export interface LocalEditorButtonOptions {
   icon?: LocalEditorIconName;
+  labelMode?: 'visible' | 'icon-only';
+  tooltip?: string;
+  ariaLabel?: string;
+  variant?: 'default' | 'toolbar-icon';
+  toolbarRole?: 'command' | 'toggle' | 'settings';
 }
 
 export function applyButtonActiveState(button: HTMLButtonElement, active: boolean): void {
@@ -26,8 +32,21 @@ export function applyButtonActiveState(button: HTMLButtonElement, active: boolea
 }
 
 export function createButton(doc: Document, text: string, options: LocalEditorButtonOptions = {}): HTMLButtonElement {
+  const labelMode = options.labelMode ?? 'visible';
+  const variant = options.variant ?? 'default';
+  const accessibleLabel = options.ariaLabel ?? text;
+  const tooltip = options.tooltip ?? (labelMode === 'icon-only' ? accessibleLabel : undefined);
   const button = doc.createElement('button');
   button.type = 'button';
+  button.dataset.editorButtonLabelMode = labelMode;
+  button.dataset.editorButtonVariant = variant;
+  button.dataset.editorToolbarRole = options.toolbarRole ?? 'command';
+  if (options.toolbarRole === 'settings') {
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-expanded', 'false');
+  }
+  if (accessibleLabel) button.setAttribute('aria-label', accessibleLabel);
+  if (tooltip) button.dataset.editorTooltip = tooltip;
   button.style.cssText = [
     'border:1px solid var(--fps-editor-border)',
     'border-radius:3px',
@@ -36,21 +55,26 @@ export function createButton(doc: Document, text: string, options: LocalEditorBu
     'display:inline-flex',
     'align-items:center',
     'justify-content:center',
-    'gap:5px',
+    `gap:${labelMode === 'icon-only' ? 0 : 5}px`,
     'font-size:12px',
     'font-weight:700',
-    'padding:4px 8px',
+    `padding:${variant === 'toolbar-icon' ? '0' : '4px 8px'}`,
     'cursor:pointer',
     'white-space:nowrap',
-    'height:26px',
+    `width:${variant === 'toolbar-icon' ? '32px' : 'auto'}`,
+    `min-width:${variant === 'toolbar-icon' ? '32px' : '0'}`,
+    `height:${variant === 'toolbar-icon' ? '28px' : '26px'}`,
+    `flex:${variant === 'toolbar-icon' ? '0 0 32px' : '0 0 auto'}`,
     'line-height:16px',
   ].join(';');
   if (options.icon) button.appendChild(createLocalEditorIcon(doc, options.icon));
-  const label = doc.createElement('span');
-  label.dataset.editorButtonLabel = 'true';
-  label.textContent = text;
-  label.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-  button.appendChild(label);
+  if (labelMode === 'visible') {
+    const label = doc.createElement('span');
+    label.dataset.editorButtonLabel = 'true';
+    label.textContent = text;
+    label.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    button.appendChild(label);
+  }
   button.addEventListener('mouseenter', () => {
     if (!button.disabled) button.style.background = button.dataset.active === 'true'
       ? 'var(--fps-editor-button-active)'
@@ -180,7 +204,7 @@ export function toTransformConstraintLabel(
 }
 
 export function toTransformHandleListLabel(tool: LocalEditorBrowserTransformTool): string {
-  const handles = DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS[tool].handles;
+  const handles = DEFAULT_EDITOR_TRANSFORM_TOOL_DESCRIPTORS[tool].handles as readonly LocalEditorBrowserTransformHandleDescriptor[];
   return handles.map(handle => handle.label).join(' / ');
 }
 

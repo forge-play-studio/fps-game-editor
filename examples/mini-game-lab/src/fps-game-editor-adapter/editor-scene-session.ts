@@ -10,6 +10,7 @@ import {
   type InspectorValidationResult,
   type RuntimePatch,
   type SceneGraphCreateGroupIntent,
+  type SceneGraphCreatePrimitiveIntent,
   type SceneGraphDeleteIntent,
   type SceneGraphDropIntent,
   type SceneGraphGroupSelectionIntent,
@@ -41,6 +42,7 @@ import type {
   MaterialOverrideConfig,
   OutlineOverrideConfig,
   SceneNodeConfig,
+  ScenePrimitiveShape,
 } from '../config';
 import {
   getEditorSceneAuthoringSourceRef,
@@ -49,6 +51,7 @@ import {
 } from './editor-authoring-source';
 import {
   findEditorSceneModelRenderer,
+  findEditorScenePrimitiveRenderer,
   findEditorSceneTransform,
   patchEditorSceneGameObjectTransform,
   readEditorSceneNodeKind,
@@ -95,6 +98,10 @@ export type EditorSceneDocumentPatch =
     gameObject: EditorSceneGameObject;
   }
   | {
+    kind: 'game-object.create-primitive';
+    gameObject: EditorSceneGameObject;
+  }
+  | {
     kind: 'game-object.delete-subtree';
     targetIds: string[];
   }
@@ -129,6 +136,7 @@ type EditorSceneHierarchyMovePatchEntry = {
 
 export const EDITOR_SCENE_MAIN_CAMERA_ID = 'main_camera';
 export const EDITOR_SCENE_SUN_LIGHT_ID = 'sun_light';
+const EDITOR_SCENE_ROOT_ID = 'mvp_root';
 
 export const DEFAULT_EDITOR_SCENE_CAMERA: EditorSceneCameraRig = {
   alpha: 3.9269908169872414,
@@ -216,6 +224,16 @@ export function reduceEditorSceneDocument(
     };
   }
   if (patch.kind === 'game-object.create-group') {
+    if (document.scene.gameObjects.some((gameObject) => gameObject.id === patch.gameObject.id)) return document;
+    return {
+      ...document,
+      scene: {
+        ...document.scene,
+        gameObjects: [...document.scene.gameObjects, patch.gameObject],
+      },
+    };
+  }
+  if (patch.kind === 'game-object.create-primitive') {
     if (document.scene.gameObjects.some((gameObject) => gameObject.id === patch.gameObject.id)) return document;
     return {
       ...document,
@@ -343,6 +361,13 @@ export function isEditorSceneLightGameObject(gameObject: EditorSceneGameObject):
     && (gameObject.transformType === 'light' || !!gameObject.light);
 }
 
+function isEditorSceneProtectedSystemGameObject(gameObject: EditorSceneGameObject): boolean {
+  return gameObject.id === EDITOR_SCENE_MAIN_CAMERA_ID
+    || gameObject.id === EDITOR_SCENE_SUN_LIGHT_ID
+    || isEditorSceneCameraGameObject(gameObject)
+    || isEditorSceneLightGameObject(gameObject);
+}
+
 export function ensureEditorSceneEnvironmentDefaults(document: EditorSceneDocument): EditorSceneDocument {
   const rootId = resolveEditorSceneRootContainerId(document);
   let cameraSeen = false;
@@ -388,19 +413,25 @@ export function ensureEditorSceneEnvironmentDefaults(document: EditorSceneDocume
 }
 
 export function getEditorSceneHierarchyItems(document: EditorSceneDocument): SceneGraphTreeItem[] {
-  return document.scene.gameObjects.map((gameObject) => ({
-    id: gameObject.id,
-    label: gameObject.name ?? gameObject.id,
-    parentId: gameObject.parentId ?? null,
-    depth: getEditorSceneGameObjectDepth(document, gameObject),
-    role: gameObject.id === 'mvp_root' ? 'root' : 'object',
-    selectable: gameObject.id !== 'mvp_root',
-    protected: gameObject.id === 'mvp_root',
-    canHaveChildren: canEditorSceneGameObjectHaveChildren(gameObject),
-    renamable: gameObject.id !== 'mvp_root',
-    deletable: gameObject.id !== 'mvp_root' && !isEditorSceneCameraGameObject(gameObject),
-    draggable: gameObject.id !== 'mvp_root',
-  }));
+  return document.scene.gameObjects
+    .filter(gameObject => gameObject.id !== EDITOR_SCENE_ROOT_ID)
+    .map((gameObject) => {
+      const systemProtected = isEditorSceneProtectedSystemGameObject(gameObject);
+      const canHaveChildren = canEditorSceneGameObjectHaveChildren(gameObject);
+      return {
+        id: gameObject.id,
+        label: gameObject.name ?? gameObject.id,
+        parentId: gameObject.parentId === EDITOR_SCENE_ROOT_ID ? null : gameObject.parentId ?? null,
+        depth: Math.max(0, getEditorSceneGameObjectDepth(document, gameObject) - 1),
+        role: canHaveChildren && isEditorSceneGroupLikeGameObject(gameObject) ? 'group' : 'object',
+        selectable: true,
+        protected: systemProtected,
+        canHaveChildren: !systemProtected && canHaveChildren,
+        renamable: !systemProtected,
+        deletable: !systemProtected,
+        draggable: !systemProtected,
+      };
+    });
 }
 
 export function normalizeEditorSceneHierarchyDocument(document: EditorSceneDocument): EditorSceneDocument {
@@ -489,6 +520,51 @@ export function createEditorSceneCreateGroupPatch(
       gameObject,
     },
     createdId: id,
+  };
+}
+
+export function createEditorSceneCreatePrimitivePatch(
+  document: EditorSceneDocument,
+  intent: SceneGraphCreatePrimitiveIntent,
+): { patch: EditorSceneDocumentPatch; label: string; createdId: string; changedIds: string[] } | null {
+  const shape = normalizeEditorScenePrimitiveShape(intent.shape);
+  if (!shape) return null;
+  const parentId = resolveCreateGroupParentId(document, intent);
+  if (parentId === null) return null;
+  const id = createUniqueEditorSceneId(document.scene.gameObjects.map((gameObject) => gameObject.id), shape);
+  const name = intent.name?.trim() || getEditorScenePrimitiveDisplayName(shape);
+  const worldTransform: EditorTransformSnapshot = {
+    position: getNextPlacementPosition(document),
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: getEditorScenePrimitiveDefaultScale(shape),
+  };
+  const localTransform = parentId
+    ? toLocalTransformForParent(document, parentId, worldTransform) ?? worldTransform
+    : worldTransform;
+  const gameObject: EditorSceneGameObject = {
+    id,
+    name,
+    kind: 'primitive',
+    ...(parentId ? { parentId } : {}),
+    active: true,
+    primitive: { shape },
+    components: [
+      {
+        type: 'Transform',
+        position: localTransform.position,
+        rotation: localTransform.rotation,
+        scale: localTransform.scale,
+      },
+    ],
+  };
+  return {
+    label: `Create ${name}`,
+    patch: {
+      kind: 'game-object.create-primitive',
+      gameObject,
+    },
+    createdId: id,
+    changedIds: [id],
   };
 }
 
@@ -2293,6 +2369,7 @@ function createEditorSceneInspectorSections(
     });
   }
   const renderer = findEditorSceneModelRenderer(gameObject);
+  const primitive = findEditorScenePrimitiveRenderer(gameObject);
   if (renderer) {
     sections.push({
       id: 'renderer',
@@ -2303,6 +2380,18 @@ function createEditorSceneInspectorSections(
       persistence: 'document',
       collapsedByDefault: true,
       properties: createRendererInspectorProperties(document, gameObject, renderer.assetId),
+    });
+  }
+  if (primitive) {
+    sections.push({
+      id: 'primitive',
+      title: 'Primitive',
+      order: 32,
+      placement: 'body',
+      summary: primitive.shape,
+      persistence: 'document',
+      collapsedByDefault: false,
+      properties: createPrimitiveInspectorProperties(document, nodeKind, primitive.shape),
     });
   }
   if (nodeKind === 'transform' && (gameObject.transformType === 'groundDecal' || gameObject.groundDecal)) {
@@ -2694,6 +2783,30 @@ function createRendererInspectorSummary(document: EditorSceneDocument, assetId: 
   const asset = findEditorSceneAsset(document, assetId);
   if (!asset) return `Missing asset: ${assetId}`;
   return asset.displayName ?? asset.sourceId;
+}
+
+function createPrimitiveInspectorProperties(
+  document: EditorSceneDocument,
+  nodeKind: SceneNodeConfig['kind'],
+  shape: ScenePrimitiveShape,
+): InspectorProperty<EditorSceneDocument>[] {
+  return [
+    createDocumentInspectorProperty(document, nodeKind, {
+      path: 'primitive.shape',
+      label: 'Shape',
+      valueType: 'enum',
+      control: 'enum',
+      value: shape,
+      commitMode: 'immediate',
+      order: 0,
+      options: [
+        { label: 'Cube', value: 'cube' },
+        { label: 'Sphere', value: 'sphere' },
+        { label: 'Plane', value: 'plane' },
+        { label: 'Capsule', value: 'capsule' },
+      ],
+    }),
+  ];
 }
 
 function createGroundDecalInspectorProperties(
@@ -3598,12 +3711,22 @@ function patchEditorSceneGameObject(
     const renderer = findEditorSceneModelRenderer(next);
     if (renderer && typeof value === 'string') renderer.assetId = value;
     next.kind = 'instance';
+    delete next.primitive;
+    return next;
+  }
+  if (path === 'primitive.shape') {
+    const shape = normalizeEditorScenePrimitiveShape(value);
+    if (shape) {
+      next.kind = 'primitive';
+      next.primitive = { shape };
+    }
     return next;
   }
   if (path === 'transformType') {
     if (value === 'plain' || value === 'light' || value === 'camera' || value === 'groundDecal') {
       next.kind = 'transform';
       next.transformType = value;
+      delete next.primitive;
       if (value === 'camera') next.camera = mergeEditorSceneCameraDefaults(next.camera);
       else delete next.camera;
       if (value === 'light') next.light = mergeEditorSceneLightDefaults(next.light);
@@ -3627,6 +3750,7 @@ function patchEditorSceneGameObject(
   if (path.startsWith('groundDecal.')) {
     next.kind = 'transform';
     next.transformType = next.transformType ?? 'groundDecal';
+    delete next.primitive;
     next.groundDecal = mergeGroundDecalDefaults(next.groundDecal);
     applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
     return next;
@@ -3637,6 +3761,7 @@ function patchEditorSceneGameObject(
     next.camera = mergeEditorSceneCameraDefaults(next.camera);
     delete next.light;
     delete next.groundDecal;
+    delete next.primitive;
     applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
     return next;
   }
@@ -3646,6 +3771,7 @@ function patchEditorSceneGameObject(
     next.light = mergeEditorSceneLightDefaults(next.light);
     delete next.camera;
     delete next.groundDecal;
+    delete next.primitive;
     applyJsonFieldPatch(next as unknown as Record<string, unknown>, path, value);
     return next;
   }
@@ -3793,6 +3919,7 @@ function normalizeEditorSceneCameraGameObject(gameObject: EditorSceneGameObject)
   });
   delete next.light;
   delete next.groundDecal;
+  delete next.primitive;
   return shallowEditorSceneGameObjectsEqual(next, gameObject) ? gameObject : next;
 }
 
@@ -3805,6 +3932,7 @@ function normalizeEditorSceneLightGameObject(gameObject: EditorSceneGameObject):
   });
   delete next.camera;
   delete next.groundDecal;
+  delete next.primitive;
   return shallowEditorSceneGameObjectsEqual(next, gameObject) ? gameObject : next;
 }
 
@@ -3817,6 +3945,7 @@ function normalizeEditorScenePlainTransformGameObject(gameObject: EditorSceneGam
   delete next.camera;
   delete next.light;
   delete next.groundDecal;
+  delete next.primitive;
   return shallowEditorSceneGameObjectsEqual(next, gameObject) ? gameObject : next;
 }
 
@@ -3889,7 +4018,7 @@ function isBlockedEditorSceneCameraFieldPatch(
 }
 
 function isEditorSceneProjectionShapePath(path: string): boolean {
-  return path === 'transformType' || path.startsWith('camera.') || path.startsWith('light.');
+  return path === 'transformType' || path.startsWith('primitive.') || path.startsWith('camera.') || path.startsWith('light.');
 }
 
 function hasEditorSceneCamera(document: EditorSceneDocument, exceptId?: string): boolean {
@@ -4118,12 +4247,30 @@ function createGameObjectForAsset(
 }
 
 function getNextPlacementPosition(document: EditorSceneDocument): EditorSceneVec3 {
-  const renderableCount = document.scene.gameObjects.filter((gameObject) => findEditorSceneModelRenderer(gameObject)).length;
+  const renderableCount = document.scene.gameObjects.filter((gameObject) => (
+    !!findEditorSceneModelRenderer(gameObject) || !!findEditorScenePrimitiveRenderer(gameObject)
+  )).length;
   return {
     x: (renderableCount % 5) * 1.8 - 3.6,
     y: 0,
     z: Math.floor(renderableCount / 5) * 1.8 + 1.8,
   };
+}
+
+function normalizeEditorScenePrimitiveShape(shape: unknown): ScenePrimitiveShape | null {
+  return shape === 'cube' || shape === 'sphere' || shape === 'plane' || shape === 'capsule'
+    ? shape
+    : null;
+}
+
+function getEditorScenePrimitiveDisplayName(shape: ScenePrimitiveShape): string {
+  return shape[0]!.toUpperCase() + shape.slice(1);
+}
+
+function getEditorScenePrimitiveDefaultScale(shape: ScenePrimitiveShape): EditorSceneVec3 {
+  return shape === 'plane'
+    ? { x: 10, y: 1, z: 10 }
+    : { x: 1, y: 1, z: 1 };
 }
 
 function createUniqueEditorSceneId(existingIds: string[], preferredId: string): string {

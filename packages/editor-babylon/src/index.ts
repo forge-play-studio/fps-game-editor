@@ -1,6 +1,7 @@
 export * from './camera-controller';
 export * from './edit-session';
 export * from './editor-world';
+export * from './editor-sky';
 export * from './event-guard';
 export * from './input-controller';
 export * from './inspector-adapter';

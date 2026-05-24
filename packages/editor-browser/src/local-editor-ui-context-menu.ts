@@ -119,53 +119,113 @@ function renderMenu(doc: Document, menu: HTMLElement, items: LocalEditorContextM
   while (menu.firstChild) menu.removeChild(menu.firstChild);
   for (const item of items) {
     if (item.separatorBefore) {
-      const separator = doc.createElement('div');
-      separator.setAttribute('role', 'separator');
-      separator.style.cssText = 'height:1px;margin:4px;background:var(--fps-editor-divider)';
-      menu.appendChild(separator);
+      appendMenuSeparator(doc, menu);
     }
-    const button = doc.createElement('button');
-    button.type = 'button';
-    button.dataset.editorContextMenuItem = item.id;
-    button.disabled = item.disabled ?? false;
-    if (item.disabledReason) button.title = item.disabledReason;
-    button.setAttribute('role', 'menuitem');
-    button.style.cssText = [
-      'width:100%',
-      'min-height:26px',
-      'display:flex',
-      'align-items:center',
-      'justify-content:space-between',
-      'gap:18px',
-      'padding:4px 8px',
-      'border:0',
-      'border-radius:2px',
-      'background:transparent',
-      `color:${item.disabled ? 'var(--fps-editor-muted)' : item.danger ? 'var(--fps-editor-danger-text)' : 'var(--fps-editor-text)'}`,
-      'font-family:var(--fps-editor-font)',
-      'font-size:12px',
-      'font-weight:800',
-      `cursor:${item.disabled ? 'not-allowed' : 'pointer'}`,
-      'text-align:left',
-    ].join(';');
-    const label = doc.createElement('span');
-    label.textContent = item.label;
-    label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-    button.appendChild(label);
-    if (item.shortcut) {
-      const shortcut = doc.createElement('span');
-      shortcut.textContent = item.shortcut;
-      shortcut.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;font-weight:800;white-space:nowrap';
-      button.appendChild(shortcut);
+    if (item.children?.length) {
+      appendMenuGroup(doc, menu, item);
+      continue;
     }
-    button.addEventListener('mouseenter', () => {
-      if (!button.disabled) button.style.background = 'var(--fps-editor-accent-soft)';
-    });
-    button.addEventListener('mouseleave', () => {
-      button.style.background = 'transparent';
-    });
-    menu.appendChild(button);
+    menu.appendChild(createMenuButton(doc, item));
   }
+}
+
+function appendMenuSeparator(doc: Document, menu: HTMLElement): void {
+  const separator = doc.createElement('div');
+  separator.setAttribute('role', 'separator');
+  separator.style.cssText = 'height:1px;margin:4px;background:var(--fps-editor-divider)';
+  menu.appendChild(separator);
+}
+
+function appendMenuGroup(doc: Document, menu: HTMLElement, item: LocalEditorContextMenuItem): void {
+  const children = item.children ?? [];
+  const group = doc.createElement('div');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', item.label);
+  group.style.cssText = [
+    'display:flex',
+    'flex-direction:column',
+    'gap:4px',
+    'margin:4px 0',
+    'padding:5px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-field)',
+  ].join(';');
+
+  const title = doc.createElement('div');
+  title.textContent = item.label;
+  title.style.cssText = [
+    'padding:0 2px',
+    'color:var(--fps-editor-muted)',
+    'font-family:var(--fps-editor-font)',
+    'font-size:10px',
+    'font-weight:800',
+    'line-height:14px',
+    'text-transform:uppercase',
+  ].join(';');
+  group.appendChild(title);
+
+  const buttonGrid = doc.createElement('div');
+  buttonGrid.style.cssText = [
+    'display:grid',
+    'grid-template-columns:repeat(2,minmax(0,1fr))',
+    'gap:3px',
+  ].join(';');
+  for (const child of children) {
+    buttonGrid.appendChild(createMenuButton(doc, child, true));
+  }
+  group.appendChild(buttonGrid);
+  menu.appendChild(group);
+}
+
+function createMenuButton(
+  doc: Document,
+  item: LocalEditorContextMenuItem,
+  compact = false,
+): HTMLButtonElement {
+  const button = doc.createElement('button');
+  button.type = 'button';
+  button.dataset.editorContextMenuItem = item.id;
+  button.disabled = item.disabled ?? false;
+  if (item.disabledReason) button.title = item.disabledReason;
+  button.setAttribute('role', 'menuitem');
+  button.style.cssText = [
+    'width:100%',
+    `min-height:${compact ? 28 : 26}px`,
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
+    `gap:${compact ? 8 : 18}px`,
+    `padding:${compact ? '5px 7px' : '4px 8px'}`,
+    `border:${compact ? '1px solid var(--fps-editor-border)' : '0'}`,
+    'border-radius:2px',
+    `background:${compact ? 'var(--fps-editor-bg)' : 'transparent'}`,
+    `color:${item.disabled ? 'var(--fps-editor-muted)' : item.danger ? 'var(--fps-editor-danger-text)' : 'var(--fps-editor-text)'}`,
+    'font-family:var(--fps-editor-font)',
+    'font-size:12px',
+    'font-weight:800',
+    `cursor:${item.disabled ? 'not-allowed' : 'pointer'}`,
+    compact ? 'text-align:center' : 'text-align:left',
+  ].join(';');
+  const label = doc.createElement('span');
+  label.textContent = item.label;
+  label.style.cssText = compact
+    ? 'display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+    : 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  button.appendChild(label);
+  if (item.shortcut) {
+    const shortcut = doc.createElement('span');
+    shortcut.textContent = item.shortcut;
+    shortcut.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;font-weight:800;white-space:nowrap';
+    button.appendChild(shortcut);
+  }
+  button.addEventListener('mouseenter', () => {
+    if (!button.disabled) button.style.background = compact ? 'var(--fps-editor-accent-soft)' : 'var(--fps-editor-accent-soft)';
+  });
+  button.addEventListener('mouseleave', () => {
+    button.style.background = compact ? 'var(--fps-editor-bg)' : 'transparent';
+  });
+  return button;
 }
 
 function clampMenuPosition(doc: Document, menu: HTMLElement, x: number, y: number): void {

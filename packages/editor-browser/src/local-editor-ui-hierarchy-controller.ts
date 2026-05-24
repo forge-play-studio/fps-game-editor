@@ -559,7 +559,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
 
   function submitHierarchyContextAction(action: LocalEditorContextAction): void {
     if (action.action === 'rename') return;
-    if (action.action === 'create-group') expandNode(action.parentId);
+    if (action.action === 'create-group' || action.action === 'create-primitive') expandNode(action.parentId);
     if (callbacks.onContextAction) {
       callbacks.onContextAction(action);
       return;
@@ -581,6 +581,13 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
         parentId: action.parentId ?? null,
         activeId: action.activeId ?? null,
         name: 'Empty',
+      });
+    } else if (action.action === 'create-primitive') {
+      callbacks.onSceneGraphCreatePrimitive?.({
+        parentId: action.parentId ?? null,
+        activeId: action.activeId ?? null,
+        shape: action.shape,
+        name: action.name,
       });
     } else if (action.action === 'delete') {
       callbacks.onSceneGraphDelete?.({
