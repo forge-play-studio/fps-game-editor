@@ -234,6 +234,7 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
     width: number;
     height: number;
   } | null;
+  coordinateAxes?: LocalEditorBrowserCoordinateAxesState | null;
   transformTool?: LocalEditorBrowserTransformToolState | null;
   transformOperations?: LocalEditorBrowserTransformOperationState | null;
   sceneCameraPreview?: {
@@ -247,6 +248,22 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
     canRedo: boolean;
     history?: LocalEditorBrowserHistoryView;
   } | null;
+}
+
+export type LocalEditorBrowserCoordinateAxisId = 'x' | 'y' | 'z';
+
+export interface LocalEditorBrowserCoordinateAxis {
+  id: LocalEditorBrowserCoordinateAxisId;
+  label: string;
+  color: string;
+  x: number;
+  y: number;
+  depth: number;
+  scale: number;
+}
+
+export interface LocalEditorBrowserCoordinateAxesState {
+  axes: LocalEditorBrowserCoordinateAxis[];
 }
 
 export interface LocalEditorBrowserUiPropertyInput {
