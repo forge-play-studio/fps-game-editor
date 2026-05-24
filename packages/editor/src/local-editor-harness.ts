@@ -499,6 +499,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       onSelectHierarchyItem: (input) => {
         if (selectItem(state, options, input)) harness.render();
       },
+      onSelectionCommand: (command) => {
+        if (dispatchSelectionCommand(state, options, command)) harness.render();
+      },
       onSceneGraphRename: (intent) => {
         if (renameSceneGraphNode(state, options, intent)) harness.render();
       },
@@ -597,6 +600,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       },
       onFocusSelection: () => {
         if (focusSelectedProjection(state)) harness.render();
+      },
+      onCancelEditorIntent: () => {
+        if (cancelEditorIntent(state, options)) harness.render();
       },
       onCancelActiveOperation: () => {
         cancelActiveOperation(state);
@@ -2129,6 +2135,19 @@ function cancelActiveOperation<TDocument, TPatch, TAsset>(
   state.selectionController?.cancelBoxSelection();
   cancelActiveGizmoDrag(state);
   clearArmedPlacement(state);
+}
+
+function cancelEditorIntent<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+): boolean {
+  if (state.mode !== 'editor') return false;
+  const selection = state.session?.getSelection();
+  if (selection && selection.selectedIds.length > 0) {
+    return dispatchSelectionCommand(state, options, { type: 'selection.clear', label: 'Clear Selection' });
+  }
+  cancelActiveOperation(state);
+  return true;
 }
 
 function focusSelectedProjection<TDocument, TPatch, TAsset>(

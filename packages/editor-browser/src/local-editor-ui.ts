@@ -12,6 +12,7 @@ export {
   createLocalEditorHierarchyDuplicateShortcutAction,
   createLocalEditorHierarchyNodeMenu,
   createLocalEditorHierarchyPasteShortcutAction,
+  createLocalEditorHierarchySelectAllShortcutAction,
 } from './local-editor-ui-hierarchy-actions';
 export {
   createLocalEditorHierarchyController,
@@ -1290,7 +1291,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     }
     if (key === 'escape') {
       event.preventDefault();
-      callbacks.onCancelActiveOperation?.();
+      if (callbacks.onCancelEditorIntent) callbacks.onCancelEditorIntent();
+      else callbacks.onCancelActiveOperation?.();
     }
   };
   doc.addEventListener('keydown', onKeyDown);

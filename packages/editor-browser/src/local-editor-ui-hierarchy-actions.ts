@@ -1,3 +1,4 @@
+import type { SelectionCommand } from '@fps-games/editor-core';
 import type {
   LocalEditorBrowserSceneGraphGroupSelectionIntent,
   LocalEditorBrowserUiState,
@@ -15,7 +16,8 @@ export type LocalEditorHierarchyAction =
   | { kind: 'context-action'; action: LocalEditorContextAction }
   | { kind: 'begin-rename'; targetId: string }
   | { kind: 'copy-selection'; targetIds: string[]; activeId: string | null }
-  | { kind: 'group-selection'; intent: LocalEditorBrowserSceneGraphGroupSelectionIntent };
+  | { kind: 'group-selection'; intent: LocalEditorBrowserSceneGraphGroupSelectionIntent }
+  | { kind: 'selection-command'; command: SelectionCommand };
 
 export interface LocalEditorHierarchyMenuDefinition {
   items: LocalEditorContextMenuItem[];
@@ -222,6 +224,24 @@ export function createLocalEditorHierarchyDeleteShortcutAction<TDocument>(
       action: 'delete',
       targetIds,
       activeId: input.state.activeId,
+    },
+  };
+}
+
+export function createLocalEditorHierarchySelectAllShortcutAction<TDocument>(
+  input: LocalEditorHierarchyActionInput<TDocument>,
+): LocalEditorHierarchyAction | null {
+  const selectedIds = input.model.visibleRows
+    .filter(isNodeSelectable)
+    .map(node => node.id);
+  if (selectedIds.length === 0) return null;
+  return {
+    kind: 'selection-command',
+    command: {
+      type: 'selection.replace',
+      label: 'Select All Visible Hierarchy Nodes',
+      selectedIds,
+      activeId: resolveActionActiveId(selectedIds, input.state.activeId),
     },
   };
 }

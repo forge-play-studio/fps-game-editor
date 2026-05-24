@@ -64,11 +64,14 @@ export function createShortcutHelpPanel(doc: Document): HTMLDivElement {
     ['右键拖拽', '进入飞行视角；按住右键时使用 WASD/QE 移动'],
   ]);
   appendShortcutSection(doc, panel, '选择', [
-    ['Shift + 点击/拖拽', '把对象加入当前选择'],
+    ['Shift + 点击', '追加选择；已选中时移除'],
+    ['Shift + 拖拽', '加入框选结果'],
     ['Cmd/Ctrl + 点击/拖拽', '切换对象是否选中'],
+    ['Cmd/Ctrl + A', '全选 Hierarchy 当前可见节点'],
     ['双击', '聚焦被点击的 GameObject'],
     ['层级树点击', '从 Hierarchy 中选择 GameObject'],
     ['层级树 Shift/Cmd', '在 Hierarchy 中追加或切换选择'],
+    ['Esc', '取消当前操作或清空选择'],
     ['右键层级节点', '打开 GameObject 操作菜单'],
   ]);
   appendShortcutSection(doc, panel, '文档', [
