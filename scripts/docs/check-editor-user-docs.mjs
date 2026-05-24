@@ -3,9 +3,11 @@ import { resolve } from 'node:path';
 
 const root = process.cwd();
 const docsDir = resolve(root, 'docs/editor-user-guide');
-const htmlFiles = ['index.html', 'shortcuts.html', 'agent.html', 'system.html'];
-const requiredFiles = [...htmlFiles, 'index.md'];
-const userFacingFiles = ['index.html', 'shortcuts.html'];
+const guideHtmlFile = 'fps-game-editor使用指南.html';
+const guideMarkdownFile = 'fps-game-editor使用指南.md';
+const htmlFiles = [guideHtmlFile, 'shortcuts.html', 'agent.html', 'system.html'];
+const requiredFiles = [...htmlFiles, guideMarkdownFile];
+const userFacingFiles = [guideHtmlFile, 'shortcuts.html'];
 const forbiddenUserTerms = [
   'authoring.html',
   'Agent',
@@ -67,13 +69,29 @@ for (const file of userFacingFiles) {
   }
 }
 
-if (existsSync(resolve(docsDir, 'index.md'))) {
-  const markdown = readDoc('index.md');
-  if (!markdown.startsWith('# fps-game-editor 用户指南')) {
-    fail('index.md: expected title "# fps-game-editor 用户指南"');
+if (existsSync(resolve(docsDir, guideMarkdownFile))) {
+  const markdown = readDoc(guideMarkdownFile);
+  if (!markdown.startsWith('# fps-game-editor使用指南')) {
+    fail(`${guideMarkdownFile}: expected title "# fps-game-editor使用指南"`);
   }
-  if (!markdown.includes('以 `index.html` 为准')) {
-    fail('index.md: missing HTML-authoritative notice');
+  if (!markdown.includes(`以 \`${guideHtmlFile}\` 为准`)) {
+    fail(`${guideMarkdownFile}: missing HTML-authoritative notice`);
+  }
+  if (markdown.includes('(shortcuts.html)')) {
+    fail(`${guideMarkdownFile}: must be self-contained and not depend on shortcuts.html for required user content`);
+  }
+  for (const text of ['工具与 Transform', 'Scene View 导航', '快捷键不生效', '| 按键或入口 |']) {
+    if (!markdown.includes(text)) fail(`${guideMarkdownFile}: missing portable content marker: ${text}`);
+  }
+}
+
+if (existsSync(resolve(docsDir, guideHtmlFile))) {
+  const guideHtml = readDoc(guideHtmlFile);
+  if (guideHtml.includes('href="shortcuts.html"')) {
+    fail(`${guideHtmlFile}: must not require shortcuts.html for the primary user guide`);
+  }
+  for (const text of ['单独打开本页', '工具与 Transform', 'Scene View 导航', '快捷键不生效']) {
+    if (!guideHtml.includes(text)) fail(`${guideHtmlFile}: missing portable content marker: ${text}`);
   }
 }
 
@@ -81,13 +99,15 @@ const readmePath = resolve(root, 'README.md');
 const agentPath = resolve(root, 'agent.md');
 if (existsSync(readmePath)) {
   const readme = readFileSync(readmePath, 'utf8');
-  if (!readme.includes('docs/editor-user-guide/index.md')) fail('README.md: missing index.md documentation entry');
+  if (!readme.includes(`docs/editor-user-guide/${guideMarkdownFile}`)) fail(`README.md: missing ${guideMarkdownFile} documentation entry`);
   if (!readme.includes('HTML-first')) fail('README.md: missing HTML-first policy');
+  if (!readme.includes('自包含') || !readme.includes('其他电脑')) fail('README.md: missing portable export policy');
 }
 if (existsSync(agentPath)) {
   const agent = readFileSync(agentPath, 'utf8');
-  if (!agent.includes('docs/editor-user-guide/index.md')) fail('agent.md: missing index.md workflow rule');
+  if (!agent.includes(`docs/editor-user-guide/${guideMarkdownFile}`)) fail(`agent.md: missing ${guideMarkdownFile} workflow rule`);
   if (!agent.includes('HTML-first')) fail('agent.md: missing HTML-first policy');
+  if (!agent.includes('自包含') || !agent.includes('其他电脑')) fail('agent.md: missing portable export policy');
 }
 
 if (!ok) process.exit(1);

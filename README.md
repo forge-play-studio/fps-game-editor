@@ -295,18 +295,6 @@ if (import.meta.env.DEV) {
 
 项目 adapter 需要保证命令语义是原子的。以 `asset.import` 为例，返回成功应同时代表 authored document 已写入、runtime node 已创建并可选中；如果 runtime 创建失败，应回滚 document 变更并返回失败。
 
-### 平台资产命令桥接
-
-Forge Play 平台资产库不要直接修改项目场景，也不要继续依赖 native HTML5 drag/drop 跨 iframe 投放。平台只发送明确 command，项目侧解释语义：
-
-| 命令 | 语义 |
-| --- | --- |
-| `asset.library.refresh` | 重新调用项目 adapter 的 `loadAssets()`，刷新编辑器资产浏览器。 |
-| `asset.import` | 兼容旧平台导入入口；项目侧可先注册 `assetPath`，再刷新资产库并在当前 `EditorSceneDocument` 创建实例。 |
-| `editor.asset.place` | 新的编辑器放置入口；语义同项目侧放置资产，可携带 `position`、`rotation` / `rotationDeg`、`scale` / `instanceScale`。 |
-
-公共 harness 提供 `reloadAssets()` 和 `createAssetFromAssetId()`，项目 adapter 负责把资产库 item 映射成自己的 document patch。成功放置资产只代表编辑源 `editor-scene.json` 的 working document 已更新；Forge Play `Save & Exit` 仍通过 `document.export -> document.commit -> mode.change(play)` 把 `editor-scene.json` 保存并编译出交给平台 API 写入的 `scene.json`。
-
 ## Forge Play / Inspector 注意事项
 
 - Forge Play 平台侧只负责 transport、意图传输和文件保存，不理解项目 schema。
@@ -361,26 +349,6 @@ createLocalEditorHarness
 
 它覆盖 hierarchy、transform、save、undo/redo、dirty 和基础 Babylon 投影，适合隔离调试编辑器框架。`examples/babylon-editor-world` 仍保留为更低层的 Babylon 投影 demo。
 
-### Editor UI 主题
-
-本地编辑器 UI 默认使用 `dark` 主题，也可以在创建 harness 时切到 `light`。主题只作用于浏览器 UI surface，不写入 document、session 或 undo/redo 状态：
-
-```ts
-import { createLocalEditorHarness, type LocalEditorThemeName } from '@fps-games/editor';
-
-const harness = createLocalEditorHarness({
-  root: document.body,
-  theme: 'light' satisfies LocalEditorThemeName,
-  documentAdapter,
-  persistenceAdapter,
-  worldAdapter,
-});
-
-harness.setTheme('dark');
-```
-
-浏览器层的主题由 `.fps-editor-workbench[data-fps-editor-theme="dark|light"]` 驱动。Workbench、context menu、shortcut modal、box selection overlay 等独立 surface 会同步这个属性。新增控件应优先复用 `packages/editor-browser/src/local-editor-ui-primitives.ts` 和 `local-editor-ui-shared.ts`，颜色使用 `local-editor-ui-theme.ts` 中的 token；toolbar、hierarchy、panel 图标使用 `local-editor-ui-icons.ts` 的内联 SVG registry，不新增 UI/icon 运行时依赖，也不把 PNG kind icon 混入工具栏体系。
-
 ### mini-game-lab
 
 默认启动从 `lumber_order` 基线复制来的 mini game lab，用它验证“编辑器保存后回到真实 GameWorld”的完整体验：
@@ -402,8 +370,6 @@ http://localhost:5184
 
 保存链路分为两种语义：本地 `Save Scene` 使用 `local-commit-save`，同时写 `editor-scene.json` 和编译后的 `scene.json`；Forge Play `Save & Exit` 使用 `prepare-platform-save`，先保存 `editor-scene.json` 并导出 `sceneJsonText`，再交给平台现有保存 API 写 `scene.json`。平台随后发送的 `document.commit` 作为提交确认，尾部 `mode.change(play, save: true)` 不再重复保存同一次 authoring source。
 
-平台资产命令在 mini-game-lab 中由 `local-editor-mode-switcher.ts` 接管：`asset.library.refresh` 只刷新内部资产浏览器；`asset.import` / `editor.asset.place` 会按需通过本地 authoring API 注册资产、刷新资产库，再通过 `LocalEditorHarness.createAssetFromAssetId()` 写入 `EditorSceneDocument`。这条链路不走旧 runtime scene document，也不直接写 `scene.json`。
-
 `mini-game-lab` 是 dev-only fixture，不参与 npm 包发布，也不要求提交它自己的 `node_modules` 或 lockfile。它的依赖声明留在 `examples/mini-game-lab/package.json`，不进入根包依赖。
 
 ### 自测命令
@@ -419,7 +385,6 @@ http://localhost:5184
 | `npm run test:browser` | Playwright 浏览器 smoke |
 | `npm run test:pack` | npm pack 后安装到临时 consumer 做消费 smoke |
 | `npm run pack:dry-run` | 检查最终 npm tarball 内容 |
-| `npm run release:preflight` | 发布前本地门禁：版本检查、包边界、类型、单测、构建、browser smoke、pack smoke 和 tarball dry run |
 
 主检查：
 
@@ -467,8 +432,6 @@ npm run pack:dry-run
 
 ### GitHub 发包流程
 
-完整可执行 checklist 见 [docs/npm-release-runbook.md](docs/npm-release-runbook.md)。本节只保留发布规则摘要。
-
 发布渠道：
 
 | 渠道 | npm dist-tag | 版本格式 | 用途 |
@@ -476,20 +439,18 @@ npm run pack:dry-run
 | beta | `beta` | `0.1.1-beta.0` | 给真实项目提前验证，允许继续迭代 |
 | stable | `latest` | `0.1.1` | 真实项目默认安装的稳定版本 |
 
-版本号必须进入 Git，不在 CI 中临时改版本。准备 beta release PR：
+版本号必须进入 Git，不在 CI 中临时改版本。准备发布时先开 release PR：
 
 ```bash
 npm run release:version -- 0.1.1-beta.0
 npm run release:check:beta
-npm run release:preflight
 ```
 
-准备 stable release PR：
+稳定版使用：
 
 ```bash
 npm run release:version -- 0.1.1
 npm run release:check:stable
-npm run release:preflight
 ```
 
 `release:version` 会同步根包、所有 workspace 包、内部 `@fps-games/editor-*` 依赖声明和 `package-lock.json` 中的 workspace 版本。合并 release PR 后，使用 tag 驱动 `Publish Package` workflow 发包：
@@ -505,7 +466,7 @@ GitHub/npm 发布环境要求：
 - GitHub Environments 建议配置 `npm-beta` 和 `npm-stable`，其中 `npm-stable` 需要 required reviewers。
 - workflow 使用 OIDC 和 provenance 发布，不依赖长期 `NPM_TOKEN`。npm Trusted Publisher 的 Environment name 可以留空，让同一个 trusted publisher 覆盖 `npm-beta` 和 `npm-stable` 两个 GitHub environment。
 - `@fps-games/editor-*` 分层包继续保持 private，只作为 bundled dependencies 进入 `@fps-games/editor` tarball。
-- 如果发包流程、版本规则、CI 发布入口或包边界发生变化，必须在同一个 PR 中同步更新 `README.md`、`agent.md` 和 `docs/npm-release-runbook.md`。
+- 如果发包流程、版本规则、CI 发布入口或包边界发生变化，必须在同一个 PR 中同步更新 `README.md` 和 `agent.md`。
 
 tag 发布前必须确认：
 
@@ -516,7 +477,12 @@ tag 发布前必须确认：
 
 发布前必须确认：
 
-- `npm run release:preflight` 通过。
+- `npm run release:check` 通过。
+- `npm run check` 通过。
+- `npm run build` 通过。
+- `npm run build:editor-lab` 通过。
+- `npm run test:browser` 通过。
+- `npm run test:pack` 通过。
 - `npm run pack:dry-run` 只生成 `@fps-games/editor` tarball。
 - tarball 的 Bundled Dependencies 包含 5 个内部 workspace：protocol、core、browser、Babylon、Forge Play bridge。
 - `@fps-games/editor` 的 `exports` 指向真实存在的 `dist/index.js` 和 `dist/index.d.ts`。
@@ -526,21 +492,21 @@ tag 发布前必须确认：
 
 编辑器说明文档采用 HTML-first 形式，并按读者分层：
 
-- [docs/editor-user-guide/index.html](docs/editor-user-guide/index.html)：对外教学文档，只放给关卡设计师、玩法设计师、技术美术和项目接入开发者阅读的学习路径、教程、手册、快捷键和排障内容。
-- [docs/editor-user-guide/index.md](docs/editor-user-guide/index.md)：`index.html` 的 Markdown 发布副本，方便上传到其他平台；不作为源文档维护。
-- [docs/editor-user-guide/shortcuts.html](docs/editor-user-guide/shortcuts.html)：对外快捷键页面，按工具、视图、鼠标、选择、文档、层级和面板分类整理快捷键与鼠标操作。
+- [docs/editor-user-guide/fps-game-editor使用指南.html](docs/editor-user-guide/fps-game-editor使用指南.html)：对外教学文档，只放给关卡设计师、玩法设计师、技术美术和项目接入开发者阅读的学习路径、教程、手册、快捷键和排障内容；该文件必须能作为单个 HTML 在其他电脑上完整阅读。
+- [docs/editor-user-guide/fps-game-editor使用指南.md](docs/editor-user-guide/fps-game-editor使用指南.md)：`fps-game-editor使用指南.html` 的 Markdown 发布副本，方便上传到其他平台；不作为源文档维护，且必须包含用户入口所需的完整内容，不能依赖同目录 HTML sidecar 才能读懂。
+- [docs/editor-user-guide/shortcuts.html](docs/editor-user-guide/shortcuts.html)：对外快捷键页面，按工具、视图、鼠标、选择、文档、层级和面板分类整理快捷键与鼠标操作；它是站内独立参考页，但不能成为 `fps-game-editor使用指南.html` / `fps-game-editor使用指南.md` 的必需内容来源。
 - [docs/editor-user-guide/agent.html](docs/editor-user-guide/agent.html)：Agent 参考文档，只放写作目标、更新流程、事实来源和质量检查。
 - [docs/editor-user-guide/system.html](docs/editor-user-guide/system.html)：系统模板与 Manifest，只放内容类型、稳定术语和模板骨架。
 
 维护规则：
 
-- 不在 `docs/editor-user-guide/` 下维护独立 Markdown/YAML 源文档；`index.md` 只是从 `index.html` 同步出来的发布副本。
-- 不把 Manifest、Agent 写作规则、系统模板或模板占位内容放进用户指南 `index.html`。
-- 用户指南内容面向真实读者任务；快捷键等可独立查阅的用户参考可以拆成单独 HTML 页面；更新用户教学入口时先改 `index.html`，再同步 `index.md`；Agent 参考放在 `agent.html`，系统模板和 Manifest 放在 `system.html`。
+- 不在 `docs/editor-user-guide/` 下维护独立 Markdown/YAML 源文档；`fps-game-editor使用指南.md` 只是从 `fps-game-editor使用指南.html` 同步出来的发布副本。
+- 不把 Manifest、Agent 写作规则、系统模板或模板占位内容放进用户指南 `fps-game-editor使用指南.html`。
+- 用户指南内容面向真实读者任务；快捷键等可独立查阅的用户参考可以拆成单独 HTML 页面，但 `fps-game-editor使用指南.html` 和导出的 `fps-game-editor使用指南.md` 必须自包含，带到其他电脑或平台时不能缺少关键用户内容；更新用户教学入口时先改 `fps-game-editor使用指南.html`，再同步 `fps-game-editor使用指南.md`；Agent 参考放在 `agent.html`，系统模板和 Manifest 放在 `system.html`。
 
 常用命令：
 
-- `npm run docs:export-user-guide`：从 `index.html` 同步生成 `index.md`。
+- `npm run docs:export-user-guide`：从 `fps-game-editor使用指南.html` 同步生成 `fps-game-editor使用指南.md`。
 - `npm run docs:check-user-guide`：检查用户文档分层、HTML 链接、Markdown 发布副本声明和 README/agent 规则。
 
 ## 设计文档

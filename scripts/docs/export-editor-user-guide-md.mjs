@@ -2,8 +2,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = process.cwd();
-const htmlPath = resolve(root, 'docs/editor-user-guide/index.html');
-const markdownPath = resolve(root, 'docs/editor-user-guide/index.md');
+const guideHtmlFile = 'fps-game-editor使用指南.html';
+const guideMarkdownFile = 'fps-game-editor使用指南.md';
+const htmlPath = resolve(root, 'docs/editor-user-guide', guideHtmlFile);
+const markdownPath = resolve(root, 'docs/editor-user-guide', guideMarkdownFile);
 
 const html = readFileSync(htmlPath, 'utf8');
 
@@ -64,8 +66,33 @@ function convertWorkspaceMap(markup) {
   return `${markup.slice(0, start)}\n工作区布局：\n${mapItems.join('\n')}\n${markup.slice(end)}`;
 }
 
+function convertTables(markup) {
+  return markup.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_, body) => {
+    const rows = [...body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+      .map((rowMatch) => [...rowMatch[1].matchAll(/<(th|td)[^>]*>([\s\S]*?)<\/\1>/gi)]
+        .map(cellMatch => inline(cellMatch[2]).replace(/\|/g, '\\|')))
+      .filter(row => row.length > 0);
+
+    if (rows.length === 0) return '';
+
+    const width = Math.max(...rows.map(row => row.length));
+    const normalizeRow = row => Array.from({ length: width }, (_, index) => row[index] ?? '');
+    const header = normalizeRow(rows[0]);
+    const divider = header.map(() => '---');
+    const bodyRows = rows.slice(1).map(normalizeRow);
+    const tableLines = [
+      `| ${header.join(' | ')} |`,
+      `| ${divider.join(' | ')} |`,
+      ...bodyRows.map(row => `| ${row.join(' | ')} |`),
+    ];
+
+    return `\n${tableLines.join('\n')}\n`;
+  });
+}
+
 function convertBlocks(markup) {
   let result = convertWorkspaceMap(markup);
+  result = convertTables(result);
   result = convertLists(result);
   result = result
     .replace(/<div\s+class="(?:callout|check|callout warn)"[^>]*>([\s\S]*?)<\/div>/gi, (_, body) => `\n> ${inline(body)}\n`)
@@ -81,7 +108,7 @@ function convertBlocks(markup) {
   return result;
 }
 
-const title = inline(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? 'fps-game-editor 用户指南');
+const title = inline(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? 'fps-game-editor使用指南');
 const heroCopy = inline(html.match(/<p\s+class="hero-copy"[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? '');
 
 const sections = [...html.matchAll(/<section[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/section>/gi)]
@@ -97,7 +124,7 @@ const sections = [...html.matchAll(/<section[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/
 const lines = [
   `# ${title}`,
   '',
-  '> 这是 `docs/editor-user-guide/index.html` 的 Markdown 发布副本，方便上传到其他文档平台。维护时以 `index.html` 为准；修改用户指南后，再同步更新本文件。',
+  `> 这是 \`docs/editor-user-guide/${guideHtmlFile}\` 的 Markdown 发布副本，方便上传到其他文档平台。维护时以 \`${guideHtmlFile}\` 为准；修改用户指南后，再同步更新本文件。`,
   '',
 ];
 

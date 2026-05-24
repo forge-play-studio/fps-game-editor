@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>fps-game-editor 用户教学指南</title>
+  <title>fps-game-editor使用指南</title>
   <style>
     :root {
       --bg: #f7f8fb;
@@ -470,7 +470,7 @@
               <li><a href="#overview">文档定位</a></li>
               <li><a href="#path">新手学习路径</a></li>
               <li><a href="#workspace">工具和编辑器</a></li>
-              <li><a href="shortcuts.html">按键/快捷键</a></li>
+              <li><a href="#shortcuts">按键/快捷键</a></li>
               <li><a href="#workspace">坐标系与坐标空间</a></li>
             </ul>
           </details>
@@ -502,7 +502,7 @@
 
       <p class="nav-label">参考</p>
       <ul class="nav-list">
-        <li><a href="shortcuts.html">快捷键和鼠标操作</a></li>
+        <li><a href="#shortcuts">快捷键和鼠标操作</a></li>
         <li><a href="#troubleshooting">常见问题排障</a></li>
       </ul>
 
@@ -512,11 +512,11 @@
       <header class="hero">
         <div class="hero-inner">
           <p class="eyebrow">Editor User Guide</p>
-          <h1>fps-game-editor 用户指南</h1>
+          <h1>fps-game-editor使用指南</h1>
           <p class="hero-copy">给关卡设计师、玩法设计师、技术美术和项目接入开发者使用的教学型说明。按学习路径进入，完成第一个可保存修改，再用手册、快捷键和排障内容巩固工作流。</p>
           <div class="hero-actions">
             <a class="button primary" href="#tutorial">开始第一个教程</a>
-            <a class="button" href="shortcuts.html">查看快捷键</a>
+            <a class="button" href="#shortcuts">查看快捷键</a>
             <a class="button" href="#troubleshooting">排查问题</a>
           </div>
         </div>
@@ -559,7 +559,7 @@
           <ol>
             <li>先读工作区总览，理解每个面板和基本概念。</li>
             <li>再按第一个教程完成一次带检查点的操作。</li>
-            <li>操作过程中需要快捷键时，打开 <a href="shortcuts.html">快捷键和鼠标操作</a>。</li>
+            <li>操作过程中需要快捷键时，查看本页的快捷键和鼠标操作章节。</li>
             <li>如果保存、选择或资源创建没有达到预期，查常见问题排障。</li>
             <li>完成一次保存闭环后，再回看工作区总览，补齐选择、资产和保存边界。</li>
           </ol>
@@ -652,7 +652,9 @@
 
         <section id="shortcuts">
           <h2>快捷键和鼠标操作</h2>
-          <p>快捷键已经拆成独立页面，按工具、视图、鼠标、选择、文档、层级和面板分类。第一次使用编辑器时，可以先记住 <code>Q/W/E/R</code>、<code>F</code>、<code>Esc</code>、<code>Cmd/Ctrl + S</code> 和 Scene View 的鼠标导航。</p>
+          <p>本节把当前编辑器的工具切换、Scene View 导航、选择、文档操作、层级菜单和面板操作放在同一个用户指南里。单独打开本页或导出的 Markdown 时，也能看到完整参考。</p>
+
+          <h3>最小记忆集合</h3>
           <div class="grid">
             <article class="panel">
               <h3>工具切换</h3>
@@ -667,7 +669,171 @@
               <p><code>Cmd/Ctrl + S</code> 保存，<code>Cmd/Ctrl + Z</code> 撤销，删除和复制行为由项目 adapter 决定是否可用。</p>
             </article>
           </div>
-          <p><a class="button primary" href="shortcuts.html">打开快捷键页面</a></p>
+
+          <h3>工具与 Transform</h3>
+          <p>工具快捷键只切换当前编辑工具，不会直接修改场景数据。真正的 Transform 变化来自 gizmo 拖拽或 Inspector 数值编辑。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>按键或入口</th>
+                <th>作用</th>
+                <th>使用场景</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Q</code></td><td>切换到选择工具。</td><td>普通选择、框选前的基础模式。</td></tr>
+              <tr><td><code>W</code></td><td>切换到移动工具。</td><td>显示移动 gizmo，可沿轴向、平面或视图平面移动。</td></tr>
+              <tr><td><code>E</code></td><td>切换到旋转工具。</td><td>显示旋转 gizmo，绕 X/Y/Z 单轴旋转。</td></tr>
+              <tr><td><code>R</code></td><td>切换到缩放工具。</td><td>显示缩放 gizmo，可单轴缩放或等比缩放。</td></tr>
+              <tr><td>世界 / 本地</td><td>在 Scene View 工具条切换 Transform 坐标空间。</td><td>需要按世界方向或对象自身方向移动、旋转、缩放时使用。</td></tr>
+              <tr><td>移动手柄</td><td>轴向箭头、平面方块和中心自由手柄同时可用。</td><td>精确移动时用轴向或平面；快速拖动时用中心自由手柄。</td></tr>
+              <tr><td>吸附</td><td>在 Scene View 工具条切换移动、旋转、缩放步进吸附。</td><td>需要按固定网格、角度或比例编辑时使用。</td></tr>
+              <tr><td>放置</td><td>在 Scene View 工具条切换关闭、XZ 地面或场景表面放置。</td><td>把对象放到地面或已有表面上时使用。</td></tr>
+              <tr><td>对齐 / 分布</td><td>多选后从 Scene View 工具条执行位置对齐或分布。</td><td>需要快速整理一组选中对象的位置时使用。</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Scene View 导航</h3>
+          <p>Scene View 相机操作只改变观察视角，不写入 authoring source。飞行视角中，滚轮用于调整飞行速度。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>按键或鼠标</th>
+                <th>作用</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>F</code></td><td>聚焦当前选中的 GameObject。</td><td>需要先选中一个可聚焦对象。</td></tr>
+              <tr><td><code>Esc</code></td><td>取消当前 gizmo 拖拽或活动操作。</td><td>不等同于撤销历史。</td></tr>
+              <tr><td>滚轮</td><td>推进/拉远摄像机。</td><td>右键飞行模式下改为调整飞行速度。</td></tr>
+              <tr><td>中键拖拽</td><td>平移 Scene View。</td><td>适合微调视图构图。</td></tr>
+              <tr><td><code>Alt</code> + 左键拖拽</td><td>环绕 Scene View。</td><td>围绕当前视图目标旋转观察。</td></tr>
+              <tr><td><code>Alt</code> + 中键拖拽</td><td>平移 Scene View。</td><td>和中键拖拽类似。</td></tr>
+              <tr><td><code>Alt</code> + 右键拖拽</td><td>推进/拉远 Scene View。</td><td>适合没有滚轮或需要连续 dolly 时使用。</td></tr>
+              <tr><td>右键拖拽</td><td>进入飞行视角并转动相机。</td><td>按住右键时可使用 <code>W/A/S/D/Q/E</code> 移动。</td></tr>
+              <tr><td>右键 + <code>W</code>/<code>S</code></td><td>飞行视角前进 / 后退。</td><td>只移动相机，不移动对象。</td></tr>
+              <tr><td>右键 + <code>A</code>/<code>D</code></td><td>飞行视角左移 / 右移。</td><td>按相机朝向的左右方向移动。</td></tr>
+              <tr><td>右键 + <code>Q</code>/<code>E</code></td><td>飞行视角下降 / 上升。</td><td>用于快速调整观察高度。</td></tr>
+            </tbody>
+          </table>
+
+          <h3>鼠标操作</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>操作</th>
+                <th>作用</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>左键</td><td>选择对象。</td><td>在空白区域拖拽可以框选。</td></tr>
+              <tr><td><code>Shift</code> + 左键</td><td>追加选择对象。</td><td>不会清空已有选择。</td></tr>
+              <tr><td><code>Cmd/Ctrl</code> + 左键</td><td>切换对象的选中状态。</td><td>已选中的对象会被移出选择，未选中的对象会被加入选择。</td></tr>
+              <tr><td>双击对象</td><td>选择并聚焦对象。</td><td>适合快速定位场景中的对象。</td></tr>
+              <tr><td><code>Shift</code> + 拖拽</td><td>框选时追加对象。</td><td>用于扩大当前选择集。</td></tr>
+              <tr><td><code>Cmd/Ctrl</code> + 拖拽</td><td>框选时切换对象选中状态。</td><td>用于从选择集中加入或移除一批对象。</td></tr>
+            </tbody>
+          </table>
+
+          <h3>选择</h3>
+          <p>Scene View 和层级树都会驱动同一组选择状态。正常情况下，层级高亮、Scene View 选择目标和 Inspector 摘要应该指向同一对象。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>入口</th>
+                <th>作用</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Scene View 点击</td><td>选择被点击的 GameObject。</td><td>对象需要可选中，并且项目 adapter 需要提供稳定 runtime binding。</td></tr>
+              <tr><td>层级树点击</td><td>从 Hierarchy 中选择 GameObject。</td><td>适合 Scene View 中对象重叠或难以点中时使用。</td></tr>
+              <tr><td>层级树 <code>Shift</code> / <code>Cmd/Ctrl</code></td><td>追加或切换选择。</td><td>和 Scene View 多选语义一致。</td></tr>
+              <tr><td>右键层级节点</td><td>打开 GameObject 操作菜单。</td><td>可执行聚焦、重命名、创建子分组、分组选中对象、删除等操作。</td></tr>
+            </tbody>
+          </table>
+
+          <h3>文档操作</h3>
+          <p>保存、撤销、重做、删除和复制都依赖项目 adapter 或接入宿主提供对应语义。快捷键触发后，如果项目拒绝操作，编辑器应该保持当前数据不被破坏。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>快捷键</th>
+                <th>作用</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Cmd/Ctrl + S</code></td><td>保存场景。</td><td>保存 editor-scene，并由项目 adapter 编译或导出运行时 scene 数据。</td></tr>
+              <tr><td><code>Cmd/Ctrl + Z</code></td><td>撤销。</td><td>撤销上一步文档操作，前提是项目提供可撤销 patch。</td></tr>
+              <tr><td><code>Cmd/Ctrl + Shift + Z</code></td><td>重做。</td><td>恢复刚撤销的文档操作。</td></tr>
+              <tr><td><code>Ctrl + Y</code></td><td>重做。</td><td>兼容 Windows 风格重做快捷键。</td></tr>
+              <tr><td><code>Delete</code> / <code>Backspace</code></td><td>删除当前选中的 GameObject。</td><td>受 protected、locked、read-only 和项目删除规则限制。</td></tr>
+              <tr><td><code>Cmd/Ctrl + D</code></td><td>复制当前选中对象。</td><td>需要项目接入 Duplicate 规则；如果菜单或操作置灰，说明当前项目未启用。</td></tr>
+            </tbody>
+          </table>
+
+          <h3>层级</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>操作</th>
+                <th>作用</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>右键节点</td><td>打开节点上下文菜单。</td><td>可聚焦、重命名、创建子分组、分组选中对象或删除。</td></tr>
+              <tr><td><code>F</code> / Focus in Preview</td><td>聚焦当前节点。</td><td>节点需要可选中、未锁定且非 protected。</td></tr>
+              <tr><td>Rename</td><td>开始重命名节点。</td><td>read-only、locked 或 protected 节点不可重命名。</td></tr>
+              <tr><td>重命名时 <code>Enter</code></td><td>提交重命名。</td><td>输入框失焦时也会提交。</td></tr>
+              <tr><td>重命名时 <code>Esc</code></td><td>取消本次重命名。</td><td>保留原名称。</td></tr>
+              <tr><td>Add Empty Group</td><td>创建空分组。</td><td>在节点菜单中创建子分组；在空白区域菜单中创建顶层分组。</td></tr>
+              <tr><td>Group Selection</td><td>把当前可移动的多选节点编入新分组。</td><td>要求项目已连接分组 pipeline。</td></tr>
+              <tr><td><code>Delete</code></td><td>删除选中节点。</td><td>只删除允许删除的选中节点。</td></tr>
+            </tbody>
+          </table>
+
+          <h3>面板</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>入口</th>
+                <th>作用</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Assets 标签</td><td>搜索项目资产，点击资产创建 GameObject。</td><td>资产列表和创建规则由项目 adapter 提供。</td></tr>
+              <tr><td>History 标签</td><td>查看来自 EditorSession 的文档操作历史。</td><td>用于确认撤销/重做链路。</td></tr>
+              <tr><td>Inspector 输入框</td><td>编辑选中对象的序列化属性。</td><td>Transform 数值通常支持直接编辑。</td></tr>
+              <tr><td>多选 Inspector</td><td>批量编辑多个选中 GameObject 的共享 Transform 数值。</td><td>只应编辑所有选中对象共享且可持久化的字段。</td></tr>
+            </tbody>
+          </table>
+
+          <h3>限制与注意</h3>
+          <ol>
+            <li>快捷键需要编辑器或 Scene View 获得输入焦点；焦点在浏览器地址栏、外部宿主 UI 或文本输入框时，快捷键不会触发场景编辑。</li>
+            <li><code>Q/W/E/R</code> 在普通编辑状态下切换工具；右键飞行视角中，<code>WASD/QE</code> 用于移动相机。</li>
+            <li>删除、复制、资产创建、Inspector 字段写入和保存都可能被项目 adapter 拒绝。</li>
+            <li>层级菜单中的 Copy、Paste、Copy Transform、Paste Transform、Locked、Do Not Serialize 等占位项如果置灰，表示当前版本或当前项目尚未启用。</li>
+            <li>Scene View 相机移动、平移、环绕和 dolly 只改变观察视角，不会写入场景数据。</li>
+            <li>当前版本记录默认快捷键；如果你的项目提供自定义绑定界面，以项目说明为准。</li>
+          </ol>
+
+          <h3>快捷键不生效</h3>
+          <div class="callout warn">
+            <strong>先看焦点：</strong>大部分快捷键失效都和输入焦点有关。先点击 Scene View 或编辑器空白处，再重试快捷键。
+          </div>
+          <ol>
+            <li>如果 <code>Q/W/E/R</code> 不切换工具，确认没有正在编辑 Inspector 输入框或层级重命名输入框。</li>
+            <li>如果 <code>Cmd/Ctrl + S</code> 没有保存，确认当前处于 Editor Mode，且项目没有处于 busy 状态。</li>
+            <li>如果 <code>Delete</code> 没有删除，检查选中节点是否 protected、locked、read-only，或者项目是否拒绝删除。</li>
+            <li>如果右键飞行视角无法移动，确认右键仍按住，并且 Scene View 处于活动状态。</li>
+            <li>如果复制、分组或资产创建没有效果，检查当前项目是否提供了对应 adapter 能力。</li>
+          </ol>
         </section>
 
         <section id="troubleshooting">
