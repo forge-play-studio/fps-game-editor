@@ -488,6 +488,27 @@ tag 发布前必须确认：
 - `@fps-games/editor` 的 `exports` 指向真实存在的 `dist/index.js` 和 `dist/index.d.ts`。
 - 游戏项目升级时使用精确版本，并提交 lockfile。
 
+## 用户文档
+
+编辑器说明文档采用 HTML-first 形式，并按读者分层：
+
+- [docs/editor-user-guide/index.html](docs/editor-user-guide/index.html)：对外教学文档，只放给关卡设计师、玩法设计师、技术美术和项目接入开发者阅读的学习路径、教程、手册、快捷键和排障内容。
+- [docs/editor-user-guide/index.md](docs/editor-user-guide/index.md)：`index.html` 的 Markdown 发布副本，方便上传到其他平台；不作为源文档维护。
+- [docs/editor-user-guide/shortcuts.html](docs/editor-user-guide/shortcuts.html)：对外快捷键页面，按工具、视图、鼠标、选择、文档、层级和面板分类整理快捷键与鼠标操作。
+- [docs/editor-user-guide/agent.html](docs/editor-user-guide/agent.html)：Agent 参考文档，只放写作目标、更新流程、事实来源和质量检查。
+- [docs/editor-user-guide/system.html](docs/editor-user-guide/system.html)：系统模板与 Manifest，只放内容类型、稳定术语和模板骨架。
+
+维护规则：
+
+- 不在 `docs/editor-user-guide/` 下维护独立 Markdown/YAML 源文档；`index.md` 只是从 `index.html` 同步出来的发布副本。
+- 不把 Manifest、Agent 写作规则、系统模板或模板占位内容放进用户指南 `index.html`。
+- 用户指南内容面向真实读者任务；快捷键等可独立查阅的用户参考可以拆成单独 HTML 页面；更新用户教学入口时先改 `index.html`，再同步 `index.md`；Agent 参考放在 `agent.html`，系统模板和 Manifest 放在 `system.html`。
+
+常用命令：
+
+- `npm run docs:export-user-guide`：从 `index.html` 同步生成 `index.md`。
+- `npm run docs:check-user-guide`：检查用户文档分层、HTML 链接、Markdown 发布副本声明和 README/agent 规则。
+
 ## 设计文档
 
 当前架构基线文档：

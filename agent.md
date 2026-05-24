@@ -16,6 +16,9 @@
 - 启动本地服务时，默认启动包含真实 GameWorld 闭环的 `mini-game-lab`（`npm run dev:mini-game-lab`），不要只启动纯编辑器 `editor-lab`。只有用户明确要求轻量 playground、editor-only 调试，或需要隔离公共编辑器框架问题时，才使用 `npm run dev:editor-lab`。
 - handoff 或 push 前，以现有检查通过作为最低质量线。
 - 文档记录当前事实和决策，但不把文档过早写成固定路线图。
+- 编辑器说明文档采用 HTML-first 分层：`docs/editor-user-guide/index.html` 是对外教学入口，只放真实用户使用说明；`docs/editor-user-guide/index.md` 是 `index.html` 的 Markdown 发布副本，只用于上传其他平台；`docs/editor-user-guide/shortcuts.html` 是对外快捷键页面，按用户查阅方式分类整理快捷键与鼠标操作；`docs/editor-user-guide/agent.html` 是 Agent 参考文档，只放写作目标、更新流程、事实来源和质量检查；`docs/editor-user-guide/system.html` 是系统模板与 Manifest，只放内容类型、稳定术语和模板骨架。
+- 不在 `docs/editor-user-guide/` 下维护独立 Markdown/YAML 源文档；`index.md` 不作为源文档，必须从 `index.html` 同步；不要把 Manifest、Agent 写作规则、系统模板或模板占位内容塞回用户指南 `index.html`。
+- 生成或更新对外用户文档时，先读 `docs/editor-user-guide/agent.html` 的写作流程和 `docs/editor-user-guide/system.html` 的内容契约，再更新 `docs/editor-user-guide/index.html` 的用户可读内容，最后同步 `docs/editor-user-guide/index.md`。
 
 ## GitHub Issue 创建规则
 

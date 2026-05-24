@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fps-game-editor 系统模板与 Manifest</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --surface: #ffffff;
+      --surface-soft: #eef3f8;
+      --ink: #20242c;
+      --muted: #5b6472;
+      --line: #d9e0ea;
+      --accent: #2b6cb0;
+      --accent-strong: #174a7c;
+      --code: #132238;
+      --shadow: 0 18px 48px rgba(24, 35, 58, 0.10);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.68 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-strong); text-decoration: underline; }
+    code {
+      border: 1px solid #d6deea;
+      border-radius: 4px;
+      background: #f1f5fa;
+      color: var(--code);
+      padding: 1px 5px;
+      font-size: 0.92em;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: 290px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+      background: #fff;
+      padding: 24px 20px;
+    }
+    .brand-title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+    .brand-subtitle {
+      margin: 8px 0 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .nav-label {
+      margin: 20px 0 8px;
+      color: #7a8494;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .nav-list {
+      display: grid;
+      gap: 4px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .nav-list a {
+      display: block;
+      border-radius: 6px;
+      color: var(--muted);
+      padding: 7px 9px;
+      line-height: 1.35;
+    }
+    .nav-list a:hover {
+      background: var(--surface-soft);
+      color: var(--accent-strong);
+      text-decoration: none;
+    }
+    .hero {
+      border-bottom: 1px solid var(--line);
+      background: #e9eef5;
+      padding: 56px clamp(24px, 5vw, 72px) 34px;
+    }
+    .hero-inner { max-width: 1040px; }
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    h1 {
+      margin: 0;
+      color: #151a22;
+      font-size: clamp(34px, 5vw, 56px);
+      line-height: 1.05;
+    }
+    .hero-copy {
+      max-width: 780px;
+      margin: 18px 0 0;
+      color: #3d4654;
+      font-size: 18px;
+      line-height: 1.65;
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 24px;
+    }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--accent-strong);
+      padding: 8px 13px;
+      font-weight: 800;
+    }
+    .button.primary {
+      border-color: var(--accent-strong);
+      background: var(--accent-strong);
+      color: #fff;
+    }
+    main {
+      max-width: 1040px;
+      padding: 34px clamp(24px, 5vw, 72px) 72px;
+    }
+    section {
+      scroll-margin-top: 24px;
+      margin-bottom: 34px;
+    }
+    .doc-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+    h2 {
+      margin: 0 0 16px;
+      font-size: 28px;
+      line-height: 1.18;
+    }
+    h3 {
+      margin: 26px 0 10px;
+      font-size: 21px;
+      line-height: 1.28;
+    }
+    p { margin: 0 0 14px; }
+    ul, ol { margin: 0 0 16px 22px; padding: 0; }
+    li { margin: 5px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 18px;
+      background: var(--surface);
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #edf2f7; }
+    .template-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .template-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 16px;
+    }
+    .template-card h3 { margin-top: 0; }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: #edf4fb;
+      padding: 14px 16px;
+      margin: 18px 0;
+    }
+    @media (max-width: 940px) {
+      .shell { display: block; }
+      .sidebar {
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .template-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <h2 class="brand-title">fps-game-editor</h2>
+      <p class="brand-subtitle">系统模板与 Manifest。给文档生成系统和维护者使用。</p>
+
+      <p class="nav-label">入口</p>
+      <ul class="nav-list">
+        <li><a href="index.html">用户教学文档</a></li>
+        <li><a href="agent.html">Agent 参考文档</a></li>
+      </ul>
+
+      <p class="nav-label">系统契约</p>
+      <ul class="nav-list">
+        <li><a href="#manifest">文档 Manifest</a></li>
+        <li><a href="#terms">稳定术语</a></li>
+        <li><a href="#templates">文档模板</a></li>
+      </ul>
+    </aside>
+
+    <div class="content">
+      <header class="hero">
+        <div class="hero-inner">
+          <p class="eyebrow">System Templates</p>
+          <h1>系统模板与 Manifest</h1>
+          <p class="hero-copy">这里放内容类型、稳定术语和模板骨架。它是文档生成系统的契约，不是对外用户教程，也不是 Agent 工作流说明。</p>
+          <div class="hero-actions">
+            <a class="button primary" href="agent.html">打开 Agent 参考</a>
+            <a class="button" href="index.html">打开用户文档</a>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="doc-panel" id="manifest">
+          <h2>文档 Manifest</h2>
+          <p>Manifest 定义受众、内容类型、目录职责、稳定术语和事实来源。这里是可读契约，不再单独维护 YAML。</p>
+
+          <h3>基础信息</h3>
+          <table>
+            <tbody>
+              <tr><th>name</th><td>editor-user-guide</td></tr>
+              <tr><th>user guide index</th><td><code>docs/editor-user-guide/index.html</code></td></tr>
+              <tr><th>markdown export</th><td><code>docs/editor-user-guide/index.md</code> mirrors <code>index.html</code> for external platform upload.</td></tr>
+              <tr><th>user shortcuts reference</th><td><code>docs/editor-user-guide/shortcuts.html</code></td></tr>
+              <tr><th>agent reference</th><td><code>docs/editor-user-guide/agent.html</code></td></tr>
+              <tr><th>system templates</th><td><code>docs/editor-user-guide/system.html</code></td></tr>
+              <tr><th>docs-site config</th><td>none</td></tr>
+            </tbody>
+          </table>
+
+          <h3>原则</h3>
+          <ol>
+            <li>用户指南只放外部读者需要阅读的内容。</li>
+            <li><code>index.html</code> 是用户教学入口的权威版本；<code>index.md</code> 只是发布副本。</li>
+            <li>可独立查阅的用户参考页可以拆成单独 HTML，并从用户指南入口链接。</li>
+            <li>Agent 参考只放写作流程、事实来源和质量检查。</li>
+            <li>Manifest、稳定术语和模板只放在系统文档中。</li>
+            <li>页面先从用户任务解释编辑器使用，再补充实现边界。</li>
+            <li>项目特定行为必须明确标注。</li>
+            <li>稳定概念和术语应跨页面复用。</li>
+          </ol>
+
+          <h3>受众</h3>
+          <table>
+            <thead><tr><th>受众</th><th>需要什么</th></tr></thead>
+            <tbody>
+              <tr><td>beginner</td><td>第一次使用编辑器，需要安全引导路径。</td></tr>
+              <tr><td>designer</td><td>编辑场景、对象、资源和属性的关卡或玩法设计师。</td></tr>
+              <tr><td>adapter_developer</td><td>把编辑器接入项目 schema、runtime、assets 和保存流的开发者。</td></tr>
+              <tr><td>agent_or_author</td><td>需要按固定教学契约维护和扩展用户指南。</td></tr>
+            </tbody>
+          </table>
+
+          <h3>内容类型</h3>
+          <table>
+            <thead><tr><th>类型</th><th>用途</th><th>必需标题</th></tr></thead>
+            <tbody>
+              <tr><td>learning-path</td><td>把多个页面组织为学习路线。</td><td>目标、适合谁、学习路线、完成检查</td></tr>
+              <tr><td>tutorial</td><td>用检查点教授一个具体任务。</td><td>目标、适合谁、开始前、步骤、常见问题、下一步</td></tr>
+              <tr><td>manual</td><td>解释稳定编辑器概念、界面或工作流。</td><td>概念、什么时候使用、界面或数据位置、工作方式、限制与注意、相关主题</td></tr>
+              <tr><td>reference</td><td>提供可搜索事实，例如快捷键、schema、命令或限制。</td><td>范围、条目、默认行为、限制</td></tr>
+              <tr><td>troubleshooting</td><td>帮助读者诊断并恢复常见失败。</td><td>现象、常见原因、检查顺序、修复动作、需要收集的信息</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="doc-panel" id="terms">
+          <h2>稳定术语</h2>
+          <ul>
+            <li><code>编辑器</code>：用户操作的 authoring environment。</li>
+            <li><code>项目 adapter</code>：把编辑器动作映射到项目 schema、资源、runtime binding 和保存链路的项目侧层。</li>
+            <li><code>authoring source</code>：编辑器保存的项目编辑源数据。</li>
+            <li><code>runtime scene</code>：游戏运行态消费的场景数据。</li>
+            <li><code>节点</code>：层级中的可选中场景对象。</li>
+            <li><code>资源</code>：被场景引用的模型、图片、音频等资源。</li>
+            <li><code>Inspector</code>：查看和编辑选中节点属性的面板。</li>
+          </ul>
+        </section>
+
+        <section class="doc-panel" id="templates">
+          <h2>文档模板</h2>
+          <p>模板只供生成新章节时参考，不展示在用户指南里。</p>
+
+          <div class="template-grid">
+            <article class="template-card">
+              <h3>教程模板</h3>
+              <ol>
+                <li><code>目标</code>：说明读者会完成什么，以及完成后的可观察结果。</li>
+                <li><code>适合谁</code>：说明目标读者和默认前置知识。</li>
+                <li><code>开始前</code>：列出入口、项目、场景、资源和限制。</li>
+                <li><code>步骤</code>：每个关键动作包含操作、原因和检查点。</li>
+                <li><code>常见问题</code>：按现象、原因、修复方式组织。</li>
+                <li><code>下一步</code>：链接相关教程、手册或参考。</li>
+              </ol>
+            </article>
+
+            <article class="template-card">
+              <h3>手册页模板</h3>
+              <ol>
+                <li><code>概念</code>：说明概念、界面区域或工作流是什么。</li>
+                <li><code>什么时候使用</code>：列出适合和不适合的使用场景。</li>
+                <li><code>界面或数据位置</code>：说明 UI 区域、authoring source、runtime scene 或 adapter 位置。</li>
+                <li><code>工作方式</code>：按用户动作、编辑器解释、adapter 写回、预览/保存说明流程。</li>
+                <li><code>限制与注意</code>：列出项目特定差异和未稳定行为。</li>
+                <li><code>相关主题</code>：链接相关页面。</li>
+              </ol>
+            </article>
+
+            <article class="template-card">
+              <h3>参考页模板</h3>
+              <ol>
+                <li><code>范围</code>：说明覆盖和不覆盖的命令、字段、路径、限制或错误。</li>
+                <li><code>条目</code>：使用表格或可扫描列表，写清精确名称、路径、命令或快捷键。</li>
+                <li><code>默认行为</code>：说明默认规则。</li>
+                <li><code>限制</code>：说明例外、版本差异和项目特定边界。</li>
+              </ol>
+            </article>
+
+            <article class="template-card">
+              <h3>排障页模板</h3>
+              <ol>
+                <li><code>现象</code>：列出读者能看到的 UI、控制台或保存结果。</li>
+                <li><code>常见原因</code>：列出最可能原因。</li>
+                <li><code>检查顺序</code>：从低成本检查开始，每一步说明正常结果。</li>
+                <li><code>修复动作</code>：按适用情况、操作、验证组织。</li>
+                <li><code>需要收集的信息</code>：说明继续排查所需状态、配置、错误和复现步骤。</li>
+              </ol>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
