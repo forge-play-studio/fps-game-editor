@@ -419,6 +419,7 @@ http://localhost:5184
 | `npm run test:browser` | Playwright 浏览器 smoke |
 | `npm run test:pack` | npm pack 后安装到临时 consumer 做消费 smoke |
 | `npm run pack:dry-run` | 检查最终 npm tarball 内容 |
+| `npm run release:preflight` | 发布前本地门禁：版本检查、包边界、类型、单测、构建、browser smoke、pack smoke 和 tarball dry run |
 
 主检查：
 
@@ -466,6 +467,8 @@ npm run pack:dry-run
 
 ### GitHub 发包流程
 
+完整可执行 checklist 见 [docs/npm-release-runbook.md](docs/npm-release-runbook.md)。本节只保留发布规则摘要。
+
 发布渠道：
 
 | 渠道 | npm dist-tag | 版本格式 | 用途 |
@@ -473,18 +476,20 @@ npm run pack:dry-run
 | beta | `beta` | `0.1.1-beta.0` | 给真实项目提前验证，允许继续迭代 |
 | stable | `latest` | `0.1.1` | 真实项目默认安装的稳定版本 |
 
-版本号必须进入 Git，不在 CI 中临时改版本。准备发布时先开 release PR：
+版本号必须进入 Git，不在 CI 中临时改版本。准备 beta release PR：
 
 ```bash
 npm run release:version -- 0.1.1-beta.0
 npm run release:check:beta
+npm run release:preflight
 ```
 
-稳定版使用：
+准备 stable release PR：
 
 ```bash
 npm run release:version -- 0.1.1
 npm run release:check:stable
+npm run release:preflight
 ```
 
 `release:version` 会同步根包、所有 workspace 包、内部 `@fps-games/editor-*` 依赖声明和 `package-lock.json` 中的 workspace 版本。合并 release PR 后，使用 tag 驱动 `Publish Package` workflow 发包：
@@ -500,7 +505,7 @@ GitHub/npm 发布环境要求：
 - GitHub Environments 建议配置 `npm-beta` 和 `npm-stable`，其中 `npm-stable` 需要 required reviewers。
 - workflow 使用 OIDC 和 provenance 发布，不依赖长期 `NPM_TOKEN`。npm Trusted Publisher 的 Environment name 可以留空，让同一个 trusted publisher 覆盖 `npm-beta` 和 `npm-stable` 两个 GitHub environment。
 - `@fps-games/editor-*` 分层包继续保持 private，只作为 bundled dependencies 进入 `@fps-games/editor` tarball。
-- 如果发包流程、版本规则、CI 发布入口或包边界发生变化，必须在同一个 PR 中同步更新 `README.md` 和 `agent.md`。
+- 如果发包流程、版本规则、CI 发布入口或包边界发生变化，必须在同一个 PR 中同步更新 `README.md`、`agent.md` 和 `docs/npm-release-runbook.md`。
 
 tag 发布前必须确认：
 
@@ -511,12 +516,7 @@ tag 发布前必须确认：
 
 发布前必须确认：
 
-- `npm run release:check` 通过。
-- `npm run check` 通过。
-- `npm run build` 通过。
-- `npm run build:editor-lab` 通过。
-- `npm run test:browser` 通过。
-- `npm run test:pack` 通过。
+- `npm run release:preflight` 通过。
 - `npm run pack:dry-run` 只生成 `@fps-games/editor` tarball。
 - tarball 的 Bundled Dependencies 包含 5 个内部 workspace：protocol、core、browser、Babylon、Forge Play bridge。
 - `@fps-games/editor` 的 `exports` 指向真实存在的 `dist/index.js` 和 `dist/index.d.ts`。

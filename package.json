@@ -1,6 +1,6 @@
 {
   "name": "fps-game-editor",
-  "version": "0.1.1-beta.5",
+  "version": "0.1.1-beta.6",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -29,7 +29,8 @@
     "release:check": "node scripts/release-version.mjs check",
     "release:check:beta": "node scripts/release-version.mjs check --channel beta",
     "release:check:stable": "node scripts/release-version.mjs check --channel stable",
-    "release:verify": "npm run release:check && npm run check && npm run build && npm run build:editor-lab && npm run test:browser && npm run test:pack && npm run pack:dry-run"
+    "release:preflight": "npm run release:check && npm run check && npm run build && npm run build:editor-lab && npm run test:browser && npm run test:pack && npm run pack:dry-run",
+    "release:verify": "npm run release:preflight"
   },
   "devDependencies": {
     "@babylonjs/core": "^8.0.0",

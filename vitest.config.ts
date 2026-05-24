@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 const packageAliases = [
+  { find: '@babylonjs/core', replacement: new URL('./node_modules/@babylonjs/core', import.meta.url).pathname },
   { find: '@fps-games/editor-babylon/legacy-runtime', replacement: new URL('./packages/editor-babylon/src/legacy-runtime.ts', import.meta.url).pathname },
   { find: '@fps-games/editor', replacement: new URL('./packages/editor/src/index.ts', import.meta.url).pathname },
   { find: '@fps-games/editor-core', replacement: new URL('./packages/editor-core/src/index.ts', import.meta.url).pathname },
