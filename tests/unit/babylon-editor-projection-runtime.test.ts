@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as BABYLON from '@babylonjs/core';
+import type { EditorTransformSnapshot } from '@fps-games/editor-core';
 import { createBabylonEditorProjection } from '../../packages/editor-babylon/src/projection';
 import { createBabylonSceneCameraPreviewController } from '../../packages/editor-babylon/src/scene-camera-preview';
 
@@ -121,7 +122,120 @@ describe('Babylon editor projection runtime helpers', () => {
     scene.dispose();
     engine.dispose();
   });
+
+  it('previews descendant world transforms while a parent node is dragged', () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+    });
+
+    const parentBefore = editorTransformAt(1, 0, 0);
+    const childBefore = editorTransformAt(3, 0, 0);
+    const grandchildBefore = editorTransformAt(5, 0, 0);
+    projection.projectNodes([
+      { id: 'parent', transform: parentBefore },
+      { id: 'child', parentId: 'parent', transform: childBefore },
+      { id: 'grandchild', parentId: 'child', transform: grandchildBefore },
+    ]);
+
+    projection.setNodeTransformPreview('parent', editorTransformAt(2, 0, 0));
+
+    expectTransformPosition(projection.readNodeTransform('parent'), { x: 2, y: 0, z: 0 });
+    expectTransformPosition(projection.readNodeTransform('child'), { x: 4, y: 0, z: 0 });
+    expectTransformPosition(projection.readNodeTransform('grandchild'), { x: 6, y: 0, z: 0 });
+
+    projection.setNodeTransformPreview('parent', parentBefore);
+
+    expectTransformPosition(projection.readNodeTransform('parent'), { x: 1, y: 0, z: 0 });
+    expectTransformPosition(projection.readNodeTransform('child'), { x: 3, y: 0, z: 0 });
+    expectTransformPosition(projection.readNodeTransform('grandchild'), { x: 5, y: 0, z: 0 });
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('keeps explicitly previewed descendants as subtree roots', () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+    });
+
+    projection.projectNodes([
+      { id: 'parent', transform: editorTransformAt(1, 0, 0) },
+      { id: 'child', parentId: 'parent', transform: editorTransformAt(3, 0, 0) },
+      { id: 'grandchild', parentId: 'child', transform: editorTransformAt(5, 0, 0) },
+    ]);
+
+    projection.setNodeTransformsPreview({
+      parent: editorTransformAt(2, 0, 0),
+      child: editorTransformAt(10, 0, 0),
+    });
+
+    expectTransformPosition(projection.readNodeTransform('parent'), { x: 2, y: 0, z: 0 });
+    expectTransformPosition(projection.readNodeTransform('child'), { x: 10, y: 0, z: 0 });
+    expectTransformPosition(projection.readNodeTransform('grandchild'), { x: 12, y: 0, z: 0 });
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('updates projection parent links when a node is reparented', () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+    });
+
+    const child = {
+      id: 'child',
+      parentId: 'parent_a',
+      transform: editorTransformAt(3, 0, 0),
+    };
+    projection.projectNodes([
+      { id: 'parent_a', transform: editorTransformAt(1, 0, 0) },
+      { id: 'parent_b', transform: editorTransformAt(20, 0, 0) },
+      child,
+    ]);
+    projection.syncNodeTransform({
+      ...child,
+      parentId: 'parent_b',
+    });
+
+    projection.setNodeTransformPreview('parent_a', editorTransformAt(2, 0, 0));
+    expectTransformPosition(projection.readNodeTransform('child'), { x: 3, y: 0, z: 0 });
+
+    projection.setNodeTransformPreview('parent_b', editorTransformAt(21, 0, 0));
+    expectTransformPosition(projection.readNodeTransform('child'), { x: 4, y: 0, z: 0 });
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
 });
+
+function editorTransformAt(x: number, y: number, z: number): EditorTransformSnapshot {
+  return {
+    position: { x, y, z },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+  };
+}
+
+function expectTransformPosition(
+  transform: EditorTransformSnapshot | null,
+  expected: { x: number; y: number; z: number },
+): void {
+  expect(transform?.position.x).toBeCloseTo(expected.x, 5);
+  expect(transform?.position.y).toBeCloseTo(expected.y, 5);
+  expect(transform?.position.z).toBeCloseTo(expected.z, 5);
+}
 
 describe('Babylon scene camera preview controller', () => {
   it('temporarily switches to authored orthographic camera and restores the editor camera', () => {
