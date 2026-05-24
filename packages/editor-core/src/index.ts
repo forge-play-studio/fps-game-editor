@@ -12,6 +12,7 @@ export * from './authoring-source';
 export * from './host-services';
 export * from './scene-view-input';
 export * from './scene-graph';
+export * from './selection-strategy';
 export * from './serialized-object';
 export * from './inspector';
 export * from './transform-gizmo';

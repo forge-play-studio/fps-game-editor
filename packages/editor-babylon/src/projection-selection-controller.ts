@@ -1,8 +1,9 @@
-import type {
-  EditorSelectionState,
-  EditorTransformTool,
-  SceneViewPointerIntent,
-  SelectionCommand,
+import {
+  type EditorSelectionState,
+  type EditorTransformTool,
+  resolveEditorSelectionCommand,
+  type SceneViewPointerIntent,
+  type SelectionCommand,
 } from '@fps-games/editor-core';
 import type {
   BabylonEditorProjection,
@@ -200,30 +201,14 @@ function dispatchPointerSelection(
   nodeId: string,
   drag: PointerDragState,
 ): void {
-  if (!drag.additive && !drag.toggle) {
-    options.onSelectionCommand?.({
-      type: 'selection.replace',
-      selectedIds: [nodeId],
-      activeId: nodeId,
-      label: 'Select Object',
-    });
-    return;
-  }
-  if (drag.additive) {
-    options.onSelectionCommand?.({
-      type: 'selection.add',
-      selectedIds: [nodeId],
-      activeId: nodeId,
-      label: 'Add Selection',
-    });
-    return;
-  }
-  options.onSelectionCommand?.({
-    type: 'selection.toggle',
-    selectedIds: [nodeId],
+  const command = resolveEditorSelectionCommand({
+    selection: options.getSelection(),
+    targetIds: [nodeId],
     activeId: nodeId,
-    label: 'Toggle Selection',
+    gesture: 'click',
+    modifier: drag.toggle ? 'toggle' : drag.additive ? 'additive' : 'replace',
   });
+  if (command) options.onSelectionCommand?.(command);
 }
 
 function dispatchBoxSelection(
@@ -231,36 +216,14 @@ function dispatchBoxSelection(
   selectedIds: string[],
   drag: PointerDragState,
 ): void {
-  if (selectedIds.length === 0) {
-    if (!drag.additive && !drag.toggle) {
-      options.onSelectionCommand?.({ type: 'selection.clear', label: 'Clear Selection' });
-    }
-    return;
-  }
-  if (drag.toggle) {
-    options.onSelectionCommand?.({
-      type: 'selection.toggle',
-      selectedIds,
-      activeId: selectedIds[selectedIds.length - 1] ?? null,
-      label: 'Box Toggle Selection',
-    });
-    return;
-  }
-  if (drag.additive) {
-    options.onSelectionCommand?.({
-      type: 'selection.add',
-      selectedIds,
-      activeId: selectedIds[selectedIds.length - 1] ?? null,
-      label: 'Box Add Selection',
-    });
-    return;
-  }
-  options.onSelectionCommand?.({
-    type: 'selection.replace',
-    selectedIds,
+  const command = resolveEditorSelectionCommand({
+    selection: options.getSelection(),
+    targetIds: selectedIds,
     activeId: selectedIds[selectedIds.length - 1] ?? null,
-    label: 'Box Select',
+    gesture: 'box',
+    modifier: drag.toggle ? 'toggle' : drag.additive ? 'additive' : 'replace',
   });
+  if (command) options.onSelectionCommand?.(command);
 }
 
 function isSelectable(

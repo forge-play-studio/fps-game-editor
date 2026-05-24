@@ -49,6 +49,7 @@ import {
   mergeInspectorSections,
   normalizeEditorTransformConstraint,
   type ProjectAuthoringHost,
+  resolveEditorSelectionCommand,
   serializedMultiObjectToInspectorObject,
   serializedObjectToInspectorObject,
   validateSceneGraphDelete,
@@ -1101,26 +1102,15 @@ function selectItem<TDocument, TPatch, TAsset>(
 ): boolean {
   if (state.mode !== 'editor') return false;
   if (!isDocumentNodeSelectable(state, options, input.id)) return false;
-  const command: SelectionCommand = input.toggle
-    ? {
-        type: 'selection.toggle',
-        selectedIds: [input.id],
-        activeId: input.id,
-        label: 'Toggle Selection',
-      }
-    : input.additive
-      ? {
-          type: 'selection.add',
-          selectedIds: [input.id],
-          activeId: input.id,
-          label: 'Add Selection',
-        }
-      : {
-          type: 'selection.replace',
-          selectedIds: [input.id],
-          activeId: input.id,
-          label: 'Select Item',
-        };
+  const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
+  const command = resolveEditorSelectionCommand({
+    selection,
+    targetIds: [input.id],
+    activeId: input.id,
+    gesture: 'click',
+    modifier: input.toggle ? 'toggle' : input.additive ? 'additive' : 'replace',
+  });
+  if (!command) return false;
   return dispatchSelectionCommand(state, options, command);
 }
 
