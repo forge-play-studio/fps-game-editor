@@ -14,6 +14,7 @@ import {
 export type LocalEditorHierarchyAction =
   | { kind: 'context-action'; action: LocalEditorContextAction }
   | { kind: 'begin-rename'; targetId: string }
+  | { kind: 'copy-selection'; targetIds: string[]; activeId: string | null }
   | { kind: 'group-selection'; intent: LocalEditorBrowserSceneGraphGroupSelectionIntent };
 
 export interface LocalEditorHierarchyMenuDefinition {
@@ -25,6 +26,9 @@ export interface LocalEditorHierarchyActionInput<TDocument = unknown> {
   state: LocalEditorBrowserUiState<TDocument>;
   model: LocalEditorHierarchyTreeModel;
   node?: LocalEditorHierarchyTreeNode | null;
+  clipboardIds?: readonly string[] | null;
+  clipboardActiveId?: string | null;
+  hasDuplicateHandler?: boolean;
   hasGroupSelectionHandler?: boolean;
 }
 
@@ -39,6 +43,8 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
   const topLevelSelection = model.getTopLevelSelection(targetIds);
   const canRename = canRenameNode(node);
   const canCreateChildGroup = canLocalEditorHierarchyNodeHaveChildren(node);
+  const duplicateDisabledReason = getDuplicateDisabledReason(input, targetIds);
+  const pasteDisabledReason = getPasteDisabledReason(input);
   const deleteDisabledReason = getDeleteDisabledReason(model, targetIds);
   const groupSelection = createGroupSelectionAction(input, topLevelSelection);
   const actions = new Map<string, LocalEditorHierarchyAction>();
@@ -56,6 +62,24 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
   actions.set('hierarchy.delete', {
     kind: 'context-action',
     action: { region: 'hierarchy', action: 'delete', targetIds, activeId },
+  });
+  actions.set('hierarchy.duplicate', {
+    kind: 'context-action',
+    action: { region: 'hierarchy', action: 'duplicate', targetIds, activeId },
+  });
+  actions.set('hierarchy.copy', {
+    kind: 'copy-selection',
+    targetIds,
+    activeId,
+  });
+  actions.set('hierarchy.paste', {
+    kind: 'context-action',
+    action: {
+      region: 'hierarchy',
+      action: 'paste',
+      sourceIds: normalizeActionIds(input.clipboardIds ?? []),
+      activeId: resolveActionActiveId(input.clipboardIds ?? [], input.clipboardActiveId),
+    },
   });
 
   return {
@@ -77,6 +101,7 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
         disabled: !!deleteDisabledReason,
         disabledReason: deleteDisabledReason,
       }),
+      ...clipboardItems(duplicateDisabledReason, pasteDisabledReason),
       ...placeholderItems(),
     ],
   };
@@ -86,6 +111,12 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
   input: LocalEditorHierarchyActionInput<TDocument>,
 ): LocalEditorHierarchyMenuDefinition {
   const groupSelection = createGroupSelectionAction(input, input.model.getTopLevelSelection(input.state.selectedIds));
+  const targetIds = input.state.selectedIds;
+  const activeId = input.state.activeId && targetIds.includes(input.state.activeId)
+    ? input.state.activeId
+    : targetIds[targetIds.length - 1] ?? null;
+  const duplicateDisabledReason = getDuplicateDisabledReason(input, targetIds);
+  const pasteDisabledReason = getPasteDisabledReason(input);
   const actions = new Map<string, LocalEditorHierarchyAction>();
   actions.set('hierarchy.create-group', {
     kind: 'context-action',
@@ -97,6 +128,24 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
     },
   });
   if (groupSelection.action) actions.set('hierarchy.group-selection', groupSelection.action);
+  actions.set('hierarchy.duplicate', {
+    kind: 'context-action',
+    action: { region: 'hierarchy', action: 'duplicate', targetIds, activeId },
+  });
+  actions.set('hierarchy.copy', {
+    kind: 'copy-selection',
+    targetIds,
+    activeId,
+  });
+  actions.set('hierarchy.paste', {
+    kind: 'context-action',
+    action: {
+      region: 'hierarchy',
+      action: 'paste',
+      sourceIds: normalizeActionIds(input.clipboardIds ?? []),
+      activeId: resolveActionActiveId(input.clipboardIds ?? [], input.clipboardActiveId),
+    },
+  });
   return {
     actions,
     items: [
@@ -105,8 +154,56 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
         disabled: groupSelection.disabled,
         disabledReason: groupSelection.disabledReason,
       }),
+      ...clipboardItems(duplicateDisabledReason, pasteDisabledReason),
       ...placeholderItems(),
     ],
+  };
+}
+
+export function createLocalEditorHierarchyDuplicateShortcutAction<TDocument>(
+  input: LocalEditorHierarchyActionInput<TDocument>,
+): LocalEditorHierarchyAction | null {
+  const targetIds = input.state.selectedIds;
+  const disabledReason = getDuplicateDisabledReason(input, targetIds);
+  if (disabledReason) return null;
+  return {
+    kind: 'context-action',
+    action: {
+      region: 'hierarchy',
+      action: 'duplicate',
+      targetIds: normalizeActionIds(targetIds),
+      activeId: resolveActionActiveId(targetIds, input.state.activeId),
+    },
+  };
+}
+
+export function createLocalEditorHierarchyCopyShortcutAction<TDocument>(
+  input: LocalEditorHierarchyActionInput<TDocument>,
+): LocalEditorHierarchyAction | null {
+  const targetIds = input.state.selectedIds;
+  const disabledReason = getDuplicateDisabledReason(input, targetIds);
+  if (disabledReason) return null;
+  return {
+    kind: 'copy-selection',
+    targetIds: normalizeActionIds(targetIds),
+    activeId: resolveActionActiveId(targetIds, input.state.activeId),
+  };
+}
+
+export function createLocalEditorHierarchyPasteShortcutAction<TDocument>(
+  input: LocalEditorHierarchyActionInput<TDocument>,
+): LocalEditorHierarchyAction | null {
+  const disabledReason = getPasteDisabledReason(input);
+  if (disabledReason) return null;
+  const sourceIds = normalizeActionIds(input.clipboardIds ?? []);
+  return {
+    kind: 'context-action',
+    action: {
+      region: 'hierarchy',
+      action: 'paste',
+      sourceIds,
+      activeId: resolveActionActiveId(sourceIds, input.clipboardActiveId),
+    },
   };
 }
 
@@ -127,6 +224,27 @@ export function createLocalEditorHierarchyDeleteShortcutAction<TDocument>(
       activeId: input.state.activeId,
     },
   };
+}
+
+function getDuplicateDisabledReason<TDocument>(
+  input: LocalEditorHierarchyActionInput<TDocument>,
+  ids: readonly string[],
+): string | undefined {
+  if (!input.hasDuplicateHandler) return 'Duplicate pipeline is not connected yet.';
+  const targetIds = normalizeActionIds(ids);
+  if (targetIds.length === 0) return 'Select one or more movable nodes first.';
+  for (const id of targetIds) {
+    const node = input.model.getNode(id);
+    if (!node) return 'The selected node no longer exists.';
+    if (!isLocalEditorHierarchyNodeMovable(node)) return getNodeMutationDisabledReason(node, 'duplicated');
+  }
+  return undefined;
+}
+
+function getPasteDisabledReason<TDocument>(input: LocalEditorHierarchyActionInput<TDocument>): string | undefined {
+  const ids = input.clipboardIds ?? [];
+  if (normalizeActionIds(ids).length === 0) return 'Copy one or more movable nodes first.';
+  return getDuplicateDisabledReason(input, ids);
 }
 
 function createGroupSelectionAction<TDocument>(
@@ -182,6 +300,21 @@ function getDeleteDisabledReason(model: LocalEditorHierarchyTreeModel, ids: read
   return undefined;
 }
 
+function getNodeMutationDisabledReason(node: LocalEditorHierarchyTreeNode, verb: string): string {
+  if (node.protected) return `Protected nodes cannot be ${verb}.`;
+  if (node.item.locked) return `Locked nodes cannot be ${verb}.`;
+  return 'This node is read-only.';
+}
+
+function normalizeActionIds(ids: readonly string[]): string[] {
+  return Array.from(new Set(ids.filter(Boolean)));
+}
+
+function resolveActionActiveId(ids: readonly string[], activeId: string | null | undefined): string | null {
+  const normalized = normalizeActionIds(ids);
+  return activeId && normalized.includes(activeId) ? activeId : normalized[normalized.length - 1] ?? null;
+}
+
 function menuItem(
   id: string,
   label: string,
@@ -194,11 +327,32 @@ function menuItem(
   };
 }
 
+function clipboardItems(
+  duplicateDisabledReason: string | undefined,
+  pasteDisabledReason: string | undefined,
+): LocalEditorContextMenuItem[] {
+  return [
+    menuItem('hierarchy.duplicate', 'Duplicate', {
+      shortcut: 'Cmd/Ctrl+D',
+      disabled: !!duplicateDisabledReason,
+      disabledReason: duplicateDisabledReason,
+      separatorBefore: true,
+    }),
+    menuItem('hierarchy.copy', 'Copy', {
+      shortcut: 'Cmd/Ctrl+C',
+      disabled: !!duplicateDisabledReason,
+      disabledReason: duplicateDisabledReason,
+    }),
+    menuItem('hierarchy.paste', 'Paste', {
+      shortcut: 'Cmd/Ctrl+V',
+      disabled: !!pasteDisabledReason,
+      disabledReason: pasteDisabledReason,
+    }),
+  ];
+}
+
 function placeholderItems(): LocalEditorContextMenuItem[] {
   return [
-    menuItem('hierarchy.duplicate', 'Duplicate', { shortcut: 'Cmd/Ctrl+D', disabled: true, disabledReason: 'Duplicate is not implemented yet.', separatorBefore: true }),
-    menuItem('hierarchy.copy', 'Copy', { shortcut: 'Cmd/Ctrl+C', disabled: true, disabledReason: 'Copy is not implemented yet.' }),
-    menuItem('hierarchy.paste', 'Paste', { shortcut: 'Cmd/Ctrl+V', disabled: true, disabledReason: 'Paste is not implemented yet.' }),
     menuItem('hierarchy.copy-transform', 'Copy Transform', { disabled: true, disabledReason: 'Copy Transform is not implemented yet.', separatorBefore: true }),
     menuItem('hierarchy.paste-transform', 'Paste Transform', { disabled: true, disabledReason: 'Paste Transform is not implemented yet.' }),
     menuItem('hierarchy.locked', 'Locked', { disabled: true, disabledReason: 'Lock editing is not implemented yet.', separatorBefore: true }),

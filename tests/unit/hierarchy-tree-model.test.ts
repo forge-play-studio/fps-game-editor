@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   createLocalEditorHierarchyBlankMenu,
+  createLocalEditorHierarchyCopyShortcutAction,
   createLocalEditorHierarchyNodeMenu,
+  createLocalEditorHierarchyPasteShortcutAction,
   canLocalEditorHierarchyNodeHaveChildren,
   createLocalEditorHierarchyTreeModel,
   isLocalEditorHierarchyNodeMovable,
@@ -150,6 +152,7 @@ describe('local editor hierarchy action registry', () => {
 
     expect(menu.items.find(item => item.id === 'hierarchy.rename')).toMatchObject({ disabled: true });
     expect(menu.items.find(item => item.id === 'hierarchy.delete')).toMatchObject({ disabled: true });
+    expect(menu.items.find(item => item.id === 'hierarchy.duplicate')).toMatchObject({ disabled: true });
     expect(menu.items.find(item => item.id === 'hierarchy.create-child-group')).toMatchObject({ disabled: false });
   });
 
@@ -211,6 +214,83 @@ describe('local editor hierarchy action registry', () => {
         parentId: 'group_a',
         pivot: 'selection-center',
         preserveWorldTransform: true,
+      },
+    });
+  });
+
+  it('enables duplicate, copy, and paste when hierarchy clipboard actions are connected', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, ['box', 'sphere'], 'sphere');
+    const menu = createLocalEditorHierarchyNodeMenu({
+      state: createHierarchyState(['box', 'sphere'], 'sphere'),
+      model,
+      node: model.getNode('box')!,
+      clipboardIds: ['box'],
+      clipboardActiveId: 'box',
+      hasDuplicateHandler: true,
+      hasGroupSelectionHandler: true,
+    });
+
+    expect(menu.items.find(item => item.id === 'hierarchy.duplicate')).toMatchObject({ disabled: false });
+    expect(menu.items.find(item => item.id === 'hierarchy.copy')).toMatchObject({ disabled: false });
+    expect(menu.items.find(item => item.id === 'hierarchy.paste')).toMatchObject({ disabled: false });
+    expect(menu.actions.get('hierarchy.duplicate')).toMatchObject({
+      kind: 'context-action',
+      action: {
+        region: 'hierarchy',
+        action: 'duplicate',
+        targetIds: ['box', 'sphere'],
+        activeId: 'sphere',
+      },
+    });
+    expect(menu.actions.get('hierarchy.copy')).toMatchObject({
+      kind: 'copy-selection',
+      targetIds: ['box', 'sphere'],
+      activeId: 'sphere',
+    });
+    expect(menu.actions.get('hierarchy.paste')).toMatchObject({
+      kind: 'context-action',
+      action: {
+        region: 'hierarchy',
+        action: 'paste',
+        sourceIds: ['box'],
+        activeId: 'box',
+      },
+    });
+  });
+
+  it('keeps clipboard shortcuts disabled until the relevant nodes and pipeline exist', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, ['box'], 'box');
+    const disconnectedInput = {
+      state: createHierarchyState(['box'], 'box'),
+      model,
+      clipboardIds: ['box'],
+      clipboardActiveId: 'box',
+      hasDuplicateHandler: false,
+      hasGroupSelectionHandler: true,
+    };
+    const connectedInput = {
+      ...disconnectedInput,
+      hasDuplicateHandler: true,
+    };
+
+    expect(createLocalEditorHierarchyCopyShortcutAction(disconnectedInput)).toBeNull();
+    expect(createLocalEditorHierarchyPasteShortcutAction({
+      ...connectedInput,
+      clipboardIds: ['missing'],
+      clipboardActiveId: 'missing',
+    })).toBeNull();
+    expect(createLocalEditorHierarchyCopyShortcutAction(connectedInput)).toMatchObject({
+      kind: 'copy-selection',
+      targetIds: ['box'],
+      activeId: 'box',
+    });
+    expect(createLocalEditorHierarchyPasteShortcutAction(connectedInput)).toMatchObject({
+      kind: 'context-action',
+      action: {
+        region: 'hierarchy',
+        action: 'paste',
+        sourceIds: ['box'],
+        activeId: 'box',
       },
     });
   });

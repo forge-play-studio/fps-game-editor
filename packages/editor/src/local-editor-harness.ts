@@ -494,6 +494,14 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       onSceneGraphDelete: (intent) => {
         if (deleteSceneGraphNodes(state, options, intent)) harness.render();
       },
+      onSceneGraphDuplicate: options.documentAdapter.createDuplicateSelectionPatch
+        ? (intent) => {
+            if (duplicateSceneGraphNodes(state, options, {
+              targetIds: intent.targetIds,
+              activeId: intent.activeId ?? null,
+            })) harness.render();
+          }
+        : undefined,
       onSceneGraphDrop: (intent) => {
         if (dropSceneGraphNode(state, options, intent)) harness.render();
       },
@@ -1128,6 +1136,18 @@ function handleContextAction<TDocument, TPatch, TAsset>(
       activeId: action.activeId ?? null,
     });
   }
+  if (action.action === 'duplicate') {
+    return duplicateSceneGraphNodes(state, options, {
+      targetIds: action.targetIds,
+      activeId: action.activeId ?? null,
+    });
+  }
+  if (action.action === 'paste') {
+    return duplicateSceneGraphNodes(state, options, {
+      targetIds: action.sourceIds,
+      activeId: action.activeId ?? null,
+    });
+  }
   return false;
 }
 
@@ -1263,6 +1283,59 @@ function deleteSceneGraphNodes<TDocument, TPatch, TAsset>(
   rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
   state.status = patch.label ?? `Deleted ${patch.deletedIds?.length ?? intent.ids.length} node(s)`;
+  return true;
+}
+
+function duplicateSceneGraphNodes<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  intent: { targetIds: string[]; activeId?: string | null },
+): boolean {
+  const document = state.session?.getState().workingDocument;
+  if (state.mode !== 'editor' || !state.session || !document) return false;
+  cancelActiveOperation(state);
+  const targetIds = Array.from(new Set(intent.targetIds.filter(Boolean)));
+  if (targetIds.length === 0) {
+    state.status = 'Duplicate rejected: empty selection';
+    return true;
+  }
+  const patch = options.documentAdapter.createDuplicateSelectionPatch?.({
+    document,
+    targetIds,
+    activeId: intent.activeId && targetIds.includes(intent.activeId) ? intent.activeId : targetIds[targetIds.length - 1] ?? null,
+    transforms: {},
+  });
+  if (!patch || patch.createdIds.length === 0) {
+    state.status = 'Duplicate rejected';
+    return true;
+  }
+  const result = state.session.dispatch({
+    type: 'document.patch',
+    label: patch.label ?? `Duplicate ${targetIds.length} object(s)`,
+    patch: patch.patch,
+    targetId: patch.activeId ?? patch.createdIds[patch.createdIds.length - 1] ?? undefined,
+  });
+  if (!result.documentChanged) {
+    state.status = 'Duplicate unchanged';
+    return true;
+  }
+  const createdIds = patch.createdIds.filter(id => isNodeSelectableInDocument(options, result.workingDocument, id));
+  const activeId = patch.activeId && createdIds.includes(patch.activeId)
+    ? patch.activeId
+    : createdIds[createdIds.length - 1] ?? null;
+  const selection = createdIds.length > 0
+    ? state.session.dispatch({
+        type: 'selection.replace',
+        selectedIds: createdIds,
+        activeId,
+        label: 'Select Duplicated Nodes',
+      }).selection
+    : sanitizeSelection(state, options, result.workingDocument, result.selection) ?? result.selection;
+  rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
+  if (patch.reprojectIds?.length) reprojectProjectionForChangedIds(state, options, result.workingDocument, patch.reprojectIds);
+  else syncProjectionForChangedIds(state, options, result.workingDocument, patch.changedIds ?? createdIds);
+  state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
+  state.status = patch.label ?? `Duplicated ${createdIds.length} object(s)`;
   return true;
 }
 
