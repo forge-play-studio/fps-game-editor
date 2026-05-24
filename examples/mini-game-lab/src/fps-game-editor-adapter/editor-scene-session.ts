@@ -968,6 +968,8 @@ export interface EditorSceneReadonlyInspectorPropertyInput {
   source?: EditorSceneInspectorSourceTag;
   tags?: readonly string[];
   tooltip?: string;
+  effect?: InspectorProperty<EditorSceneDocument>['effect'];
+  disabledReason?: string;
   valueType?: InspectorProperty<EditorSceneDocument>['valueType'];
 }
 
@@ -979,6 +981,8 @@ export interface EditorSceneReadonlyInspectorSectionInput {
   summary?: string;
   persistence?: InspectorSection<EditorSceneDocument>['persistence'];
   runtimeOnly?: boolean;
+  effect?: InspectorSection<EditorSceneDocument>['effect'];
+  disabledReason?: string;
   collapsedByDefault?: boolean;
   tags?: readonly string[];
   omitWhenEmpty?: boolean;
@@ -999,6 +1003,8 @@ export function createEditorSceneReadonlyInspectorSection(
     summary: input.summary,
     persistence: input.persistence ?? (input.runtimeOnly ? 'runtime' : 'readonly'),
     runtimeOnly: input.runtimeOnly,
+    effect: input.effect ?? (input.runtimeOnly ? 'runtime' : undefined),
+    disabledReason: input.disabledReason,
     collapsedByDefault: input.collapsedByDefault,
     tags: input.tags,
     properties,
@@ -1022,6 +1028,8 @@ export function createEditorSceneReadonlyInspectorProperty(
     order: input.order,
     tags: mergeEditorSceneInspectorTags(input.source, input.tags),
     tooltip: input.tooltip,
+    effect: input.effect ?? inferEditorSceneInspectorEffect(input.source, input.persistence),
+    disabledReason: input.disabledReason,
   };
 }
 
@@ -1033,6 +1041,8 @@ export function createEditorSceneReadonlyVector3Properties(input: {
   persistence?: InspectorProperty<EditorSceneDocument>['persistence'];
   source?: EditorSceneInspectorSourceTag;
   tags?: readonly string[];
+  effect?: InspectorProperty<EditorSceneDocument>['effect'];
+  disabledReason?: string;
 }): InspectorProperty<EditorSceneDocument>[] {
   const vector = readEditorSceneInspectorVec3(input.value);
   if (!vector) return [];
@@ -1046,9 +1056,20 @@ export function createEditorSceneReadonlyVector3Properties(input: {
       persistence: input.persistence,
       source: input.source,
       tags: input.tags,
+      effect: input.effect,
+      disabledReason: input.disabledReason,
       valueType: 'number',
     }))
     .filter((property): property is InspectorProperty<EditorSceneDocument> => !!property);
+}
+
+function inferEditorSceneInspectorEffect(
+  source: EditorSceneInspectorSourceTag | undefined,
+  persistence: InspectorProperty<EditorSceneDocument>['persistence'] | undefined,
+): InspectorProperty<EditorSceneDocument>['effect'] {
+  if (persistence === 'runtime' || source === 'Runtime') return 'runtime';
+  if (source === 'Derived') return 'derived';
+  return undefined;
 }
 
 export function readEditorSceneInspectorVec3(value: unknown): EditorSceneVec3 | null {
@@ -2261,7 +2282,7 @@ function createEditorSceneInspectorSections(
       title: 'Transform',
       order: 20,
       placement: 'body',
-      summary: 'Local + World',
+      summary: createTransformInspectorSummary(document, gameObject),
       persistence: 'document',
       collapsedByDefault: false,
       properties: createTransformInspectorProperties(document, gameObject, nodeKind, transform),
@@ -2318,15 +2339,24 @@ function createEditorSceneInspectorSections(
   }
   if (nodeKind === 'instance' || (nodeKind === 'transform' && !isEditorSceneCameraGameObject(gameObject) && !isEditorSceneLightGameObject(gameObject))) {
     sections.push(...createMaterialOverrideInspectorSections(nodeKind, gameObject.overrides?.material));
+    const outlineEffect = gameObject.overrides?.outline ? 'active' : 'default';
+    const outlineDisabledReason = outlineEffect === 'default' ? OUTLINE_DEFAULT_DISABLED_REASON : undefined;
+    const outlinePersistence = outlineEffect === 'default' ? 'readonly' : 'document';
     sections.push({
       id: 'outline',
       title: 'Outline',
       order: 60,
       placement: 'body',
       summary: gameObject.overrides?.outline ? 'Configured' : 'Defaults',
-      persistence: 'document',
+      persistence: outlinePersistence,
+      effect: outlineEffect,
+      disabledReason: outlineDisabledReason,
       collapsedByDefault: true,
-      properties: createOutlineInspectorProperties(nodeKind, gameObject.overrides?.outline),
+      properties: markInspectorPropertiesEffect(
+        createOutlineInspectorProperties(nodeKind, gameObject.overrides?.outline),
+        outlineEffect,
+        outlineDisabledReason,
+      ),
     });
   }
   const componentsSection = createEditorSceneReadonlyInspectorSection({
@@ -2514,7 +2544,7 @@ function createTransformInspectorProperties(
       const path = `transform.${vectorName}.${axis}`;
       properties.push(createDocumentInspectorProperty(null, nodeKind, {
         path,
-        label: `${vectorName}.${axis}`,
+        label: `${toEditorSceneTransformVectorLabel('local', vectorName)}.${axis}`,
         valueType: 'number',
         control: 'number',
         value: vectorName === 'rotation' ? roundForInspector(radiansToDegrees(vector[axis])) : vector[axis],
@@ -2556,6 +2586,23 @@ function createTransformInspectorProperties(
     }));
   }
   return properties;
+}
+
+function createTransformInspectorSummary(
+  document: EditorSceneDocument,
+  gameObject: EditorSceneGameObject,
+): string {
+  const parent = gameObject.parentId ? findEditorSceneGameObject(document, gameObject.parentId) : null;
+  return `Local: ${parent ? parent.name ?? parent.id : 'Scene'} + World`;
+}
+
+function toEditorSceneTransformVectorLabel(
+  space: 'local' | 'world',
+  vectorName: 'position' | 'rotation' | 'scale',
+): string {
+  const prefix = space === 'local' ? 'Local' : 'World';
+  const label = vectorName === 'position' ? 'Position' : vectorName === 'rotation' ? 'Rotation' : 'Scale';
+  return `${prefix} ${label}`;
 }
 
 function createRendererInspectorProperties(
@@ -2852,52 +2899,87 @@ function createMaterialOverrideInspectorSections(
   material: MaterialOverrideConfig | undefined,
 ): InspectorSection<EditorSceneDocument>[] {
   const summary = material ? 'Configured' : 'Defaults';
+  const effect = material ? 'active' : 'default';
+  const disabledReason = effect === 'default' ? MATERIAL_DEFAULT_DISABLED_REASON : undefined;
+  const persistence = effect === 'default' ? 'readonly' : 'document';
+  const markProperties = (properties: InspectorProperty<EditorSceneDocument>[]) => (
+    markInspectorPropertiesEffect(properties, effect, disabledReason)
+  );
   return [{
     id: 'material',
     title: 'Material',
     order: 50,
     placement: 'body',
     summary,
-    persistence: 'document',
+    persistence,
+    effect,
+    disabledReason,
     collapsedByDefault: true,
-    properties: createMaterialBaseInspectorProperties(nodeKind, material),
+    properties: markProperties(createMaterialBaseInspectorProperties(nodeKind, material)),
   }, {
     id: 'materialTextures',
     title: 'Material Textures',
     order: 52,
     placement: 'body',
     summary: createMaterialTextureInspectorSummary(material),
-    persistence: 'document',
+    persistence,
+    effect,
+    disabledReason,
     collapsedByDefault: true,
-    properties: createMaterialTextureOverrideInspectorProperties(nodeKind, material),
+    properties: markProperties(createMaterialTextureOverrideInspectorProperties(nodeKind, material)),
   }, {
     id: 'materialColors',
     title: 'Material Colors',
     order: 54,
     placement: 'body',
     summary,
-    persistence: 'document',
+    persistence,
+    effect,
+    disabledReason,
     collapsedByDefault: true,
-    properties: createMaterialColorOverrideInspectorProperties(nodeKind, material),
+    properties: markProperties(createMaterialColorOverrideInspectorProperties(nodeKind, material)),
   }, {
     id: 'metallicRoughness',
     title: 'Metallic / Roughness',
     order: 56,
     placement: 'body',
     summary,
-    persistence: 'document',
+    persistence,
+    effect,
+    disabledReason,
     collapsedByDefault: true,
-    properties: createMetallicRoughnessOverrideInspectorProperties(nodeKind, material),
+    properties: markProperties(createMetallicRoughnessOverrideInspectorProperties(nodeKind, material)),
   }, {
     id: 'intensityProperties',
     title: 'Intensity Properties',
     order: 58,
     placement: 'body',
     summary,
-    persistence: 'document',
+    persistence,
+    effect,
+    disabledReason,
     collapsedByDefault: true,
-    properties: createIntensityOverrideInspectorProperties(nodeKind, material),
+    properties: markProperties(createIntensityOverrideInspectorProperties(nodeKind, material)),
   }];
+}
+
+const MATERIAL_DEFAULT_DISABLED_REASON = 'Material fields are showing defaults; configure a material override before edits affect this object.';
+const OUTLINE_DEFAULT_DISABLED_REASON = 'Outline fields are showing defaults; configure an outline override before edits affect this object.';
+
+function markInspectorPropertiesEffect(
+  properties: InspectorProperty<EditorSceneDocument>[],
+  effect: InspectorProperty<EditorSceneDocument>['effect'],
+  disabledReason?: string,
+): InspectorProperty<EditorSceneDocument>[] {
+  if (!effect || effect === 'active') return properties;
+  return properties.map(property => ({
+    ...property,
+    readOnly: true,
+    persistence: property.persistence === 'runtime' ? 'runtime' : 'readonly',
+    control: property.control === 'custom' ? property.control : 'readonly',
+    effect: property.effect ?? effect,
+    disabledReason: property.disabledReason ?? disabledReason,
+  }));
 }
 
 function createMaterialBaseInspectorProperties(

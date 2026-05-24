@@ -3,6 +3,7 @@ import {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
   formatLocalEditorBrowserInspectorValue,
+  resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
   type LocalEditorBrowserInspectorControlRegistration,
   type LocalEditorBrowserInspectorControlRenderContext,
@@ -112,6 +113,50 @@ describe('browser inspector control extensions', () => {
     }));
 
     expect(element.disabled).toBe(true);
+  });
+
+  it('disables bound inputs when a document property is not effective', () => {
+    const element = {
+      dataset: {},
+      title: '',
+      disabled: false,
+    } as unknown as HTMLInputElement;
+
+    applyLocalEditorBrowserInspectorControlBinding(element, target, createTeamProperty({
+      effect: 'default',
+      disabledReason: 'Configure an override first.',
+    }));
+
+    expect(element.dataset).toMatchObject({
+      serializedEffect: 'default',
+      serializedDisabledReason: 'Configure an override first.',
+    });
+    expect(element.title).toContain('Configure an override first.');
+    expect(element.disabled).toBe(true);
+  });
+
+  it('resolves default sections as readonly while keeping Defaults as the visible effect summary', () => {
+    const status = resolveLocalEditorBrowserInspectorSectionStatus({
+      id: 'material',
+      title: 'Material',
+      summary: 'Defaults',
+      persistence: 'readonly',
+      effect: 'default',
+      properties: [
+        createTeamProperty({
+          control: 'readonly',
+          readOnly: true,
+          persistence: 'readonly',
+          effect: 'default',
+        }),
+      ],
+    });
+
+    expect(status).toEqual({
+      access: 'readonly',
+      effect: 'default',
+      showEffectBadge: false,
+    });
   });
 
   it('formats readonly object values with stable keys and circular guards', () => {

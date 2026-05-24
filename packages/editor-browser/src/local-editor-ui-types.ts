@@ -61,6 +61,8 @@ export type LocalEditorBrowserInspectorControlKind =
 
 export type LocalEditorBrowserInspectorCommitMode = 'live' | 'blur' | 'change' | 'immediate';
 
+export type LocalEditorBrowserInspectorEffectMode = 'active' | 'default' | 'derived' | 'runtime' | 'unsupported';
+
 export type LocalEditorBrowserInspectorEditSource =
   | 'input'
   | 'toggle'
@@ -100,6 +102,8 @@ export interface LocalEditorBrowserInspectorProperty<TDocument = unknown> {
   order?: number;
   tags?: readonly string[];
   tooltip?: string;
+  effect?: LocalEditorBrowserInspectorEffectMode;
+  disabledReason?: string;
   placeholder?: string;
   min?: number;
   max?: number;
@@ -117,6 +121,8 @@ export interface LocalEditorBrowserInspectorSection<TDocument = unknown> {
   collapsedByDefault?: boolean;
   persistence?: LocalEditorBrowserInspectorPersistenceMode;
   runtimeOnly?: boolean;
+  effect?: LocalEditorBrowserInspectorEffectMode;
+  disabledReason?: string;
   tags?: readonly string[];
   properties: LocalEditorBrowserInspectorProperty<TDocument>[];
 }

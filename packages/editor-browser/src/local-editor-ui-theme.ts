@@ -33,6 +33,7 @@ export function ensureLocalEditorTheme(doc: Document): void {
       --fps-editor-field: #141414;
       --fps-editor-border: #383838;
       --fps-editor-border-soft: #303030;
+      --fps-editor-inspector-section-border: rgba(255, 255, 255, 0.22);
       --fps-editor-divider: #101010;
       --fps-editor-text: #e6e6e6;
       --fps-editor-text-strong: #ffffff;
@@ -42,6 +43,12 @@ export function ensureLocalEditorTheme(doc: Document): void {
       --fps-editor-accent: #2d75d6;
       --fps-editor-accent-soft: rgba(45, 117, 214, 0.28);
       --fps-editor-accent-strong: #58a6ff;
+      --fps-editor-editable-bg: #101821;
+      --fps-editor-editable-border: rgba(88, 166, 255, 0.58);
+      --fps-editor-editable-shadow: 0 0 0 1px rgba(45, 117, 214, 0.18) inset;
+      --fps-editor-readonly-bg: rgba(255, 255, 255, 0.035);
+      --fps-editor-readonly-border: rgba(255, 255, 255, 0.075);
+      --fps-editor-readonly-text: #c8c8c8;
       --fps-editor-warn: #e5b454;
       --fps-editor-warn-soft: rgba(248, 196, 79, 0.08);
       --fps-editor-warn-border: rgba(229, 180, 84, 0.45);
@@ -84,6 +91,7 @@ export function ensureLocalEditorTheme(doc: Document): void {
       --fps-editor-field: #fafafa;
       --fps-editor-border: #d4d4d4;
       --fps-editor-border-soft: #e5e5e5;
+      --fps-editor-inspector-section-border: rgba(0, 0, 0, 0.22);
       --fps-editor-divider: #e5e5e5;
       --fps-editor-text: #242424;
       --fps-editor-text-strong: #111111;
@@ -93,6 +101,12 @@ export function ensureLocalEditorTheme(doc: Document): void {
       --fps-editor-accent: #2563eb;
       --fps-editor-accent-soft: rgba(37, 99, 235, 0.14);
       --fps-editor-accent-strong: #1d4ed8;
+      --fps-editor-editable-bg: #ffffff;
+      --fps-editor-editable-border: rgba(37, 99, 235, 0.42);
+      --fps-editor-editable-shadow: 0 0 0 1px rgba(37, 99, 235, 0.08) inset;
+      --fps-editor-readonly-bg: rgba(0, 0, 0, 0.035);
+      --fps-editor-readonly-border: rgba(0, 0, 0, 0.075);
+      --fps-editor-readonly-text: #4f4f4f;
       --fps-editor-warn: #a16207;
       --fps-editor-warn-soft: rgba(161, 98, 7, 0.10);
       --fps-editor-warn-border: rgba(161, 98, 7, 0.34);
