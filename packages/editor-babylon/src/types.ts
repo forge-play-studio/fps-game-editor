@@ -41,6 +41,15 @@ export type BabylonRuntimeGlobal = {
     CreateCapsule?: (name: string, options: Record<string, unknown>, scene: RuntimeScene) => any;
   };
   StandardMaterial?: new (name: string, scene: RuntimeScene) => any;
+  ShaderMaterial?: new (
+    name: string,
+    scene: RuntimeScene,
+    shaderPath: string | Record<string, unknown>,
+    options?: Record<string, unknown>,
+  ) => any;
+  Effect?: {
+    ShadersStore?: Record<string, string>;
+  };
   Inspector?: any;
   DebugLayerTab?: any;
   InstancedMesh?: any;

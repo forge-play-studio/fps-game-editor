@@ -95,6 +95,7 @@ import {
   type BabylonTransformGizmoDuplicateDragInput,
   type BabylonTransformGizmoDuplicateDragResult,
   type BabylonEditorWorld,
+  type BabylonEditorSkyOptions,
   type BabylonRuntimeGlobal,
 } from '@fps-games/editor-babylon';
 
@@ -370,6 +371,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     cameraTarget?: { x: number; y: number; z: number };
     cameraRadius?: number;
     clearColor?: { r: number; g: number; b: number; a: number };
+    sky?: BabylonEditorSkyOptions | false;
     useRightHandedSystem?: boolean;
   };
   inspector?: LocalEditorHarnessInspectorOptions<TDocument>;
@@ -864,6 +866,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     cameraTarget: options.world?.cameraTarget,
     cameraRadius: options.world?.cameraRadius,
     clearColor: options.world?.clearColor,
+    sky: options.world?.sky,
     useRightHandedSystem: options.world?.useRightHandedSystem,
     enableDefaultCameraControls: false,
   });

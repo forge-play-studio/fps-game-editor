@@ -3,6 +3,11 @@ import type {
   RuntimeCamera,
   RuntimeScene,
 } from './types';
+import {
+  createBabylonEditorSkyBackdrop,
+  type BabylonEditorSkyBackdrop,
+  type BabylonEditorSkyOptions,
+} from './editor-sky';
 
 export interface BabylonEditorWorldOptions {
   engine: any;
@@ -11,6 +16,7 @@ export interface BabylonEditorWorldOptions {
   cameraTarget?: { x: number; y: number; z: number };
   cameraRadius?: number;
   clearColor?: { r: number; g: number; b: number; a: number };
+  sky?: BabylonEditorSkyOptions | false;
   useRightHandedSystem?: boolean;
   enableGizmoManager?: boolean;
   enableDefaultCameraControls?: boolean;
@@ -20,6 +26,7 @@ export interface BabylonEditorWorld {
   scene: RuntimeScene;
   camera: RuntimeCamera;
   gizmoManager: any | null;
+  skyBackdrop: BabylonEditorSkyBackdrop | null;
   render(): void;
   dispose(): void;
 }
@@ -45,6 +52,11 @@ export function createBabylonEditorWorld(options: BabylonEditorWorldOptions): Ba
       options.clearColor.a,
     );
   }
+  const skyBackdrop = createBabylonEditorSkyBackdrop({
+    babylon: options.babylon,
+    scene,
+    sky: options.sky,
+  });
 
   const target = options.cameraTarget ?? { x: 0, y: 0.8, z: 0 };
   let camera: RuntimeCamera;
@@ -88,10 +100,12 @@ export function createBabylonEditorWorld(options: BabylonEditorWorldOptions): Ba
     scene,
     camera,
     gizmoManager,
+    skyBackdrop,
     render() {
       scene.render();
     },
     dispose() {
+      skyBackdrop?.dispose();
       gizmoManager?.dispose?.();
       scene.dispose();
     },
