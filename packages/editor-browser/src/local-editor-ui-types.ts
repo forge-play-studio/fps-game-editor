@@ -241,6 +241,10 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
     enabled: boolean;
     available: boolean;
   } | null;
+  grid?: {
+    visible: boolean;
+    available: boolean;
+  } | null;
   session?: {
     source?: LocalEditorBrowserAuthoringSource | null;
     dirty: boolean;
@@ -407,6 +411,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onPlacementModeChange?: (mode: LocalEditorBrowserPlacementMode) => void;
   onTransformAction?: (action: LocalEditorBrowserTransformAction) => void;
   onSceneCameraPreviewToggle?: (enabled: boolean) => void;
+  onGridVisibleChange?: (visible: boolean) => void;
   onFocusSelection?: () => void;
   onCancelActiveOperation?: () => void;
   onSceneGraphRename?: (intent: LocalEditorBrowserSceneGraphRenameIntent) => void;

@@ -731,12 +731,17 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const themeToggleButton = LocalEditorShared.createButton(doc, '主题', { icon: 'theme' });
   themeToggleButton.dataset.editorThemeToggle = 'true';
   themeToggleButton.style.padding = '5px 7px';
+  const gridToggleButton = LocalEditorShared.createButton(doc, '网格', { icon: 'grid' });
+  gridToggleButton.dataset.editorGridToggle = 'true';
+  gridToggleButton.title = '显示 / 隐藏 Scene View 网格';
+  gridToggleButton.style.padding = '5px 7px';
   const sceneHelpButton = LocalEditorShared.createButton(doc, '快捷键', { icon: 'help' });
   sceneHelpButton.style.padding = '5px 7px';
   sceneQuickActions.appendChild(localTestGroup);
   sceneQuickActions.appendChild(undoButton);
   sceneQuickActions.appendChild(redoButton);
   sceneQuickActions.appendChild(dirtyBadge);
+  sceneUtilityActions.appendChild(gridToggleButton);
   sceneUtilityActions.appendChild(themeToggleButton);
   sceneUtilityActions.appendChild(sceneHelpButton);
   const cameraPreviewGroup = doc.createElement('div');
@@ -1100,6 +1105,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   });
   undoButton.addEventListener('click', () => callbacks.onUndo?.());
   redoButton.addEventListener('click', () => callbacks.onRedo?.());
+  gridToggleButton.addEventListener('click', () => {
+    const visible = currentState?.grid?.visible ?? true;
+    callbacks.onGridVisibleChange?.(!visible);
+  });
   sceneCameraButton.addEventListener('click', () => {
     const enabled = currentState?.sceneCameraPreview?.enabled ?? false;
     callbacks.onSceneCameraPreviewToggle?.(!enabled);
@@ -1391,7 +1400,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!inEditor || disabled) contextMenu.close();
     hostChrome.style.display = !inEditor && localTestActionsEnabled ? 'flex' : 'none';
     enterEditorButton.disabled = disabled;
-    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton]) {
+    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton, gridToggleButton]) {
       button.style.display = 'inline-flex';
       button.disabled = disabled;
     }
@@ -1410,6 +1419,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       ? '从 Main Camera 查看当前场景'
       : '当前场景没有可预览的 Main Camera';
     LocalEditorShared.applyButtonActiveState(sceneCameraButton, sceneCameraPreview.enabled);
+    const gridState = state.grid ?? { visible: false, available: false };
+    gridToggleButton.disabled = disabled || !gridState.available;
+    gridToggleButton.title = gridState.visible ? '隐藏 Scene View 网格' : '显示 Scene View 网格';
+    LocalEditorShared.applyButtonActiveState(gridToggleButton, gridState.visible);
     for (const [tool, button] of toolButtons) {
       button.disabled = disabled;
       LocalEditorShared.applyButtonActiveState(button, transformTool?.activeTool === tool);

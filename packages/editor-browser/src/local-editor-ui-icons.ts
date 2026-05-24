@@ -6,6 +6,7 @@ export const LOCAL_EDITOR_ICON_NAMES = [
   'discard',
   'execute',
   'group',
+  'grid',
   'help',
   'hierarchy',
   'history',
@@ -72,6 +73,10 @@ const LOCAL_EDITOR_ICON_DEFINITIONS = {
     { tag: 'rect', attrs: { x: '5', y: '5', width: '7', height: '7', rx: '1.5' } },
     { tag: 'rect', attrs: { x: '12', y: '12', width: '7', height: '7', rx: '1.5' } },
     { tag: 'path', attrs: { d: 'M8.5 12v3.5H12M12 8.5h3.5V12' } },
+  ],
+  grid: [
+    { tag: 'path', attrs: { d: 'M4 8h16M4 12h16M4 16h16' } },
+    { tag: 'path', attrs: { d: 'M8 4v16M12 4v16M16 4v16' } },
   ],
   help: [
     { tag: 'circle', attrs: { cx: '12', cy: '12', r: '9' } },

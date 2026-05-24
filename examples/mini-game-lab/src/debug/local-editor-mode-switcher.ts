@@ -13,6 +13,7 @@ import type {
   BabylonEditorProjectionNode,
   BabylonSceneCameraPreviewRig,
 } from '@fps-games/editor-babylon';
+import { createBabylonEditorInfiniteGrid } from '@fps-games/editor-babylon';
 import baseSceneConfig from '../config/scene.json';
 import type { SceneAssetConfig, SceneConfig } from '../config/types';
 import type { EditorSceneDocument } from '../fps-game-editor-adapter/editor-scene-document';
@@ -200,23 +201,13 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
   };
 }
 
-function createEditorGrid(BABYLON: BabylonModule, scene: any): void {
-  if (!scene || !BABYLON.MeshBuilder || !BABYLON.Vector3 || !BABYLON.Color3) return;
-
-  const gridSize = 24;
-  const gridColor = new BABYLON.Color3(0.18, 0.27, 0.42);
-  const axisXColor = new BABYLON.Color3(0.8, 0.22, 0.22);
-  const axisZColor = new BABYLON.Color3(0.22, 0.55, 0.85);
-  for (let i = -gridSize; i <= gridSize; i += 1) {
-    const xLine = BABYLON.MeshBuilder.CreateLines(`editor-grid-x-${i}`, {
-      points: [new BABYLON.Vector3(-gridSize, 0, i), new BABYLON.Vector3(gridSize, 0, i)],
-    }, scene);
-    xLine.color = i === 0 ? axisXColor : gridColor;
-    const zLine = BABYLON.MeshBuilder.CreateLines(`editor-grid-z-${i}`, {
-      points: [new BABYLON.Vector3(i, 0, -gridSize), new BABYLON.Vector3(i, 0, gridSize)],
-    }, scene);
-    zLine.color = i === 0 ? axisZColor : gridColor;
-  }
+function createEditorGrid(BABYLON: BabylonModule, scene: any) {
+  return createBabylonEditorInfiniteGrid({
+    babylon: BABYLON,
+    scene,
+    name: 'mini-game-editor-grid',
+    halfLineCount: 96,
+  });
 }
 
 export function createProjectionNodes(editorScene: EditorSceneDocument): BabylonEditorProjectionNode[] {

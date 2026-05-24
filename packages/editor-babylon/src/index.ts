@@ -5,6 +5,7 @@ export * from './event-guard';
 export * from './input-controller';
 export * from './inspector-adapter';
 export * from './inspector-host';
+export * from './infinite-grid';
 export * from './material-property-adapter';
 export * from './monitor';
 export * from './outline-adapter';
