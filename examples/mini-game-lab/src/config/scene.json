@@ -8,10 +8,10 @@
     "generatedFrom": {
       "sourceId": "scene.main",
       "sourceType": "scene",
-      "revision": 17,
+      "revision": 18,
       "compilerId": "lumber_order.editor-scene.compiler",
       "compilerVersion": "1",
-      "compiledAt": "2026-05-21T09:20:17.111Z"
+      "compiledAt": "2026-05-24T15:41:11.084Z"
     }
   },
   "gameplay": {
@@ -271,7 +271,7 @@
         "source": {
           "sourceId": "scene.main",
           "sourceType": "scene",
-          "revision": 17,
+          "revision": 18,
           "objectId": "mvp_root",
           "component": "GameObject"
         },
@@ -301,7 +301,7 @@
         "source": {
           "sourceId": "scene.main",
           "sourceType": "scene",
-          "revision": 17,
+          "revision": 18,
           "objectId": "mvp_tree_01",
           "component": "ModelRenderer"
         },
@@ -334,7 +334,7 @@
         "source": {
           "sourceId": "scene.main",
           "sourceType": "scene",
-          "revision": 17,
+          "revision": 18,
           "objectId": "mvp_tree_02",
           "component": "ModelRenderer"
         },
@@ -363,23 +363,24 @@
       {
         "id": "tree_lv1",
         "name": "Tree Lv1",
+        "parentId": "mvp_root",
         "source": {
           "sourceId": "scene.main",
           "sourceType": "scene",
-          "revision": 17,
+          "revision": 18,
           "objectId": "tree_lv1",
           "component": "ModelRenderer"
         },
         "transform": {
           "position": {
-            "x": -2.002983570098877,
-            "y": 8.766771486534708e-8,
-            "z": 8.917222023010254
+            "x": -4.127793084653442,
+            "y": 8.881784197001252e-16,
+            "z": 9.180815165578407
           },
           "rotation": {
+            "z": 0,
             "x": 0,
-            "y": 0,
-            "z": 0
+            "y": 0
           },
           "scale": {
             "x": 1,
@@ -395,23 +396,24 @@
       {
         "id": "fence",
         "name": "Fence",
+        "parentId": "mvp_root",
         "source": {
           "sourceId": "scene.main",
           "sourceType": "scene",
-          "revision": 17,
+          "revision": 18,
           "objectId": "fence",
           "component": "ModelRenderer"
         },
         "transform": {
           "position": {
-            "x": 7.183664269001214,
-            "y": 8.766771397716866e-8,
-            "z": 12.058139923904239
+            "x": 5.0588547544466484,
+            "y": 0,
+            "z": 12.321733066472392
           },
           "rotation": {
+            "z": 0,
             "x": 0,
-            "y": 0,
-            "z": 0
+            "y": 0
           },
           "scale": {
             "x": 1,
@@ -427,23 +429,24 @@
       {
         "id": "board_compressor_lv1",
         "name": "木板压缩机",
+        "parentId": "mvp_root",
         "source": {
           "sourceId": "scene.main",
           "sourceType": "scene",
-          "revision": 17,
+          "revision": 18,
           "objectId": "board_compressor_lv1",
           "component": "ModelRenderer"
         },
         "transform": {
           "position": {
-            "x": -3.496782064437866,
-            "y": -0.40842053294181824,
-            "z": 8.736801147460938
+            "x": -5.621591578992431,
+            "y": -0.4084206206095322,
+            "z": 9.00039429002909
           },
           "rotation": {
+            "z": 0,
             "x": 0,
-            "y": 0,
-            "z": 0
+            "y": 0
           },
           "scale": {
             "x": 1,
@@ -459,23 +462,24 @@
       {
         "id": "fence_2",
         "name": "围栏",
+        "parentId": "mvp_root",
         "source": {
           "sourceId": "scene.main",
           "sourceType": "scene",
-          "revision": 17,
+          "revision": 18,
           "objectId": "fence_2",
           "component": "ModelRenderer"
         },
         "transform": {
           "position": {
-            "x": -12.590632438659668,
-            "y": 8.766771486534708e-8,
-            "z": -4.553765296936035
+            "x": -14.715441953214233,
+            "y": 8.881784197001252e-16,
+            "z": -4.290172154367882
           },
           "rotation": {
+            "z": 0,
             "x": 0,
-            "y": -1.5674126408514428,
-            "z": 0
+            "y": -1.567412640851443
           },
           "scale": {
             "x": 0.9999998834125985,
@@ -491,18 +495,52 @@
       {
         "id": "peeler",
         "name": "削皮器",
+        "parentId": "mvp_root",
         "source": {
           "sourceId": "scene.main",
           "sourceType": "scene",
-          "revision": 17,
+          "revision": 18,
           "objectId": "peeler",
           "component": "ModelRenderer"
         },
         "transform": {
           "position": {
-            "x": 6.328696250915527,
-            "y": 0,
-            "z": 14.931673049926758
+            "x": 4.203886736360962,
+            "y": -8.766771397716866e-8,
+            "z": 15.19526619249491
+          },
+          "rotation": {
+            "z": 0,
+            "x": 0,
+            "y": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "instance",
+        "instance": {
+          "assetId": "asset_peeler"
+        }
+      },
+      {
+        "id": "main_camera",
+        "name": "Main Camera",
+        "parentId": "mvp_root",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 18,
+          "objectId": "main_camera",
+          "component": "Transform"
+        },
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 5,
+            "z": -8
           },
           "rotation": {
             "x": 0,
@@ -515,9 +553,250 @@
             "z": 1
           }
         },
-        "kind": "instance",
-        "instance": {
-          "assetId": "asset_peeler"
+        "kind": "transform",
+        "transformType": "camera",
+        "camera": {
+          "alpha": 3.9269908169872414,
+          "beta": 0.8,
+          "radius": 14,
+          "orthoSize": 6
+        }
+      },
+      {
+        "id": "sun_light",
+        "name": "Sun Light",
+        "parentId": "mvp_root",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 18,
+          "objectId": "sun_light",
+          "component": "Transform"
+        },
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 4,
+            "z": -3
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "transform",
+        "transformType": "light",
+        "light": {
+          "type": "directional",
+          "intensity": 2,
+          "direction": {
+            "x": -0.3,
+            "y": -1,
+            "z": -0.2
+          },
+          "diffuseColor": {
+            "r": 1,
+            "g": 1,
+            "b": 1
+          }
+        }
+      },
+      {
+        "id": "group_2",
+        "name": "Group",
+        "parentId": "mvp_root",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 18,
+          "objectId": "group_2",
+          "component": "GameObject"
+        },
+        "transform": {
+          "position": {
+            "x": -5.719079982312744,
+            "y": -8.766771397716866e-8,
+            "z": -0.43562012380452764
+          },
+          "rotation": {
+            "z": 0,
+            "x": 0,
+            "y": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "group"
+      },
+      {
+        "id": "group",
+        "name": "Group",
+        "parentId": "group_2",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 18,
+          "objectId": "group",
+          "component": "GameObject"
+        },
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "z": 0,
+            "x": 0,
+            "y": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "group"
+      },
+      {
+        "id": "cube",
+        "name": "Cube",
+        "parentId": "group",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 18,
+          "objectId": "cube",
+          "component": "PrimitiveRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "z": 0,
+            "x": 0,
+            "y": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "primitive",
+        "primitive": {
+          "shape": "cube"
+        }
+      },
+      {
+        "id": "sphere",
+        "name": "Sphere",
+        "parentId": "mvp_root",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 18,
+          "objectId": "sphere",
+          "component": "PrimitiveRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": -3.264646898778503,
+            "y": -8.766771397716866e-8,
+            "z": 0.9191969686141426
+          },
+          "rotation": {
+            "z": 0,
+            "x": 0,
+            "y": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "primitive",
+        "primitive": {
+          "shape": "sphere"
+        }
+      },
+      {
+        "id": "capsule",
+        "name": "Capsule",
+        "parentId": "sphere",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 18,
+          "objectId": "capsule",
+          "component": "PrimitiveRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": 4.739837384223938,
+            "y": 0,
+            "z": 2.94439617395401
+          },
+          "rotation": {
+            "z": 0,
+            "x": 0,
+            "y": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "kind": "primitive",
+        "primitive": {
+          "shape": "capsule"
+        }
+      },
+      {
+        "id": "plane",
+        "name": "Plane",
+        "parentId": "capsule",
+        "source": {
+          "sourceId": "scene.main",
+          "sourceType": "scene",
+          "revision": 18,
+          "objectId": "plane",
+          "component": "PrimitiveRenderer"
+        },
+        "transform": {
+          "position": {
+            "x": -7.199999999999999,
+            "y": 0,
+            "z": 1.8000000000000003
+          },
+          "rotation": {
+            "z": 0,
+            "x": 0,
+            "y": 0
+          },
+          "scale": {
+            "x": 10,
+            "y": 1,
+            "z": 10
+          }
+        },
+        "kind": "primitive",
+        "primitive": {
+          "shape": "plane"
         }
       }
     ],
@@ -2136,7 +2415,7 @@
       ]
     }
   },
-  "version": 373,
-  "updatedAt": "2026-05-21T09:20:17.112Z",
+  "version": 374,
+  "updatedAt": "2026-05-24T15:41:11.085Z",
   "groundDecals": []
 }

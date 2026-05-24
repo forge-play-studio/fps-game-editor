@@ -35,7 +35,10 @@ export type BabylonRuntimeGlobal = {
   UtilityLayerRenderer?: any;
   PointerDragBehavior?: any;
   MeshBuilder?: {
+    CreateBox?: (name: string, options: Record<string, unknown>, scene: RuntimeScene) => any;
     CreateSphere?: (name: string, options: Record<string, unknown>, scene: RuntimeScene) => any;
+    CreateGround?: (name: string, options: Record<string, unknown>, scene: RuntimeScene) => any;
+    CreateCapsule?: (name: string, options: Record<string, unknown>, scene: RuntimeScene) => any;
   };
   StandardMaterial?: new (name: string, scene: RuntimeScene) => any;
   Inspector?: any;

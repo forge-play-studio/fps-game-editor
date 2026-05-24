@@ -14,6 +14,7 @@ import type {
   SceneAssetConfig,
   SceneAssetMaterialMode,
   SceneInstanceNode,
+  ScenePrimitiveNode,
   SceneTransformNode,
   SceneMaterialScope,
   SceneNodeVisualOverrides,
@@ -539,14 +540,14 @@ export class ConfigService {
   }
 
   private normalizeSceneNode(node: SceneNodeConfig): void {
-    if (node.kind !== 'instance' && node.kind !== 'transform') return;
+    if (node.kind !== 'instance' && node.kind !== 'transform' && node.kind !== 'primitive') return;
     this.normalizeSceneVisualNode(node);
     if (node.kind === 'transform') {
       this.normalizeSceneTransformNode(node);
     }
   }
 
-  private normalizeSceneVisualNode(node: SceneInstanceNode | SceneTransformNode): void {
+  private normalizeSceneVisualNode(node: SceneInstanceNode | SceneTransformNode | ScenePrimitiveNode): void {
     const normalizedOverrides = normalizeSceneNodeOverrides(node.overrides);
     if (normalizedOverrides) {
       node.overrides = normalizedOverrides;

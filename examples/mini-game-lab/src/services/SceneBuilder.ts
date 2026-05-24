@@ -40,6 +40,7 @@ import {
   type SceneCameraRigConfig,
   type SceneDirectionalLightConfig,
   type SceneInstanceNode,
+  type ScenePrimitiveNode,
   type SceneSharedMaterialConfig,
   type SceneNodeConfig,
   type SceneRuntimeSourceBinding,
@@ -415,6 +416,13 @@ export class SceneBuilder {
       return runtimeNode;
     }
 
+    if (nodeConfig.kind === 'primitive') {
+      this.applyNodeMaterialEntries(nodeConfig, runtimeNode);
+      this.applySceneNodeOverrides(nodeConfig, runtimeNode);
+      this.sceneNodeCleanup.set(nodeConfig.id, null);
+      return runtimeNode;
+    }
+
     if (nodeConfig.kind !== 'instance') {
       this.sceneNodeCleanup.set(nodeConfig.id, null);
       return runtimeNode;
@@ -435,7 +443,38 @@ export class SceneBuilder {
       }, this.scene) as unknown as TransformNode;
     }
 
+    if (nodeConfig.kind === 'primitive') {
+      return this.createPrimitiveRuntimeNode(nodeConfig);
+    }
+
     return new TransformNode(nodeConfig.name ?? nodeConfig.id, this.scene);
+  }
+
+  private createPrimitiveRuntimeNode(nodeConfig: ScenePrimitiveNode): TransformNode {
+    const builder = MeshBuilder as unknown as {
+      CreateBox?: typeof MeshBuilder.CreateBox;
+      CreateSphere?: typeof MeshBuilder.CreateSphere;
+      CreateGround?: typeof MeshBuilder.CreateGround;
+      CreateCapsule?: (name: string, options: Record<string, unknown>, scene: Scene) => unknown;
+      CreateCylinder?: typeof MeshBuilder.CreateCylinder;
+    };
+    const name = nodeConfig.name ?? nodeConfig.id;
+    const shape = nodeConfig.primitive.shape;
+    const mesh = shape === 'sphere'
+      ? builder.CreateSphere?.(name, { diameter: 1, segments: 32 }, this.scene)
+      : shape === 'plane'
+        ? builder.CreateGround?.(name, { width: 1, height: 1, subdivisions: 1 }, this.scene)
+        : shape === 'capsule'
+          ? builder.CreateCapsule?.(name, { height: 2, radius: 0.5, tessellation: 24, subdivisions: 8 }, this.scene)
+            ?? builder.CreateCylinder?.(name, { height: 2, diameter: 1, tessellation: 24 }, this.scene)
+          : builder.CreateBox?.(name, { size: 1 }, this.scene);
+    const runtimeNode = (mesh ?? new TransformNode(name, this.scene)) as TransformNode;
+    const material = new StandardMaterial(`${nodeConfig.id}_primitive_mat`, this.scene);
+    material.diffuseColor = new Color3(0.72, 0.74, 0.76);
+    material.specularColor = new Color3(0.12, 0.14, 0.16);
+    if (shape === 'plane') material.backFaceCulling = false;
+    (runtimeNode as any).material = material;
+    return runtimeNode;
   }
 
   private async attachInstanceAssetAsync(
@@ -1037,14 +1076,14 @@ export class SceneBuilder {
   }
 
   private applySceneNodeOverrides(
-    nodeConfig: SceneInstanceNode | SceneTransformNode,
+    nodeConfig: SceneInstanceNode | SceneTransformNode | ScenePrimitiveNode,
     rootNode: TransformNode,
     asset?: SceneAssetConfig,
   ): void {
     const overrides = nodeConfig.overrides;
     if (!overrides) return;
 
-    if (nodeConfig.kind === 'transform') {
+    if (nodeConfig.kind === 'transform' || nodeConfig.kind === 'primitive') {
       this.applyChildTransforms(rootNode, overrides.childTransforms);
     }
 

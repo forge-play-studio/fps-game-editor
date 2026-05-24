@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rules = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../src/config/scene-json-v2-rules.json'), 'utf8'));
 const NODE_KINDS = new Set(rules.nodeKinds);
+const PRIMITIVE_SHAPES = new Set(rules.primitiveShapes);
 const TRANSFORM_TYPES = new Set(rules.transformTypes);
 const ASSET_TYPES = new Set(rules.assetTypes);
 const MATERIAL_SCOPES = new Set(rules.materialScopes);
@@ -77,7 +78,7 @@ export function validateSceneJsonV2(sceneConfig, {
     if (!nonEmptyString(node.id)) add(`${path}.id`, 'node.id must be a non-empty string');
     else if (nodeIds.has(node.id)) duplicateNodeIds.add(node.id);
     else nodeIds.add(node.id);
-    if (!NODE_KINDS.has(node.kind)) add(`${path}.kind`, 'node.kind must be group, instance, or transform');
+    if (!NODE_KINDS.has(node.kind)) add(`${path}.kind`, 'node.kind must be group, instance, transform, or primitive');
   });
 
   for (const id of duplicateAssetIds) add('$.scene.assets', `duplicate asset id: ${id}`);
@@ -96,6 +97,13 @@ export function validateSceneJsonV2(sceneConfig, {
       if (!isObject(node.instance)) add(`${path}.instance`, 'instance node must contain instance object');
       else if (!assetIds.has(node.instance.assetId)) {
         add(`${path}.instance.assetId`, `assetId must reference scene.assets: ${node.instance.assetId}`);
+      }
+    }
+
+    if (node.kind === 'primitive') {
+      if (!isObject(node.primitive)) add(`${path}.primitive`, 'primitive node must contain primitive object');
+      else if (!PRIMITIVE_SHAPES.has(node.primitive.shape)) {
+        add(`${path}.primitive.shape`, 'primitive.shape must be cube, sphere, plane, or capsule');
       }
     }
 

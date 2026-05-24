@@ -1,5 +1,6 @@
 {
-  "nodeKinds": ["group", "instance", "transform"],
+  "nodeKinds": ["group", "instance", "transform", "primitive"],
+  "primitiveShapes": ["cube", "sphere", "plane", "capsule"],
   "transformTypes": ["plain", "light", "camera", "groundDecal"],
   "assetTypes": ["glb"],
   "materialScopes": ["sharedAsset", "nodeMaterial"],

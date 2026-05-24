@@ -15,6 +15,7 @@ export interface SceneJsonV2ValidationOptions {
 }
 
 const NODE_KINDS = new Set(sceneJsonV2Rules.nodeKinds);
+const PRIMITIVE_SHAPES = new Set(sceneJsonV2Rules.primitiveShapes);
 const ASSET_TYPES = new Set(sceneJsonV2Rules.assetTypes);
 const MATERIAL_MODES = new Set(sceneJsonV2Rules.materialModes);
 const MATERIAL_SCOPES = new Set(sceneJsonV2Rules.materialScopes);
@@ -95,7 +96,7 @@ export function validateSceneJsonV2(
       nodeIds.add(node.id);
       if (typeof node.kind === 'string') nodeKinds.set(node.id, node.kind);
     }
-    if (!NODE_KINDS.has(node.kind)) add(`${path}.kind`, 'node.kind must be group, instance, or transform');
+    if (!NODE_KINDS.has(node.kind)) add(`${path}.kind`, 'node.kind must be group, instance, transform, or primitive');
   });
 
   scene.nodes.forEach((node, index) => {
@@ -110,6 +111,12 @@ export function validateSceneJsonV2(
       if (!isRecord(node.instance)) add(`${path}.instance`, 'instance node must contain instance object');
       else if (!assetIds.has(node.instance.assetId)) {
         add(`${path}.instance.assetId`, `assetId must reference scene.assets: ${node.instance.assetId}`);
+      }
+    }
+    if (node.kind === 'primitive') {
+      if (!isRecord(node.primitive)) add(`${path}.primitive`, 'primitive node must contain primitive object');
+      else if (!PRIMITIVE_SHAPES.has(node.primitive.shape)) {
+        add(`${path}.primitive.shape`, 'primitive.shape must be cube, sphere, plane, or capsule');
       }
     }
     if (node.kind === 'transform' && node.transformType != null && !TRANSFORM_TYPES.has(node.transformType)) {
@@ -133,7 +140,7 @@ export function validateSceneJsonV2(
       validateGroundDecal(node.groundDecal, `${path}.groundDecal`, add);
     }
     const visualOverrides = (node as Record<string, any>).overrides;
-    if (node.kind === 'instance' || node.kind === 'transform') {
+    if (node.kind === 'instance' || node.kind === 'transform' || node.kind === 'primitive') {
       validateVisualOverrides(visualOverrides, `${path}.overrides`, add);
     } else if (visualOverrides != null) {
       add(`${path}.overrides`, 'group nodes do not support visual overrides');
@@ -172,8 +179,8 @@ export function validateSceneJsonV2(
         add(`${path}.nodeId`, `node material nodeId must reference scene.nodes: ${material.nodeId}`);
       } else if (nodeIds.has(material.nodeId)) {
         const nodeKind = nodeKinds.get(material.nodeId);
-        if (nodeKind !== 'instance' && nodeKind !== 'transform') {
-          add(`${path}.nodeId`, `node material nodeId must reference an instance or transform node: ${material.nodeId}`);
+        if (nodeKind !== 'instance' && nodeKind !== 'transform' && nodeKind !== 'primitive') {
+          add(`${path}.nodeId`, `node material nodeId must reference an instance, transform, or primitive node: ${material.nodeId}`);
         }
       }
       if (material.assetId != null) add(`${path}.assetId`, 'node material must not set assetId');

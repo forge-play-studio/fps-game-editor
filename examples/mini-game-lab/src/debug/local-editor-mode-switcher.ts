@@ -18,6 +18,7 @@ import type { SceneAssetConfig, SceneConfig } from '../config/types';
 import type { EditorSceneDocument } from '../fps-game-editor-adapter/editor-scene-document';
 import {
   findEditorSceneModelRenderer,
+  findEditorScenePrimitiveRenderer,
   findEditorSceneTransform,
   type EditorSceneAssetLibraryItem,
   type EditorSceneGameObject,
@@ -26,6 +27,7 @@ import { enrichEditorSceneDocumentAssets } from '../fps-game-editor-adapter/edit
 import {
   collectEditorSceneSubtreeIdList,
   createEditorSceneCreateGroupPatch,
+  createEditorSceneCreatePrimitivePatch,
   createEditorSceneDeleteSubtreePatch,
   createEditorSceneDuplicateSelectionPatch,
   createEditorSceneGroupSelectionPatch,
@@ -131,6 +133,7 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
       validateSceneGraphGroupSelection: validateEditorSceneGroupSelection,
       createSceneGraphRenamePatch: createEditorSceneRenamePatch,
       createSceneGraphCreateGroupPatch: createEditorSceneCreateGroupPatch,
+      createSceneGraphCreatePrimitivePatch: createEditorSceneCreatePrimitivePatch,
       createSceneGraphDeletePatch: createEditorSceneDeleteSubtreePatch,
       createSceneGraphDropPatch: createEditorSceneReparentPatch,
       createSceneGraphMovePatch: createEditorSceneHierarchyMovePatch,
@@ -230,6 +233,7 @@ export function createProjectionNode(
   const transform = findEditorSceneTransform(gameObject);
   const worldTransform = getEditorSceneGameObjectWorldTransform(editorScene, gameObject.id);
   const renderer = findEditorSceneModelRenderer(gameObject);
+  const primitive = findEditorScenePrimitiveRenderer(gameObject);
   const asset = renderer
     ? editorScene.assets.find((entry) => entry.id === renderer.assetId)
     : undefined;
@@ -259,6 +263,11 @@ export function createProjectionNode(
           sourceId: asset.sourceId,
           transform: asset.defaults?.transform,
           metadata: asset.metadata,
+        }
+      : null,
+    primitive: primitive
+      ? {
+          shape: primitive.shape,
         }
       : null,
   };

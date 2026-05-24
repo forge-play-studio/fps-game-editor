@@ -12,8 +12,8 @@ type SceneNodeFieldSchemaEntry = {
   allowDelete?: boolean;
 };
 
-const ANY_NODE_KIND = ['group', 'instance', 'transform'] as const;
-const VISUAL_NODE_KIND = ['instance', 'transform'] as const;
+const ANY_NODE_KIND = ['group', 'instance', 'transform', 'primitive'] as const;
+const VISUAL_NODE_KIND = ['instance', 'transform', 'primitive'] as const;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -112,6 +112,7 @@ export const SCENE_NODE_FIELD_SCHEMA: ReadonlyArray<SceneNodeFieldSchemaEntry> =
   { path: 'transform.rotationDeg.z', appliesTo: ANY_NODE_KIND, validate: (value) => value == null || isFiniteNumber(value) },
   { path: 'transform.scale', appliesTo: ANY_NODE_KIND, validate: (value) => value == null || isScale(value) },
   { path: 'instance.assetId', appliesTo: ['instance'], validate: (value) => typeof value === 'string' && value.trim().length > 0, allowDelete: false },
+  { path: 'primitive.shape', appliesTo: ['primitive'], validate: (value) => value === 'cube' || value === 'sphere' || value === 'plane' || value === 'capsule', allowDelete: false },
   { path: 'transformType', appliesTo: ['transform'], validate: (value) => value == null || value === 'plain' || value === 'light' || value === 'camera' || value === 'groundDecal' },
   { path: 'camera.alpha', appliesTo: ['transform'], validate: isFiniteNumber, allowDelete: false },
   { path: 'camera.beta', appliesTo: ['transform'], validate: isFiniteNumber, allowDelete: false },

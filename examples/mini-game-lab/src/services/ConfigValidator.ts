@@ -74,7 +74,7 @@ class ConfigValidator {
       nodeIds.add(node.id);
 
       const kind = (node as { kind?: unknown }).kind;
-      if (kind !== 'group' && kind !== 'transform' && kind !== 'instance') {
+      if (kind !== 'group' && kind !== 'transform' && kind !== 'instance' && kind !== 'primitive') {
         result.errors.push(`scene.nodes[${node.id}] kind "${String(kind)}" 非法`);
       }
 
@@ -88,6 +88,13 @@ class ConfigValidator {
           result.errors.push(`scene.nodes[${node.id}] 缺少 instance.assetId`);
         } else if (!assetIds.has(assetId)) {
           result.errors.push(`scene.nodes[${node.id}] 引用了不存在的 assetId "${assetId}"`);
+        }
+      }
+
+      if (node.kind === 'primitive') {
+        const shape = node.primitive?.shape;
+        if (shape !== 'cube' && shape !== 'sphere' && shape !== 'plane' && shape !== 'capsule') {
+          result.errors.push(`scene.nodes[${node.id}] primitive.shape "${String(shape)}" 非法`);
         }
       }
     }

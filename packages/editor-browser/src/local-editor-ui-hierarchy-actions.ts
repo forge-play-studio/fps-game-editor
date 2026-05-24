@@ -1,4 +1,5 @@
 import type {
+  LocalEditorBrowserPrimitiveShape,
   LocalEditorBrowserSceneGraphGroupSelectionIntent,
   LocalEditorBrowserUiState,
   LocalEditorContextAction,
@@ -10,6 +11,13 @@ import {
   type LocalEditorHierarchyTreeModel,
   type LocalEditorHierarchyTreeNode,
 } from './local-editor-ui-hierarchy-tree';
+
+const HIERARCHY_PRIMITIVE_SHAPES: Array<{ shape: LocalEditorBrowserPrimitiveShape; label: string }> = [
+  { shape: 'cube', label: 'Cube' },
+  { shape: 'sphere', label: 'Sphere' },
+  { shape: 'plane', label: 'Plane' },
+  { shape: 'capsule', label: 'Capsule' },
+];
 
 export type LocalEditorHierarchyAction =
   | { kind: 'context-action'; action: LocalEditorContextAction }
@@ -58,6 +66,7 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
     kind: 'context-action',
     action: { region: 'hierarchy', action: 'create-group', parentId: node.id, activeId },
   });
+  addPrimitiveActions(actions, 'hierarchy.create-child-primitive', node.id, activeId);
   if (groupSelection.action) actions.set('hierarchy.group-selection', groupSelection.action);
   actions.set('hierarchy.delete', {
     kind: 'context-action',
@@ -88,6 +97,10 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
       menuItem('hierarchy.focus', 'Focus in Preview', { shortcut: 'F', disabled: !selectable, disabledReason: 'Protected or locked nodes cannot be focused from Hierarchy.' }),
       menuItem('hierarchy.rename', 'Rename', { disabled: !canRename, disabledReason: 'This node is protected or read-only.' }),
       menuItem('hierarchy.create-child-group', 'Add Empty Group', {
+        disabled: !canCreateChildGroup,
+        disabledReason: 'This node cannot contain children.',
+      }),
+      primitiveItemGroup('hierarchy.create-child-primitive', 'Add', {
         disabled: !canCreateChildGroup,
         disabledReason: 'This node cannot contain children.',
       }),
@@ -127,6 +140,7 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
       activeId: input.state.activeId,
     },
   });
+  addPrimitiveActions(actions, 'hierarchy.create-primitive', null, input.state.activeId);
   if (groupSelection.action) actions.set('hierarchy.group-selection', groupSelection.action);
   actions.set('hierarchy.duplicate', {
     kind: 'context-action',
@@ -150,6 +164,7 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
     actions,
     items: [
       menuItem('hierarchy.create-group', 'Create Empty Group'),
+      primitiveItemGroup('hierarchy.create-primitive', 'Create'),
       menuItem('hierarchy.group-selection', 'Group Selection', {
         disabled: groupSelection.disabled,
         disabledReason: groupSelection.disabledReason,
@@ -325,6 +340,42 @@ function menuItem(
     label,
     ...options,
   };
+}
+
+function addPrimitiveActions(
+  actions: Map<string, LocalEditorHierarchyAction>,
+  prefix: string,
+  parentId: string | null,
+  activeId: string | null,
+): void {
+  for (const primitive of HIERARCHY_PRIMITIVE_SHAPES) {
+    actions.set(`${prefix}.${primitive.shape}`, {
+      kind: 'context-action',
+      action: {
+        region: 'hierarchy',
+        action: 'create-primitive',
+        parentId,
+        activeId,
+        shape: primitive.shape,
+        name: primitive.label,
+      },
+    });
+  }
+}
+
+function primitiveItemGroup(
+  prefix: string,
+  verb: 'Add' | 'Create',
+  options: Partial<LocalEditorContextMenuItem> = {},
+): LocalEditorContextMenuItem {
+  return menuItem(`${prefix}.group`, `${verb} Primitive`, {
+    separatorBefore: true,
+    children: HIERARCHY_PRIMITIVE_SHAPES.map((primitive) => menuItem(
+      `${prefix}.${primitive.shape}`,
+      primitive.label,
+      options,
+    )),
+  });
 }
 
 function clipboardItems(

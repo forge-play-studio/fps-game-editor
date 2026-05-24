@@ -31,6 +31,12 @@ export interface BabylonEditorProjectionAsset {
   metadata?: Record<string, unknown>;
 }
 
+export type BabylonEditorProjectionPrimitiveShape = 'cube' | 'sphere' | 'plane' | 'capsule';
+
+export interface BabylonEditorProjectionPrimitive {
+  shape: BabylonEditorProjectionPrimitiveShape;
+}
+
 export interface BabylonEditorProjectionCameraSettings {
   alpha: number;
   beta: number;
@@ -58,6 +64,7 @@ export interface BabylonEditorProjectionNode {
   active?: boolean;
   transform?: BabylonEditorProjectionTransform;
   asset?: BabylonEditorProjectionAsset | null;
+  primitive?: BabylonEditorProjectionPrimitive | null;
   runtimeKind?: 'camera' | 'light';
   camera?: BabylonEditorProjectionCameraSettings;
   light?: BabylonEditorProjectionDirectionalLightSettings;
@@ -177,6 +184,8 @@ export function createBabylonEditorProjection(
     if (!attachRuntimeProjection(options.babylon, options.scene, node, projection)) {
       if (node.asset && options.importModel) {
         projection.loadPromise = loadModelProjection(options, node, projection);
+      } else if (node.primitive) {
+        attachPrimitiveProjection(options.babylon, options.scene, node, projection);
       } else {
         attachFallbackProjection(options.babylon, options.scene, node, projection, !!node.asset);
       }
@@ -604,6 +613,54 @@ function attachFallbackProjection(
   projection.outlineMeshes = [mesh];
 }
 
+function attachPrimitiveProjection(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+  projection: ProjectedBabylonEditorNode,
+): void {
+  const mesh = createPrimitiveProjectionMesh(babylon, scene, node);
+  if (!mesh) {
+    attachFallbackProjection(babylon, scene, node, projection, true);
+    return;
+  }
+  mesh.parent = projection.root;
+  mesh.isPickable = true;
+  if (mesh.material) projection.runtimeObjects.push(mesh.material);
+  projection.outlineMeshes = [mesh];
+}
+
+function createPrimitiveProjectionMesh(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+): any | null {
+  const MeshBuilder = (babylon as any).MeshBuilder;
+  const StandardMaterial = (babylon as any).StandardMaterial;
+  const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
+  if (!MeshBuilder || !StandardMaterial) return null;
+  const shape = node.primitive?.shape;
+  const name = `${node.id}.${shape ?? 'primitive'}Projection`;
+  const mesh = shape === 'sphere'
+    ? MeshBuilder.CreateSphere?.(name, { diameter: 1, segments: 32 }, scene)
+    : shape === 'plane'
+      ? MeshBuilder.CreateGround?.(name, { width: 1, height: 1, subdivisions: 1 }, scene)
+      : shape === 'capsule'
+        ? MeshBuilder.CreateCapsule?.(name, { height: 2, radius: 0.5, tessellation: 24, subdivisions: 8 }, scene)
+        : MeshBuilder.CreateBox?.(name, { size: 1 }, scene);
+  if (!mesh) return null;
+  const material = new StandardMaterial(`${node.id}.primitive.material`, scene);
+  material.diffuseColor = new Color3(0.72, 0.74, 0.76);
+  material.specularColor = new Color3(0.12, 0.14, 0.16);
+  if (shape === 'plane') material.backFaceCulling = false;
+  mesh.material = material;
+  mesh.metadata = createProjectionMetadata(node.id, {
+    runtimeKind: 'primitive',
+    primitiveShape: shape,
+  });
+  return mesh;
+}
+
 function createFallbackProjectionMesh(
   babylon: BabylonRuntimeGlobal,
   scene: RuntimeScene,
@@ -909,19 +966,34 @@ function syncProjectionSelection(
   projections: Map<string, ProjectedBabylonEditorNode>,
   selection: EditorSelectionState,
 ): void {
-  const Color3 = babylon.Color3;
+  const Color4 = babylon.Color4;
   const selectedIds = new Set(selection.selectedIds);
   for (const [nodeId, projection] of projections) {
     const selected = selectedIds.has(nodeId);
     const active = selection.activeId === nodeId;
     for (const mesh of projection.outlineMeshes) {
-      mesh.renderOutline = selected;
-      mesh.outlineWidth = active ? 0.09 : selected ? 0.055 : 0;
-      if (selected && Color3) {
-        mesh.outlineColor = active
-          ? new Color3(1, 0.94, 0.45)
-          : new Color3(0.35, 0.65, 1);
-      }
+      syncProjectionMeshSelection(mesh, selected, active, Color4);
     }
+  }
+}
+
+function syncProjectionMeshSelection(
+  mesh: any,
+  selected: boolean,
+  active: boolean,
+  Color4?: new (r: number, g: number, b: number, a: number) => any,
+): void {
+  mesh.renderOutline = false;
+  mesh.outlineWidth = 0;
+  if (!selected) {
+    mesh.disableEdgesRendering?.();
+    return;
+  }
+  mesh.enableEdgesRendering?.(0.997);
+  mesh.edgesWidth = active ? 5 : 3.5;
+  if (Color4) {
+    mesh.edgesColor = active
+      ? new Color4(1, 0.9, 0.22, 1)
+      : new Color4(0.35, 0.65, 1, 1);
   }
 }
