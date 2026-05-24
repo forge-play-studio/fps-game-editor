@@ -76,6 +76,9 @@ export function createShortcutHelpPanel(doc: Document): HTMLDivElement {
     ['Cmd/Ctrl + Z', '撤销'],
     ['Cmd/Ctrl + Shift + Z', '重做'],
     ['Ctrl + Y', '重做'],
+    ['Cmd/Ctrl + C', '复制当前选中的 Hierarchy 节点'],
+    ['Cmd/Ctrl + V', '粘贴并复制此前复制的 Hierarchy 节点'],
+    ['Cmd/Ctrl + D', '复制当前选中的 Hierarchy 节点'],
     ['Delete / Backspace', '删除当前选中的 GameObject'],
     ['保存场景', '保存 editor-scene，并编译运行时 scene 数据'],
   ]);

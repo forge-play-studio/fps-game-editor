@@ -321,6 +321,11 @@ export interface LocalEditorBrowserSceneGraphDeleteIntent {
   activeId?: string | null;
 }
 
+export interface LocalEditorBrowserSceneGraphDuplicateIntent {
+  targetIds: string[];
+  activeId?: string | null;
+}
+
 export interface LocalEditorBrowserSceneGraphDropIntent {
   draggedId: string;
   targetId: string;
@@ -362,7 +367,9 @@ export type LocalEditorContextAction =
   | { region: 'hierarchy'; action: 'focus'; targetIds: string[]; activeId: string | null }
   | { region: 'hierarchy'; action: 'rename'; targetId: string }
   | { region: 'hierarchy'; action: 'create-group'; parentId?: string | null; activeId?: string | null }
-  | { region: 'hierarchy'; action: 'delete'; targetIds: string[]; activeId?: string | null };
+  | { region: 'hierarchy'; action: 'delete'; targetIds: string[]; activeId?: string | null }
+  | { region: 'hierarchy'; action: 'duplicate'; targetIds: string[]; activeId?: string | null }
+  | { region: 'hierarchy'; action: 'paste'; sourceIds: string[]; activeId?: string | null };
 
 export interface LocalEditorBrowserUiCallbacks {
   onEnterEditor?: () => void;
@@ -388,6 +395,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onSceneGraphRename?: (intent: LocalEditorBrowserSceneGraphRenameIntent) => void;
   onSceneGraphCreateGroup?: (intent: LocalEditorBrowserSceneGraphCreateGroupIntent) => void;
   onSceneGraphDelete?: (intent: LocalEditorBrowserSceneGraphDeleteIntent) => void;
+  onSceneGraphDuplicate?: (intent: LocalEditorBrowserSceneGraphDuplicateIntent) => void;
   onSceneGraphDrop?: (intent: LocalEditorBrowserSceneGraphDropIntent) => void;
   onSceneGraphMove?: (intent: LocalEditorBrowserSceneGraphMoveIntent) => void;
   onSceneGraphGroupSelection?: (intent: LocalEditorBrowserSceneGraphGroupSelectionIntent) => void;

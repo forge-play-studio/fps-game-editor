@@ -7,8 +7,11 @@ import {
 } from '@fps-games/editor-core';
 export {
   createLocalEditorHierarchyBlankMenu,
+  createLocalEditorHierarchyCopyShortcutAction,
   createLocalEditorHierarchyDeleteShortcutAction,
+  createLocalEditorHierarchyDuplicateShortcutAction,
   createLocalEditorHierarchyNodeMenu,
+  createLocalEditorHierarchyPasteShortcutAction,
 } from './local-editor-ui-hierarchy-actions';
 export {
   createLocalEditorHierarchyController,
@@ -130,6 +133,7 @@ export type {
   LocalEditorBrowserPlacementMode,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
   LocalEditorBrowserSceneGraphDeleteIntent,
+  LocalEditorBrowserSceneGraphDuplicateIntent,
   LocalEditorBrowserSceneGraphDropIntent,
   LocalEditorBrowserSceneGraphDropPlacement,
   LocalEditorBrowserSceneGraphGroupSelectionIntent,
@@ -784,8 +788,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       callbacks.onRedo?.();
       return;
     }
-    if (handleGlobalShortcut && (key === 'delete' || key === 'backspace')) {
-      hierarchyController.handleDeleteShortcut(event);
+    if (handleGlobalShortcut && hierarchyController.handleEditShortcut(event)) {
       return;
     }
     if (!handleGlobalShortcut || event.metaKey || event.ctrlKey || event.altKey) return;

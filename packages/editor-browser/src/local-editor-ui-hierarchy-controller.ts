@@ -1,7 +1,10 @@
 import {
   createLocalEditorHierarchyBlankMenu,
+  createLocalEditorHierarchyCopyShortcutAction,
   createLocalEditorHierarchyDeleteShortcutAction,
+  createLocalEditorHierarchyDuplicateShortcutAction,
   createLocalEditorHierarchyNodeMenu,
+  createLocalEditorHierarchyPasteShortcutAction,
   type LocalEditorHierarchyAction,
 } from './local-editor-ui-hierarchy-actions';
 import {
@@ -25,6 +28,7 @@ import type {
 
 export interface LocalEditorHierarchyController<TDocument = unknown> {
   render(state: LocalEditorBrowserUiState<TDocument>): void;
+  handleEditShortcut(event: KeyboardEvent): boolean;
   handleDeleteShortcut(event: KeyboardEvent): boolean;
   dispose(): void;
 }
@@ -49,6 +53,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   let hierarchyDrag: { id: string } | null = null;
   let hierarchyDrop: LocalEditorBrowserSceneGraphDropIntent | null = null;
   let hierarchyRootDrop = false;
+  let hierarchyClipboard: { ids: string[]; activeId: string | null } | null = null;
   let currentModel: LocalEditorHierarchyTreeModel | null = null;
 
   const getModel = (state: LocalEditorBrowserUiState<TDocument>): LocalEditorHierarchyTreeModel => {
@@ -278,17 +283,10 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   return {
     render,
     handleDeleteShortcut(event) {
-      const state = getState();
-      if (!state) return false;
-      const action = createLocalEditorHierarchyDeleteShortcutAction({
-        state,
-        model: getModel(state),
-        hasGroupSelectionHandler: typeof callbacks.onSceneGraphGroupSelection === 'function',
-      });
-      if (!action) return false;
-      event.preventDefault();
-      submitHierarchyAction(action);
-      return true;
+      return handleDeleteShortcut(event);
+    },
+    handleEditShortcut(event) {
+      return handleEditShortcut(event);
     },
     dispose() {
       panel.removeEventListener('click', onClick);
@@ -304,6 +302,48 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       panel.removeEventListener('drop', onDrop);
     },
   };
+
+  function handleDeleteShortcut(event: KeyboardEvent): boolean {
+    const state = getState();
+    if (!state) return false;
+    const action = createLocalEditorHierarchyDeleteShortcutAction({
+      state,
+      model: getModel(state),
+      hasDuplicateHandler: hasDuplicateHandler(),
+      hasGroupSelectionHandler: typeof callbacks.onSceneGraphGroupSelection === 'function',
+    });
+    if (!action) return false;
+    event.preventDefault();
+    submitHierarchyAction(action);
+    return true;
+  }
+
+  function handleEditShortcut(event: KeyboardEvent): boolean {
+    const key = event.key.toLowerCase();
+    if (key === 'delete' || key === 'backspace') return handleDeleteShortcut(event);
+    if (event.altKey || (!event.metaKey && !event.ctrlKey)) return false;
+    const state = getState();
+    if (!state) return false;
+    const input = {
+      state,
+      model: getModel(state),
+      clipboardIds: hierarchyClipboard?.ids ?? null,
+      clipboardActiveId: hierarchyClipboard?.activeId ?? null,
+      hasDuplicateHandler: hasDuplicateHandler(),
+      hasGroupSelectionHandler: typeof callbacks.onSceneGraphGroupSelection === 'function',
+    };
+    const action = key === 'd'
+      ? createLocalEditorHierarchyDuplicateShortcutAction(input)
+      : key === 'c'
+        ? createLocalEditorHierarchyCopyShortcutAction(input)
+        : key === 'v'
+          ? createLocalEditorHierarchyPasteShortcutAction(input)
+          : null;
+      if (!action) return false;
+      event.preventDefault();
+      submitHierarchyAction(action);
+      return true;
+  }
 
   function createModel(state: LocalEditorBrowserUiState<TDocument>): LocalEditorHierarchyTreeModel {
     return createLocalEditorHierarchyTreeModel(state.hierarchy, state.selectedIds, state.activeId, {
@@ -418,11 +458,17 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
           state,
           model,
           node,
+          clipboardIds: hierarchyClipboard?.ids ?? null,
+          clipboardActiveId: hierarchyClipboard?.activeId ?? null,
+          hasDuplicateHandler: hasDuplicateHandler(),
           hasGroupSelectionHandler: typeof callbacks.onSceneGraphGroupSelection === 'function',
         })
       : createLocalEditorHierarchyBlankMenu({
           state,
           model,
+          clipboardIds: hierarchyClipboard?.ids ?? null,
+          clipboardActiveId: hierarchyClipboard?.activeId ?? null,
+          hasDuplicateHandler: hasDuplicateHandler(),
           hasGroupSelectionHandler: typeof callbacks.onSceneGraphGroupSelection === 'function',
         });
 
@@ -443,6 +489,15 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       beginHierarchyRename(action.targetId);
       return;
     }
+    if (action.kind === 'copy-selection') {
+      hierarchyClipboard = {
+        ids: action.targetIds,
+        activeId: action.activeId && action.targetIds.includes(action.activeId)
+          ? action.activeId
+          : action.targetIds[action.targetIds.length - 1] ?? null,
+      };
+      return;
+    }
     if (action.kind === 'group-selection') {
       callbacks.onSceneGraphGroupSelection?.(action.intent);
       return;
@@ -458,6 +513,17 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       return;
     }
     if (action.action === 'focus') callbacks.onFocusSelection?.();
+    else if (action.action === 'duplicate') {
+      callbacks.onSceneGraphDuplicate?.({
+        targetIds: action.targetIds,
+        activeId: action.activeId ?? null,
+      });
+    } else if (action.action === 'paste') {
+      callbacks.onSceneGraphDuplicate?.({
+        targetIds: action.sourceIds,
+        activeId: action.activeId ?? null,
+      });
+    }
     else if (action.action === 'create-group') {
       callbacks.onSceneGraphCreateGroup?.({
         parentId: action.parentId ?? null,
@@ -470,6 +536,10 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
         activeId: action.activeId ?? null,
       });
     }
+  }
+
+  function hasDuplicateHandler(): boolean {
+    return typeof callbacks.onSceneGraphDuplicate === 'function';
   }
 
   function beginHierarchyRename(id: string): void {

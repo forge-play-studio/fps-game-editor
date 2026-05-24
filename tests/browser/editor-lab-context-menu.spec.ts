@@ -5,8 +5,8 @@ test('hierarchy context menu routes actions through EditorWorld input ownership'
   await page.goto('/');
   await expect(page.locator('[data-editor-lab-status]')).toContainText('mode=editor');
 
-  const blueBox = page.getByRole('button', { name: 'Blue Box' });
-  const greenSphere = page.getByRole('button', { name: 'Green Sphere' });
+  const blueBox = page.locator('[data-editor-hierarchy-id="lab_box_01"]');
+  const greenSphere = page.locator('[data-editor-hierarchy-id="lab_sphere_01"]');
   await expect(blueBox).toBeVisible();
 
   await greenSphere.click();
@@ -137,6 +137,46 @@ test('hierarchy root is protected and group selection creates a real group', asy
     'lab_sphere_01',
   ]);
   await expect(page.locator(`[data-editor-hierarchy-id="${grouped?.groupId}"]`)).toBeVisible();
+});
+
+test('hierarchy duplicate, copy, and paste work from menu and shortcuts', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('[data-editor-lab-status]')).toContainText('mode=editor');
+
+  const blueBox = page.locator('[data-editor-hierarchy-id="lab_box_01"]');
+  await blueBox.click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Duplicate Cmd/Ctrl+D' })).toBeEnabled();
+  await expect(page.getByRole('menuitem', { name: 'Copy Cmd/Ctrl+C' })).toBeEnabled();
+  await expect(page.getByRole('menuitem', { name: 'Paste Cmd/Ctrl+V' })).toBeDisabled();
+  await page.getByRole('menuitem', { name: 'Duplicate Cmd/Ctrl+D' }).click();
+  await expect(page.locator('[data-editor-hierarchy-id="lab_box_01_copy"]')).toBeVisible();
+
+  await blueBox.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Copy Cmd/Ctrl+C' }).click();
+  await blueBox.click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Paste Cmd/Ctrl+V' })).toBeEnabled();
+  await page.getByRole('menuitem', { name: 'Paste Cmd/Ctrl+V' }).click();
+  await expect(page.locator('[data-editor-hierarchy-id="lab_box_01_copy_2"]')).toBeVisible();
+
+  const greenSphere = page.locator('[data-editor-hierarchy-id="lab_sphere_01"]');
+  await greenSphere.click();
+  await page.keyboard.press('ControlOrMeta+D');
+  await expect(page.locator('[data-editor-hierarchy-id="lab_sphere_01_copy"]')).toBeVisible();
+
+  await greenSphere.click();
+  await page.keyboard.press('ControlOrMeta+C');
+  await page.keyboard.press('ControlOrMeta+V');
+  await expect(page.locator('[data-editor-hierarchy-id="lab_sphere_01_copy_2"]')).toBeVisible();
+
+  const copiedNames = await page.evaluate(() => (
+    window.__FPS_EDITOR_LAB__?.getDocument()?.scene.gameObjects
+      .filter(gameObject => gameObject.id.includes('_copy'))
+      .map(gameObject => gameObject.name)
+  ));
+  expect(copiedNames).toEqual(expect.arrayContaining([
+    'Blue Box Copy',
+    'Green Sphere Copy',
+  ]));
 });
 
 test('hierarchy drag drop updates parent and sibling order', async ({ page }) => {
