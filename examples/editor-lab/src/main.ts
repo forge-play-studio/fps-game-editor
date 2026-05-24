@@ -26,6 +26,7 @@ const status = document.querySelector<HTMLElement>('[data-editor-lab-status]');
 
 const harness = createLocalEditorHarness<LabSceneDocument, LabScenePatch>({
   root: app,
+  localTestActions: true,
   authoringHost,
   documentAdapter: createLabDocumentAdapter(),
   persistenceAdapter: {

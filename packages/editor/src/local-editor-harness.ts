@@ -350,6 +350,7 @@ export interface LocalEditorHarnessWorldAdapter<TAsset = LocalEditorHarnessAsset
 export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   root?: HTMLElement;
   theme?: LocalEditorThemeName;
+  localTestActions?: boolean;
   authoringHost?: ProjectAuthoringHost;
   hostServices?: EditorHostServices;
   documentAdapter: LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset>;
@@ -459,6 +460,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
   const ui: LocalEditorBrowserUi<TDocument> & LocalEditorThemeController = createLocalEditorBrowserUi<TDocument>({
     root,
     theme: options.theme,
+    localTestActions: options.localTestActions,
     inspector: options.inspector,
     callbacks: {
       onEnterEditor: () => {
