@@ -1153,7 +1153,9 @@ function handleContextAction<TDocument, TPatch, TAsset>(
   if (action.region !== 'hierarchy') return false;
   if (action.action === 'focus') {
     const activeId = action.activeId ?? action.targetIds[action.targetIds.length - 1] ?? null;
-    const selectionChanged = activeId && !state.session?.getState().selection.selectedIds.includes(activeId)
+    if (!activeId) return focusSelectedProjection(state);
+    const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
+    const selectionChanged = selection.activeId !== activeId || !selection.selectedIds.includes(activeId)
       ? dispatchSelectionCommand(state, options, {
           type: 'selection.replace',
           selectedIds: [activeId],
@@ -1161,7 +1163,7 @@ function handleContextAction<TDocument, TPatch, TAsset>(
           label: 'Select Context Target',
         })
       : false;
-    return focusSelectedProjection(state) || selectionChanged;
+    return focusProjectionNode(state, activeId) || selectionChanged;
   }
   if (action.action === 'rename') return false;
   if (action.action === 'create-group') {
