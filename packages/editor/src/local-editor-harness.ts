@@ -89,6 +89,7 @@ import {
   type BabylonEditorProjectionNode,
   type BabylonSceneCameraPreviewController,
   type BabylonSceneCameraPreviewRig,
+  type BabylonEditorGridController,
   type BabylonTransformGizmoCommit,
   type BabylonTransformGizmoController,
   type BabylonTransformGizmoDuplicateDragInput,
@@ -347,6 +348,8 @@ export interface LocalEditorHarnessWorldAdapter<TAsset = LocalEditorHarnessAsset
   resolveAssetId?(asset: TAsset): string;
 }
 
+export type LocalEditorHarnessGridController = BabylonEditorGridController;
+
 export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   root?: HTMLElement;
   theme?: LocalEditorThemeName;
@@ -364,7 +367,10 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     coordinateAxes?: boolean;
   };
   inspector?: LocalEditorHarnessInspectorOptions<TDocument>;
-  createGrid?: (babylon: BabylonRuntimeGlobal & Record<string, any>, scene: unknown) => void;
+  createGrid?: (
+    babylon: BabylonRuntimeGlobal & Record<string, any>,
+    scene: unknown,
+  ) => LocalEditorHarnessGridController | void;
 }
 
 export interface LocalEditorHarness<TDocument = unknown> {
@@ -392,6 +398,8 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   babylon: (BabylonRuntimeGlobal & Record<string, any>) | null;
   engine: any | null;
   world: BabylonEditorWorld | null;
+  grid: LocalEditorHarnessGridController | null;
+  gridVisible: boolean;
   projection: BabylonEditorProjection | null;
   gizmo: BabylonTransformGizmoController | null;
   sceneCameraPreview: BabylonSceneCameraPreviewController | null;
@@ -435,6 +443,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     babylon: null,
     engine: null,
     world: null,
+    grid: null,
+    gridVisible: true,
     projection: null,
     gizmo: null,
     sceneCameraPreview: null,
@@ -580,6 +590,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       },
       onSceneCameraPreviewToggle: (enabled) => {
         if (setSceneCameraPreviewEnabled(state, options, enabled)) harness.render();
+      },
+      onGridVisibleChange: (visible) => {
+        if (setGridVisible(state, visible)) harness.render();
       },
       onFocusSelection: () => {
         if (focusSelectedProjection(state)) harness.render();
@@ -853,7 +866,8 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     useRightHandedSystem: options.world?.useRightHandedSystem,
     enableDefaultCameraControls: false,
   });
-  options.createGrid?.(babylon, world.scene);
+  const grid = options.createGrid?.(babylon, world.scene) ?? null;
+  grid?.setVisible(state.gridVisible);
   const projection = createBabylonEditorProjection({
     babylon,
     scene: world.scene,
@@ -1017,6 +1031,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   state.babylon = babylon;
   state.engine = engine;
   state.world = world;
+  state.grid = grid;
   state.projection = projection;
   state.gizmo = gizmo;
   state.sceneCameraPreview = sceneCameraPreview;
@@ -1047,6 +1062,8 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
   state.gizmo = null;
   state.projection?.dispose();
   state.projection = null;
+  state.grid?.dispose();
+  state.grid = null;
   state.engine?.stopRenderLoop?.();
   state.world?.dispose();
   state.engine?.dispose?.();
@@ -2292,6 +2309,21 @@ function setSceneCameraPreviewEnabled<TDocument, TPatch, TAsset>(
   return true;
 }
 
+function setGridVisible<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  visible: boolean,
+): boolean {
+  const nextVisible = visible === true;
+  if (state.gridVisible === nextVisible) return false;
+  state.gridVisible = nextVisible;
+  state.grid?.setVisible(nextVisible);
+  state.status = nextVisible ? 'Grid visible' : 'Grid hidden';
+  state.statusTone = 'default';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
+  return true;
+}
+
 function syncSceneCameraPreview<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -2390,6 +2422,10 @@ function createUiState<TDocument, TPatch, TAsset>(
     sceneCameraPreview: {
       enabled: state.sceneCameraPreviewEnabled,
       available: hasSceneCameraPreviewRig(state, options),
+    },
+    grid: {
+      visible: state.gridVisible,
+      available: !!state.grid,
     },
     session: sessionState
       ? {
