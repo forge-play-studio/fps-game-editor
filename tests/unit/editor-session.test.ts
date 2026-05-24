@@ -20,6 +20,48 @@ function reduceCounterDocument(
 }
 
 describe('EditorSession history merge', () => {
+  it('removes and toggles selected ids while keeping active id valid', () => {
+    const session = createEditorSession<CounterDocument, CounterPatch>({
+      persistedDocument: { value: 0 },
+      selection: {
+        selectedIds: ['box', 'sphere'],
+        activeId: 'sphere',
+      },
+    });
+
+    session.dispatch({
+      type: 'selection.remove',
+      selectedIds: ['sphere'],
+      label: 'Remove Selection',
+    });
+    expect(session.getSelection()).toEqual({
+      selectedIds: ['box'],
+      activeId: 'box',
+    });
+
+    session.dispatch({
+      type: 'selection.toggle',
+      selectedIds: ['box'],
+      activeId: 'box',
+      label: 'Toggle Selection',
+    });
+    expect(session.getSelection()).toEqual({
+      selectedIds: [],
+      activeId: null,
+    });
+
+    session.dispatch({
+      type: 'selection.toggle',
+      selectedIds: ['tree'],
+      activeId: 'tree',
+      label: 'Toggle Selection',
+    });
+    expect(session.getSelection()).toEqual({
+      selectedIds: ['tree'],
+      activeId: 'tree',
+    });
+  });
+
   it('keeps normal document patches as separate undo transactions', () => {
     const session = createEditorSession<CounterDocument, CounterPatch>({
       persistedDocument: { value: 0 },
