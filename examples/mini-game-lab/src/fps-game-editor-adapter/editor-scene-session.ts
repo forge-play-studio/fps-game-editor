@@ -136,6 +136,7 @@ type EditorSceneHierarchyMovePatchEntry = {
 
 export const EDITOR_SCENE_MAIN_CAMERA_ID = 'main_camera';
 export const EDITOR_SCENE_SUN_LIGHT_ID = 'sun_light';
+const EDITOR_SCENE_ROOT_ID = 'mvp_root';
 
 export const DEFAULT_EDITOR_SCENE_CAMERA: EditorSceneCameraRig = {
   alpha: 3.9269908169872414,
@@ -360,6 +361,13 @@ export function isEditorSceneLightGameObject(gameObject: EditorSceneGameObject):
     && (gameObject.transformType === 'light' || !!gameObject.light);
 }
 
+function isEditorSceneProtectedSystemGameObject(gameObject: EditorSceneGameObject): boolean {
+  return gameObject.id === EDITOR_SCENE_MAIN_CAMERA_ID
+    || gameObject.id === EDITOR_SCENE_SUN_LIGHT_ID
+    || isEditorSceneCameraGameObject(gameObject)
+    || isEditorSceneLightGameObject(gameObject);
+}
+
 export function ensureEditorSceneEnvironmentDefaults(document: EditorSceneDocument): EditorSceneDocument {
   const rootId = resolveEditorSceneRootContainerId(document);
   let cameraSeen = false;
@@ -405,19 +413,24 @@ export function ensureEditorSceneEnvironmentDefaults(document: EditorSceneDocume
 }
 
 export function getEditorSceneHierarchyItems(document: EditorSceneDocument): SceneGraphTreeItem[] {
-  return document.scene.gameObjects.map((gameObject) => ({
-    id: gameObject.id,
-    label: gameObject.name ?? gameObject.id,
-    parentId: gameObject.parentId ?? null,
-    depth: getEditorSceneGameObjectDepth(document, gameObject),
-    role: gameObject.id === 'mvp_root' ? 'root' : isEditorSceneGroupLikeGameObject(gameObject) ? 'group' : 'object',
-    selectable: gameObject.id !== 'mvp_root',
-    protected: gameObject.id === 'mvp_root',
-    canHaveChildren: canEditorSceneGameObjectHaveChildren(gameObject),
-    renamable: gameObject.id !== 'mvp_root',
-    deletable: gameObject.id !== 'mvp_root' && !isEditorSceneCameraGameObject(gameObject),
-    draggable: gameObject.id !== 'mvp_root',
-  }));
+  return document.scene.gameObjects
+    .filter(gameObject => gameObject.id !== EDITOR_SCENE_ROOT_ID)
+    .map((gameObject) => {
+      const systemProtected = isEditorSceneProtectedSystemGameObject(gameObject);
+      return {
+        id: gameObject.id,
+        label: gameObject.name ?? gameObject.id,
+        parentId: gameObject.parentId === EDITOR_SCENE_ROOT_ID ? null : gameObject.parentId ?? null,
+        depth: Math.max(0, getEditorSceneGameObjectDepth(document, gameObject) - 1),
+        role: isEditorSceneGroupLikeGameObject(gameObject) ? 'group' : 'object',
+        selectable: true,
+        protected: systemProtected,
+        canHaveChildren: !systemProtected && canEditorSceneGameObjectHaveChildren(gameObject),
+        renamable: !systemProtected,
+        deletable: !systemProtected,
+        draggable: !systemProtected,
+      };
+    });
 }
 
 export function normalizeEditorSceneHierarchyDocument(document: EditorSceneDocument): EditorSceneDocument {

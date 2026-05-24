@@ -37,7 +37,7 @@ export function renderLocalEditorHierarchyPanel(
   createGroupButton.dataset.editorHierarchyCreateGroup = 'true';
   createGroupButton.style.padding = '3px 7px';
   createGroupButton.style.fontSize = '11px';
-  panel.appendChild(createPanelHeader(doc, 'Graph', [createGroupButton], 'hierarchy'));
+  panel.appendChild(createPanelHeader(doc, 'Hierarchy', [createGroupButton], 'hierarchy'));
 
   const list = createTreeView(doc);
   list.dataset.editorHierarchyRootDrop = input.rootDrop ? 'active' : 'ready';
