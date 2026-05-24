@@ -87,11 +87,11 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
     items: [
       menuItem('hierarchy.focus', 'Focus in Preview', { shortcut: 'F', disabled: !selectable, disabledReason: 'Protected or locked nodes cannot be focused from Hierarchy.' }),
       menuItem('hierarchy.rename', 'Rename', { disabled: !canRename, disabledReason: 'This node is protected or read-only.' }),
-      menuItem('hierarchy.create-child-group', 'Add Empty Group', {
+      menuItem('hierarchy.create-child-group', 'Add Empty', {
         disabled: !canCreateChildGroup,
         disabledReason: 'This node cannot contain children.',
       }),
-      menuItem('hierarchy.group-selection', 'Group Selection', {
+      menuItem('hierarchy.group-selection', 'Parent Selection', {
         disabled: groupSelection.disabled,
         disabledReason: groupSelection.disabledReason,
       }),
@@ -149,8 +149,8 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
   return {
     actions,
     items: [
-      menuItem('hierarchy.create-group', 'Create Empty Group'),
-      menuItem('hierarchy.group-selection', 'Group Selection', {
+      menuItem('hierarchy.create-group', 'Create Empty'),
+      menuItem('hierarchy.group-selection', 'Parent Selection', {
         disabled: groupSelection.disabled,
         disabledReason: groupSelection.disabledReason,
       }),
@@ -252,11 +252,11 @@ function createGroupSelectionAction<TDocument>(
   ids: string[],
 ): { disabled: boolean; disabledReason?: string; action?: LocalEditorHierarchyAction } {
   if (!input.hasGroupSelectionHandler) {
-    return { disabled: true, disabledReason: 'Group Selection pipeline is not connected yet.' };
+    return { disabled: true, disabledReason: 'Parent Selection pipeline is not connected yet.' };
   }
   if (ids.length === 0) return { disabled: true, disabledReason: 'Select one or more movable nodes first.' };
   if (ids.some(id => !isLocalEditorHierarchyNodeMovable(input.model.getNode(id)))) {
-    return { disabled: true, disabledReason: 'Protected or locked nodes cannot be grouped.' };
+    return { disabled: true, disabledReason: 'Protected or locked nodes cannot be parented.' };
   }
   const parentId = resolveCommonParentId(input.model, ids);
   return {
@@ -266,7 +266,7 @@ function createGroupSelectionAction<TDocument>(
       intent: {
         ids,
         parentId,
-        name: 'Group',
+        name: 'Parent',
         pivot: 'selection-center',
         preserveWorldTransform: true,
       },

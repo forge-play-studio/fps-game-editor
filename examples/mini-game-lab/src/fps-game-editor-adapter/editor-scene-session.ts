@@ -393,7 +393,7 @@ export function getEditorSceneHierarchyItems(document: EditorSceneDocument): Sce
     label: gameObject.name ?? gameObject.id,
     parentId: gameObject.parentId ?? null,
     depth: getEditorSceneGameObjectDepth(document, gameObject),
-    role: gameObject.id === 'mvp_root' ? 'root' : isEditorSceneGroupLikeGameObject(gameObject) ? 'group' : 'object',
+    role: gameObject.id === 'mvp_root' ? 'root' : 'object',
     selectable: gameObject.id !== 'mvp_root',
     protected: gameObject.id === 'mvp_root',
     canHaveChildren: canEditorSceneGameObjectHaveChildren(gameObject),
@@ -464,11 +464,13 @@ export function createEditorSceneCreateGroupPatch(
 ): { patch: EditorSceneDocumentPatch; label: string; createdId: string } | null {
   const parentId = resolveCreateGroupParentId(document, intent);
   if (parentId === null) return null;
-  const id = createUniqueEditorSceneId(document.scene.gameObjects.map((gameObject) => gameObject.id), 'group');
-  const name = intent.name?.trim() || 'Group';
+  const id = createUniqueEditorSceneId(document.scene.gameObjects.map((gameObject) => gameObject.id), 'empty');
+  const name = intent.name?.trim() || 'Empty';
   const gameObject: EditorSceneGameObject = {
     id,
     name,
+    kind: 'transform',
+    transformType: 'plain',
     ...(parentId ? { parentId } : {}),
     active: true,
     components: [
@@ -481,7 +483,7 @@ export function createEditorSceneCreateGroupPatch(
     ],
   };
   return {
-    label: `Create group ${name}`,
+    label: `Create empty ${name}`,
     patch: {
       kind: 'game-object.create-group',
       gameObject,
@@ -685,10 +687,12 @@ export function createEditorSceneGroupSelectionPatch(
   };
   const groupLocal = toLocalTransformForParent(document, parentId, groupWorld);
   if (!groupLocal) return null;
-  const id = createUniqueEditorSceneId(document.scene.gameObjects.map((gameObject) => gameObject.id), 'group');
+  const id = createUniqueEditorSceneId(document.scene.gameObjects.map((gameObject) => gameObject.id), 'parent');
   const gameObject: EditorSceneGameObject = {
     id,
-    name: intent.name?.trim() || 'Group',
+    name: intent.name?.trim() || 'Parent',
+    kind: 'transform',
+    transformType: 'plain',
     ...(parentId ? { parentId } : {}),
     active: true,
     components: [
@@ -716,7 +720,7 @@ export function createEditorSceneGroupSelectionPatch(
   }
   const order = createEditorSceneGroupSelectionOrder(document, id, ids, intent.insertBeforeId ?? null);
   return {
-    label: `Group ${ids.length} GameObject${ids.length === 1 ? '' : 's'}`,
+    label: `Parent ${ids.length} GameObject${ids.length === 1 ? '' : 's'}`,
     patch: {
       kind: 'game-object.group-selection',
       gameObject,

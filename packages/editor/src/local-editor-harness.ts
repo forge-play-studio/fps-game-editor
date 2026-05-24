@@ -1147,7 +1147,7 @@ function handleContextAction<TDocument, TPatch, TAsset>(
     return createSceneGraphGroup(state, options, {
       parentId: action.parentId ?? null,
       activeId: action.activeId ?? null,
-      name: 'Group',
+      name: 'Empty',
     });
   }
   if (action.action === 'delete') {
@@ -1231,17 +1231,17 @@ function createSceneGraphGroup<TDocument, TPatch, TAsset>(
   cancelActiveOperation(state);
   const patch = options.documentAdapter.createSceneGraphCreateGroupPatch?.(document, intent);
   if (!patch) {
-    state.status = 'Create group rejected';
+    state.status = 'Create empty rejected';
     return true;
   }
   const result = state.session.dispatch({
     type: 'document.patch',
-    label: patch.label ?? 'Create Empty Group',
+    label: patch.label ?? 'Create Empty',
     patch: patch.patch,
     targetId: patch.createdId ?? undefined,
   });
   if (!result.documentChanged) {
-    state.status = 'Create group unchanged';
+    state.status = 'Create empty unchanged';
     return true;
   }
   const createdId = patch.createdId ?? null;
@@ -1251,12 +1251,12 @@ function createSceneGraphGroup<TDocument, TPatch, TAsset>(
       type: 'selection.replace',
       selectedIds: [createdId],
       activeId: createdId,
-      label: 'Select Created Group',
+      label: 'Select Created Empty',
     }).selection;
   }
   rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
-  state.status = patch.label ?? (createdId ? `Created group ${createdId}` : 'Created group');
+  state.status = patch.label ?? (createdId ? `Created empty ${createdId}` : 'Created empty');
   return true;
 }
 
@@ -1463,27 +1463,27 @@ function groupSceneGraphSelection<TDocument, TPatch, TAsset>(
   const hierarchy = options.documentAdapter.getHierarchyItems(document);
   const coreValidation = validateSceneGraphGroupSelection(hierarchy, intent);
   if (!coreValidation.ok) {
-    state.status = `Group selection rejected: ${coreValidation.reason ?? 'invalid scene graph group selection'}`;
+    state.status = `Parent selection rejected: ${coreValidation.reason ?? 'invalid scene graph parent selection'}`;
     return true;
   }
   const projectValidation = options.documentAdapter.validateSceneGraphGroupSelection?.(document, intent);
   if (projectValidation && !projectValidation.ok) {
-    state.status = `Group selection rejected: ${projectValidation.reason ?? 'project validation failed'}`;
+    state.status = `Parent selection rejected: ${projectValidation.reason ?? 'project validation failed'}`;
     return true;
   }
   const patch = options.documentAdapter.createSceneGraphGroupSelectionPatch?.(document, intent);
   if (!patch) {
-    state.status = 'Group selection rejected';
+    state.status = 'Parent selection rejected';
     return true;
   }
   const result = state.session.dispatch({
     type: 'document.patch',
-    label: patch.label ?? 'Group Selection',
+    label: patch.label ?? 'Parent Selection',
     patch: patch.patch,
     targetId: patch.createdId,
   });
   if (!result.documentChanged) {
-    state.status = 'Group selection unchanged';
+    state.status = 'Parent selection unchanged';
     return true;
   }
   let selection = result.selection;
@@ -1492,14 +1492,14 @@ function groupSceneGraphSelection<TDocument, TPatch, TAsset>(
       type: 'selection.replace',
       selectedIds: [patch.createdId],
       activeId: patch.createdId,
-      label: 'Select Created Group',
+      label: 'Select Created Parent',
     }).selection;
   } else {
     selection = sanitizeSelection(state, options, result.workingDocument, selection) ?? selection;
   }
   rebuildProjectionFromDocument(state, options, result.workingDocument, selection);
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
-  state.status = patch.label ?? `Grouped ${patch.changedIds?.length ?? intent.ids.length} node(s)`;
+  state.status = patch.label ?? `Parented ${patch.changedIds?.length ?? intent.ids.length} node(s)`;
   return true;
 }
 

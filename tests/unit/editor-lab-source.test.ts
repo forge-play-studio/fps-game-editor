@@ -447,7 +447,7 @@ describe('editor-lab session and hierarchy fixtures', () => {
     };
 
     expect(getLabHierarchyItems(document).find(item => item.id === 'lab_marker_no_transform')).toMatchObject({
-      role: 'group',
+      role: 'object',
       canHaveChildren: false,
     });
     expect(adapter.createSceneGraphCreateGroupPatch!(document, {

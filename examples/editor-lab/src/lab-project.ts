@@ -551,7 +551,7 @@ export function getLabHierarchyItems(document: LabSceneDocument): SceneGraphTree
     label: gameObject.name,
     parentId: gameObject.parentId,
     depth: getLabGameObjectDepth(document, gameObject),
-    role: gameObject.id === LAB_ROOT_ID ? 'root' : gameObject.kind === 'group' ? 'group' : 'object',
+    role: gameObject.id === LAB_ROOT_ID ? 'root' : 'object',
     selectable: gameObject.id !== LAB_ROOT_ID,
     locked: gameObject.id === LAB_ROOT_ID,
     protected: gameObject.id === LAB_ROOT_ID,
@@ -693,9 +693,9 @@ function createLabSceneGraphCreateGroupPatch(
       kind: 'game-object.create-group',
       id,
       parentId,
-      name: intent.name?.trim() || 'Group',
+      name: intent.name?.trim() || 'Empty',
     },
-    label: 'Create Group',
+    label: 'Create Empty',
     createdId: id,
   };
 }
@@ -862,7 +862,7 @@ function createLabSceneGraphGroupSelectionPatch(
   const id = createNextGroupId(document);
   const gameObject = createLabGameObject({
     id,
-    name: intent.name?.trim() || 'Group',
+    name: intent.name?.trim() || 'Parent',
     parentId,
     kind: 'group',
     position: groupLocal.position,
@@ -892,7 +892,7 @@ function createLabSceneGraphGroupSelectionPatch(
       childTransforms,
       order,
     },
-    label: `Group ${ids.length} object${ids.length === 1 ? '' : 's'}`,
+    label: `Parent ${ids.length} object${ids.length === 1 ? '' : 's'}`,
     createdId: id,
     changedIds: [id, ...ids],
   };
