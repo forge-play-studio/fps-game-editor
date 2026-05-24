@@ -22,6 +22,8 @@ export type InspectorControlKind =
 
 export type InspectorCommitMode = 'live' | 'blur' | 'change' | 'immediate';
 
+export type InspectorEffectMode = 'active' | 'default' | 'derived' | 'runtime' | 'unsupported';
+
 export interface InspectorSelectionContext<TDocument = unknown> {
   targetIds: string[];
   activeId: string | null;
@@ -67,6 +69,8 @@ export interface InspectorProperty<TDocument = unknown> {
   order?: number;
   tags?: readonly string[];
   tooltip?: string;
+  effect?: InspectorEffectMode;
+  disabledReason?: string;
   placeholder?: string;
   min?: number;
   max?: number;
@@ -87,6 +91,8 @@ export interface InspectorSection<TDocument = unknown> {
   collapsedByDefault?: boolean;
   persistence?: InspectorPersistenceMode;
   runtimeOnly?: boolean;
+  effect?: InspectorEffectMode;
+  disabledReason?: string;
   tags?: readonly string[];
   properties: InspectorProperty<TDocument>[];
 }
@@ -289,7 +295,9 @@ export function mergeInspectorSections<TDocument>(
 export function isEditableDocumentInspectorProperty<TDocument>(
   property: InspectorProperty<TDocument>,
 ): boolean {
-  return property.persistence === 'document' && property.readOnly !== true;
+  return property.persistence === 'document'
+    && property.readOnly !== true
+    && (property.effect == null || property.effect === 'active');
 }
 
 export function serializedObjectToInspectorObject<TDocument>(
@@ -389,11 +397,14 @@ export function coerceInspectorEditValue(
 }
 
 export function validateInspectorEditValue(
-  property: Pick<InspectorProperty, 'readOnly' | 'persistence' | 'validate' | 'control' | 'valueType'>,
+  property: Pick<InspectorProperty, 'readOnly' | 'persistence' | 'validate' | 'control' | 'valueType' | 'effect' | 'disabledReason'>,
   value: unknown,
 ): InspectorValidationResult {
   if (property.readOnly || property.persistence !== 'document') {
     return { ok: false, message: 'Inspector property is not editable.' };
+  }
+  if (property.effect && property.effect !== 'active') {
+    return { ok: false, message: property.disabledReason ?? `Inspector property is ${property.effect}.` };
   }
   if ((property.control === 'number' || property.valueType === 'number')
     && (typeof value !== 'number' || !Number.isFinite(value))) {

@@ -162,6 +162,26 @@ describe('inspector core compatibility', () => {
     });
   });
 
+  it('keeps default-effect document properties out of editable validation', () => {
+    const property: InspectorProperty = {
+      path: 'overrides.material.alpha',
+      label: 'Alpha',
+      valueType: 'number',
+      control: 'number',
+      value: 1,
+      readOnly: false,
+      persistence: 'document',
+      commitMode: 'live',
+      effect: 'default',
+      disabledReason: 'Configure a material override first.',
+    };
+
+    expect(validateInspectorEditValue(property, 0.5)).toEqual({
+      ok: false,
+      message: 'Configure a material override first.',
+    });
+  });
+
   it('coerces typed edit values before validation', () => {
     const property: InspectorProperty = {
       path: 'transform.position.x',

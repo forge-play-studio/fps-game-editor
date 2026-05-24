@@ -87,9 +87,14 @@ export {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
   formatLocalEditorBrowserInspectorValue,
+  resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
 } from './local-editor-ui-panels';
-export type { LocalEditorBrowserInspectorRenderOptions } from './local-editor-ui-panels';
+export type {
+  LocalEditorBrowserInspectorAccessMode,
+  LocalEditorBrowserInspectorRenderOptions,
+  LocalEditorBrowserInspectorSectionStatus,
+} from './local-editor-ui-panels';
 
 export type {
   LocalEditorThemeName,
@@ -130,6 +135,7 @@ export type {
   LocalEditorBrowserInspectorControlRegistration,
   LocalEditorBrowserInspectorControlRenderContext,
   LocalEditorBrowserInspectorControlRenderer,
+  LocalEditorBrowserInspectorEffectMode,
   LocalEditorBrowserInspectorEditSource,
   LocalEditorBrowserInspectorObject,
   LocalEditorBrowserInspectorOptions,

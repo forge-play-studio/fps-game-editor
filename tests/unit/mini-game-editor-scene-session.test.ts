@@ -624,13 +624,13 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     expect(hierarchy).toMatchObject({ summary: 'Parent: Root', persistence: 'readonly', collapsedByDefault: true });
     expect(hierarchy?.properties).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: 'hierarchy.parentId', value: 'root', tags: ['Document'] }),
-      expect.objectContaining({ path: 'hierarchy.childCount', value: 0, tags: ['Derived'] }),
+      expect.objectContaining({ path: 'hierarchy.childCount', value: 0, tags: ['Derived'], effect: 'derived' }),
       expect.objectContaining({ path: 'source.sourceId', value: 'scene.main', tags: ['Document'] }),
     ]));
     const transform = inspector?.sections.find(section => section.id === 'transform');
     expect(transform?.properties).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'transform.position.x', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'transform.world.position.x', value: 1, readOnly: true, tags: ['Derived'] }),
+      expect.objectContaining({ path: 'transform.position.x', label: 'Local Position.x', readOnly: false, persistence: 'document' }),
+      expect.objectContaining({ path: 'transform.world.position.x', label: 'World Position.x', value: 1, readOnly: true, tags: ['Derived'], effect: 'derived' }),
     ]));
     const renderer = inspector?.sections.find(section => section.id === 'renderer');
     expect(renderer).toMatchObject({ summary: 'Tree', collapsedByDefault: true });
@@ -643,28 +643,35 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
       expect.objectContaining({ path: 'asset.sourceId', value: 'tree_lv1', tags: ['Asset'] }),
       expect.objectContaining({ path: 'asset.materialMode', value: 'instance', tags: ['Asset'] }),
     ]));
-    expect(inspector?.sections.find(section => section.id === 'material')?.properties).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'overrides.material.alpha', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'overrides.material.backFaceCulling', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'overrides.material.raw', readOnly: true, tags: ['Document', 'Raw'] }),
+    const materialSection = inspector?.sections.find(section => section.id === 'material');
+    expect(materialSection).toMatchObject({ summary: 'Defaults', persistence: 'readonly', effect: 'default' });
+    expect(materialSection?.properties).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'overrides.material.alpha', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+      expect.objectContaining({ path: 'overrides.material.backFaceCulling', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+      expect.objectContaining({ path: 'overrides.material.raw', readOnly: true, persistence: 'readonly', tags: ['Document', 'Raw'], effect: 'default' }),
     ]));
     expect(inspector?.sections.find(section => section.id === 'materialTextures')?.properties).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'overrides.material.albedoTexture.url', control: 'string', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'overrides.material.normalTexture.url', control: 'string', readOnly: false, persistence: 'document' }),
+      expect.objectContaining({ path: 'overrides.material.albedoTexture.url', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+      expect.objectContaining({ path: 'overrides.material.normalTexture.url', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
     ]));
     expect(inspector?.sections.find(section => section.id === 'materialColors')?.properties).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'overrides.material.pbr.reflectivityColor', control: 'color', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'overrides.material.standard.specularColor', control: 'color', readOnly: false, persistence: 'document' }),
+      expect.objectContaining({ path: 'overrides.material.pbr.reflectivityColor', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+      expect.objectContaining({ path: 'overrides.material.standard.specularColor', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
     ]));
     expect(inspector?.sections.find(section => section.id === 'metallicRoughness')?.properties).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'overrides.material.metallic', control: 'number', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'overrides.material.pbr.indexOfRefraction', control: 'number', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'overrides.material.standard.specularPower', control: 'number', readOnly: false, persistence: 'document' }),
+      expect.objectContaining({ path: 'overrides.material.metallic', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+      expect.objectContaining({ path: 'overrides.material.pbr.indexOfRefraction', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+      expect.objectContaining({ path: 'overrides.material.standard.specularPower', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
     ]));
     expect(inspector?.sections.find(section => section.id === 'intensityProperties')?.properties).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'overrides.material.contrast', control: 'number', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'overrides.material.pbr.directIntensity', control: 'number', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'overrides.material.pbr.environmentIntensity', control: 'number', readOnly: false, persistence: 'document' }),
+      expect.objectContaining({ path: 'overrides.material.contrast', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+      expect.objectContaining({ path: 'overrides.material.pbr.directIntensity', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+      expect.objectContaining({ path: 'overrides.material.pbr.environmentIntensity', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
+    ]));
+    const outline = inspector?.sections.find(section => section.id === 'outline');
+    expect(outline).toMatchObject({ summary: 'Defaults', persistence: 'readonly', effect: 'default' });
+    expect(outline?.properties).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'overrides.outline.renderOutline', control: 'readonly', readOnly: true, persistence: 'readonly', effect: 'default' }),
     ]));
     const components = inspector?.sections.find(section => section.id === 'components');
     expect(components).toMatchObject({ summary: 'Transform, ModelRenderer', persistence: 'readonly' });
