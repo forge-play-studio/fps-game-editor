@@ -4,7 +4,7 @@ import { createBabylonEditorInfiniteGrid } from '../../packages/editor-babylon/s
 
 describe('Babylon editor infinite grid', () => {
   it('creates a camera-following non-pickable grid that can be toggled and disposed', () => {
-    const engine = new BABYLON.NullEngine();
+    const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
     const scene = new BABYLON.Scene(engine);
     const camera = new BABYLON.ArcRotateCamera('editor-camera', 0, 1, 8, new BABYLON.Vector3(0, 0, 0), scene);
     scene.activeCamera = camera;
@@ -35,6 +35,36 @@ describe('Babylon editor infinite grid', () => {
     grid.dispose();
     expect(scene.meshes.filter(mesh => mesh.metadata?.editorGrid)).toHaveLength(0);
 
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('coarsens grid spacing as the editor camera pulls away', () => {
+    const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
+    const scene = new BABYLON.Scene(engine);
+    const camera = new BABYLON.ArcRotateCamera('editor-camera', 0, 1, 8, new BABYLON.Vector3(0, 0, 0), scene);
+    scene.activeCamera = camera;
+
+    const grid = createBabylonEditorInfiniteGrid({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      camera,
+      name: 'adaptive-grid',
+      halfLineCount: 4,
+      adaptiveSteps: [1, 5, 10, 50, 100],
+      targetScreenSpacingPx: 48,
+    });
+
+    expect(grid.getStep()).toBe(1);
+
+    camera.radius = 800;
+    expect(() => scene.render()).not.toThrow();
+    expect(grid.getStep()).toBeGreaterThan(1);
+
+    const gridMeshes = scene.meshes.filter(mesh => mesh.metadata?.editorGrid);
+    expect(gridMeshes).toHaveLength(18);
+
+    grid.dispose();
     scene.dispose();
     engine.dispose();
   });
