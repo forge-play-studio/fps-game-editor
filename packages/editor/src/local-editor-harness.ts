@@ -361,6 +361,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     cameraRadius?: number;
     clearColor?: { r: number; g: number; b: number; a: number };
     useRightHandedSystem?: boolean;
+    coordinateAxes?: boolean;
   };
   inspector?: LocalEditorHarnessInspectorOptions<TDocument>;
   createGrid?: (babylon: BabylonRuntimeGlobal & Record<string, any>, scene: unknown) => void;
@@ -2369,6 +2370,9 @@ function createUiState<TDocument, TPatch, TAsset>(
     inspectorObject,
     inspectorMultiObject,
     boxSelection: state.boxSelection,
+    coordinateAxes: options.world?.coordinateAxes === false
+      ? null
+      : createSceneViewCoordinateAxesState(state),
     transformTool: {
       activeTool: state.gizmo?.getState().tool ?? state.transformTool,
       activeSpace: state.gizmo?.getState().space ?? state.transformSpace,
@@ -2397,6 +2401,105 @@ function createUiState<TDocument, TPatch, TAsset>(
         }
       : null,
   };
+}
+
+interface SceneViewAxisVec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function createSceneViewCoordinateAxesState<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): LocalEditorBrowserUiState['coordinateAxes'] | null {
+  if (state.mode !== 'editor') return null;
+  const scene = state.world?.scene ?? null;
+  const camera = scene?.activeCamera ?? state.world?.camera ?? null;
+  const Vector3 = state.babylon?.Vector3;
+  if (!scene || !camera || !Vector3) return null;
+
+  const right = readSceneViewCameraDirection(camera, Vector3, { x: 1, y: 0, z: 0 });
+  const up = readSceneViewCameraDirection(camera, Vector3, { x: 0, y: 1, z: 0 });
+  const forward = readSceneViewCameraForward(scene, camera, Vector3);
+  if (!right || !up || !forward) return null;
+
+  return {
+    axes: [
+      createSceneViewCoordinateAxis('x', 'X', '#ff4b70', { x: 1, y: 0, z: 0 }, right, up, forward),
+      createSceneViewCoordinateAxis('y', 'Y', '#75ff42', { x: 0, y: 1, z: 0 }, right, up, forward),
+      createSceneViewCoordinateAxis('z', 'Z', '#4f86ff', { x: 0, y: 0, z: 1 }, right, up, forward),
+    ],
+  };
+}
+
+function createSceneViewCoordinateAxis(
+  id: 'x' | 'y' | 'z',
+  label: string,
+  color: string,
+  worldAxis: SceneViewAxisVec3,
+  cameraRight: SceneViewAxisVec3,
+  cameraUp: SceneViewAxisVec3,
+  cameraForward: SceneViewAxisVec3,
+): NonNullable<LocalEditorBrowserUiState['coordinateAxes']>['axes'][number] {
+  const screenX = dotSceneViewAxisVec3(worldAxis, cameraRight);
+  const screenY = -dotSceneViewAxisVec3(worldAxis, cameraUp);
+  const projectedLength = Math.hypot(screenX, screenY);
+  const fallback = getSceneViewAxisFallbackDirection(id);
+  const direction = projectedLength > 0.0001
+    ? { x: screenX / projectedLength, y: screenY / projectedLength }
+    : fallback;
+  return {
+    id,
+    label,
+    color,
+    x: direction.x,
+    y: direction.y,
+    depth: dotSceneViewAxisVec3(worldAxis, cameraForward),
+    scale: clampNumber(projectedLength, 0.36, 1),
+  };
+}
+
+function readSceneViewCameraDirection(camera: any, Vector3: any, local: SceneViewAxisVec3): SceneViewAxisVec3 | null {
+  if (!camera?.getDirection) return null;
+  try {
+    return normalizeSceneViewAxisVec3(camera.getDirection(new Vector3(local.x, local.y, local.z)));
+  } catch {
+    return null;
+  }
+}
+
+function readSceneViewCameraForward(scene: any, camera: any, Vector3: any): SceneViewAxisVec3 | null {
+  const rayDirection = normalizeSceneViewAxisVec3(camera?.getForwardRay?.()?.direction);
+  if (rayDirection) return rayDirection;
+  return readSceneViewCameraDirection(camera, Vector3, {
+    x: 0,
+    y: 0,
+    z: scene?.useRightHandedSystem ? -1 : 1,
+  });
+}
+
+function normalizeSceneViewAxisVec3(value: any): SceneViewAxisVec3 | null {
+  const x = Number(value?.x) || 0;
+  const y = Number(value?.y) || 0;
+  const z = Number(value?.z) || 0;
+  const length = Math.hypot(x, y, z);
+  if (!Number.isFinite(length) || length <= 0.000001) return null;
+  return { x: x / length, y: y / length, z: z / length };
+}
+
+function dotSceneViewAxisVec3(left: SceneViewAxisVec3, right: SceneViewAxisVec3): number {
+  return left.x * right.x + left.y * right.y + left.z * right.z;
+}
+
+function getSceneViewAxisFallbackDirection(id: 'x' | 'y' | 'z'): { x: number; y: number } {
+  if (id === 'x') return { x: 1, y: 0 };
+  if (id === 'y') return { x: 0, y: -1 };
+  return { x: -1, y: 0 };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }
 
 function withRuntimeInspectorSections<TDocument, TPatch, TAsset>(
