@@ -1,6 +1,6 @@
 {
   "name": "@fps-games/editor-protocol",
-  "version": "0.1.1-beta.10",
+  "version": "0.1.1-beta.11",
   "private": true,
   "type": "module",
   "description": "Shared protocol types for fps-game-editor runtimes, adapters, and Forge Play bridges.",
