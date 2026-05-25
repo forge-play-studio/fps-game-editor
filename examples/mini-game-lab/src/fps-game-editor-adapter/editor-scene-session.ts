@@ -135,6 +135,11 @@ type EditorSceneHierarchyMovePatchEntry = {
   transform: EditorTransformSnapshot;
 };
 
+const EDITOR_SCENE_TRANSFORM_VECTORS = ['position', 'rotation', 'scale'] as const;
+const EDITOR_SCENE_TRANSFORM_AXES = ['x', 'y', 'z'] as const;
+
+type EditorSceneTransformVectorName = typeof EDITOR_SCENE_TRANSFORM_VECTORS[number];
+
 export const EDITOR_SCENE_MAIN_CAMERA_ID = 'main_camera';
 export const EDITOR_SCENE_SUN_LIGHT_ID = 'sun_light';
 const EDITOR_SCENE_ROOT_ID = 'mvp_root';
@@ -2749,7 +2754,7 @@ function createCommonInspectorProperties(
 }
 
 function createTransformInspectorProperties(
-  document: EditorSceneDocument,
+  _document: EditorSceneDocument,
   gameObject: EditorSceneGameObject,
   nodeKind: SceneNodeConfig['kind'],
   transform: { position: EditorSceneVec3; rotation: EditorSceneVec3; scale?: EditorSceneVec3 },
@@ -2758,16 +2763,16 @@ function createTransformInspectorProperties(
   let order = 0;
   const rootTransform = isEditorSceneRootGameObject(gameObject);
   const displayTransform = rootTransform ? EDITOR_SCENE_ROOT_TRANSFORM : transform;
-  for (const vectorName of ['position', 'rotation', 'scale'] as const) {
+  for (const vectorName of EDITOR_SCENE_TRANSFORM_VECTORS) {
     const vector = readTransformVector(displayTransform, vectorName);
-    for (const axis of ['x', 'y', 'z'] as const) {
+    for (const axis of EDITOR_SCENE_TRANSFORM_AXES) {
       const path = `transform.${vectorName}.${axis}`;
       const value = vectorName === 'rotation' ? roundForInspector(radiansToDegrees(vector[axis])) : vector[axis];
       properties.push(rootTransform
-        ? createReadonlyInspectorProperty(path, `${toEditorSceneTransformVectorLabel('local', vectorName)}.${axis}`, value, order)
+        ? createReadonlyInspectorProperty(path, `${toUnityStyleTransformLabel(vectorName)}.${axis}`, value, order)
         : createDocumentInspectorProperty(null, nodeKind, {
             path,
-            label: `${toEditorSceneTransformVectorLabel('local', vectorName)}.${axis}`,
+            label: `${toUnityStyleTransformLabel(vectorName)}.${axis}`,
             valueType: 'number',
             control: 'number',
             value,
@@ -2778,36 +2783,6 @@ function createTransformInspectorProperties(
       order += 1;
     }
   }
-  const world = getEditorSceneGameObjectWorldTransform(document, gameObject.id);
-  if (world) {
-    properties.push(...createEditorSceneReadonlyVector3Properties({
-      basePath: 'transform.world.position',
-      label: 'World Position',
-      value: world.position,
-      order,
-      source: 'Derived',
-    }));
-    order += 3;
-    properties.push(...createEditorSceneReadonlyVector3Properties({
-      basePath: 'transform.world.rotation',
-      label: 'World Rotation',
-      value: {
-        x: radiansToDegrees(world.rotation.x),
-        y: radiansToDegrees(world.rotation.y),
-        z: radiansToDegrees(world.rotation.z),
-      },
-      order,
-      source: 'Derived',
-    }));
-    order += 3;
-    properties.push(...createEditorSceneReadonlyVector3Properties({
-      basePath: 'transform.world.scale',
-      label: 'World Scale',
-      value: world.scale,
-      order,
-      source: 'Derived',
-    }));
-  }
   return properties;
 }
 
@@ -2816,16 +2791,17 @@ function createTransformInspectorSummary(
   gameObject: EditorSceneGameObject,
 ): string {
   const parent = gameObject.parentId ? findEditorSceneGameObject(document, gameObject.parentId) : null;
-  return `Local: ${parent ? parent.name ?? parent.id : 'Scene'} + World`;
+  if (isEditorSceneRootGameObject(gameObject)) return 'Identity Root';
+  return `Relative to: ${parent ? parent.name ?? parent.id : 'Scene'}`;
 }
 
-function toEditorSceneTransformVectorLabel(
-  space: 'local' | 'world',
-  vectorName: 'position' | 'rotation' | 'scale',
-): string {
-  const prefix = space === 'local' ? 'Local' : 'World';
+function toUnityStyleTransformLabel(vectorName: EditorSceneTransformVectorName): string {
+  return toTransformVectorBaseLabel(vectorName);
+}
+
+function toTransformVectorBaseLabel(vectorName: EditorSceneTransformVectorName): string {
   const label = vectorName === 'position' ? 'Position' : vectorName === 'rotation' ? 'Rotation' : 'Scale';
-  return `${prefix} ${label}`;
+  return label;
 }
 
 function createRendererInspectorProperties(
@@ -4232,12 +4208,12 @@ function createEditorScenePropertyDescriptors(
   if (transform) {
     const rootTransform = isEditorSceneRootGameObject(gameObject);
     const displayTransform = rootTransform ? EDITOR_SCENE_ROOT_TRANSFORM : transform;
-    for (const vectorName of ['position', 'rotation', 'scale'] as const) {
-      for (const axis of ['x', 'y', 'z'] as const) {
+    for (const vectorName of EDITOR_SCENE_TRANSFORM_VECTORS) {
+      for (const axis of EDITOR_SCENE_TRANSFORM_AXES) {
         const path = `transform.${vectorName}.${axis}`;
         descriptors.push({
           path,
-          label: `${vectorName}.${axis}`,
+          label: `${toUnityStyleTransformLabel(vectorName)}.${axis}`,
           valueType: 'number',
           readOnly: rootTransform,
           getValue: () => {
@@ -4293,8 +4269,8 @@ function createEditorSceneMultiTransformProperties(
   gameObjects: EditorSceneGameObject[],
 ): SerializedMultiObject<EditorSceneDocument>['properties'] {
   const properties: SerializedMultiObject<EditorSceneDocument>['properties'] = [];
-  for (const vectorName of ['position', 'rotation', 'scale'] as const) {
-    for (const axis of ['x', 'y', 'z'] as const) {
+  for (const vectorName of EDITOR_SCENE_TRANSFORM_VECTORS) {
+    for (const axis of EDITOR_SCENE_TRANSFORM_AXES) {
       const values = gameObjects
         .map((gameObject) => {
           const transform = findEditorSceneTransform(gameObject);
@@ -4309,7 +4285,7 @@ function createEditorSceneMultiTransformProperties(
       const mixed = displayValues.some((value) => Math.abs(value - firstValue) > 0.000001);
       properties.push({
         path: `transform.${vectorName}.${axis}`,
-        label: `${vectorName}.${axis}`,
+        label: `${toUnityStyleTransformLabel(vectorName)}.${axis}`,
         valueType: 'number',
         value: roundForInspector(firstValue),
         mixed,
@@ -4327,7 +4303,7 @@ function createEditorSceneMultiTransformProperties(
 
 function readTransformVector(
   transform: { position: EditorSceneVec3; rotation: EditorSceneVec3; scale?: EditorSceneVec3 },
-  vectorName: 'position' | 'rotation' | 'scale',
+  vectorName: EditorSceneTransformVectorName,
 ): EditorSceneVec3 {
   if (vectorName === 'scale') return transform.scale ?? { x: 1, y: 1, z: 1 };
   return transform[vectorName];

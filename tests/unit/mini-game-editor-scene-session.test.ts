@@ -27,6 +27,7 @@ import {
   getEditorSceneRuntimeInspectorSections,
   getEditorSceneInspectorMultiObject,
   getEditorSceneInspectorObject,
+  getEditorSceneSerializedObject,
   patchEditorSceneGameObjectField,
   readEditorSceneRuntimeBoolean,
   readEditorSceneRuntimeClassName,
@@ -42,6 +43,18 @@ import type {
 import type { SceneConfig } from '../../examples/mini-game-lab/src/config/types';
 import { ConfigService } from '../../examples/mini-game-lab/src/config/ConfigService';
 import { validateSceneJsonV2 } from '../../examples/mini-game-lab/src/config/SceneJsonV2Validator';
+
+const UNITY_STYLE_TRANSFORM_PATHS = [
+  'transform.position.x',
+  'transform.position.y',
+  'transform.position.z',
+  'transform.rotation.x',
+  'transform.rotation.y',
+  'transform.rotation.z',
+  'transform.scale.x',
+  'transform.scale.y',
+  'transform.scale.z',
+] as const;
 
 function createMiniEditorSceneDocument(): EditorSceneDocument {
   return {
@@ -687,10 +700,13 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
       expect.objectContaining({ path: 'source.sourceId', value: 'scene.main', tags: ['Document'] }),
     ]));
     const transform = inspector?.sections.find(section => section.id === 'transform');
+    expect(transform).toMatchObject({ summary: 'Relative to: Root' });
     expect(transform?.properties).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'transform.position.x', label: 'Local Position.x', readOnly: false, persistence: 'document' }),
-      expect.objectContaining({ path: 'transform.world.position.x', label: 'World Position.x', value: 1, readOnly: true, tags: ['Derived'], effect: 'derived' }),
+      expect.objectContaining({ path: 'transform.position.x', label: 'Position.x', readOnly: false, persistence: 'document' }),
+      expect.objectContaining({ path: 'transform.rotation.y', label: 'Rotation.y', readOnly: false, persistence: 'document' }),
+      expect.objectContaining({ path: 'transform.scale.z', label: 'Scale.z', readOnly: false, persistence: 'document' }),
     ]));
+    expect(transform?.properties.some(property => property.path.startsWith('transform.world.'))).toBe(false);
     const renderer = inspector?.sections.find(section => section.id === 'renderer');
     expect(renderer).toMatchObject({ summary: 'Tree', collapsedByDefault: true });
     expect(renderer?.properties[0]).toMatchObject({
@@ -776,6 +792,49 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     const multiInspector = getEditorSceneInspectorMultiObject(document, ['tree', 'decal'], 'tree');
     expect(multiInspector?.sections.map(section => section.id)).toEqual(['transform']);
     expect(multiInspector?.sections[0]?.properties.every(property => property.readOnly === false)).toBe(true);
+  });
+
+  it('uses Unity-style Transform labels across serialized and multi-object authoring', () => {
+    const document = createMiniEditorSceneDocument();
+    const serialized = getEditorSceneSerializedObject(document, 'tree');
+    const multiInspector = getEditorSceneInspectorMultiObject(document, ['root', 'tree'], 'tree');
+    const multiTransform = multiInspector?.sections.find(section => section.id === 'transform');
+
+    expect(serialized?.properties).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'transform.position.x', label: 'Position.x' }),
+      expect.objectContaining({ path: 'transform.rotation.y', label: 'Rotation.y' }),
+      expect.objectContaining({ path: 'transform.scale.z', label: 'Scale.z' }),
+    ]));
+    expect(multiTransform?.properties).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'transform.position.x', label: 'Position.x' }),
+      expect.objectContaining({ path: 'transform.rotation.y', label: 'Rotation.y' }),
+      expect.objectContaining({ path: 'transform.scale.z', label: 'Scale.z' }),
+    ]));
+  });
+
+  it('keeps the default Transform section limited to Unity-style local authoring fields', () => {
+    const document = createMiniEditorSceneDocument();
+    const transform = getEditorSceneInspectorObject(document, 'tree')?.sections.find(section => section.id === 'transform');
+
+    expect(transform?.properties.map(property => property.path)).toEqual(UNITY_STYLE_TRANSFORM_PATHS);
+    expect(transform?.properties.map(property => property.label)).toEqual([
+      'Position.x',
+      'Position.y',
+      'Position.z',
+      'Rotation.x',
+      'Rotation.y',
+      'Rotation.z',
+      'Scale.x',
+      'Scale.y',
+      'Scale.z',
+    ]);
+    expect(transform?.properties.every(property => property.persistence === 'document' && property.readOnly === false)).toBe(true);
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'tree',
+      path: 'transform.world.position.x',
+      value: 2,
+    })).toBeNull();
   });
 
   it('creates schema-backed patches for common, renderer, material, and outline fields', () => {
@@ -878,24 +937,27 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
   it('rejects MVP root transform vector and axis patches', () => {
     const document = createMvpRootEditorSceneDocument();
 
+    const rootTransformSection = getEditorSceneInspectorObject(document, 'mvp_root')?.sections.find(section => section.id === 'transform');
+    expect(rootTransformSection).toMatchObject({ summary: 'Identity Root' });
+    expect(rootTransformSection?.properties.map(property => property.path)).toEqual(UNITY_STYLE_TRANSFORM_PATHS);
+    expect(rootTransformSection?.properties).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'transform.position.x', label: 'Position.x', value: 0, readOnly: true, persistence: 'readonly' }),
+      expect.objectContaining({ path: 'transform.rotation.y', label: 'Rotation.y', value: 0, readOnly: true, persistence: 'readonly' }),
+      expect.objectContaining({ path: 'transform.scale.z', label: 'Scale.z', value: 1, readOnly: true, persistence: 'readonly' }),
+    ]));
+
     const childInspector = getEditorSceneInspectorObject(document, 'child');
     const childTransformProperties = childInspector?.sections.find(section => section.id === 'transform')?.properties ?? [];
+    expect(childTransformProperties.map(property => property.path)).toEqual(UNITY_STYLE_TRANSFORM_PATHS);
     expect(childTransformProperties).toEqual(expect.arrayContaining([
       expect.objectContaining({
         path: 'transform.scale.x',
-        label: 'Local Scale.x',
+        label: 'Scale.x',
         readOnly: false,
         persistence: 'document',
       }),
-      expect.objectContaining({
-        path: 'transform.world.scale.x',
-        label: 'World Scale.x',
-        readOnly: true,
-        persistence: 'readonly',
-        tags: ['Derived'],
-        effect: 'derived',
-      }),
     ]));
+    expect(childTransformProperties.some(property => property.path.startsWith('transform.world.'))).toBe(false);
 
     expect(createEditorSceneInspectorPropertyPatch({
       document,
@@ -919,9 +981,9 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
         value: 2,
       },
     });
-    const rootTransform = next.scene.gameObjects.find(gameObject => gameObject.id === 'mvp_root')?.components.find(component => component.type === 'Transform');
+    const storedRootTransform = next.scene.gameObjects.find(gameObject => gameObject.id === 'mvp_root')?.components.find(component => component.type === 'Transform');
     const childTransform = next.scene.gameObjects.find(gameObject => gameObject.id === 'child')?.components.find(component => component.type === 'Transform');
-    expect(rootTransform).toMatchObject({ scale: { x: 1, y: 1, z: 1 } });
+    expect(storedRootTransform).toMatchObject({ scale: { x: 1, y: 1, z: 1 } });
     expect(childTransform).toMatchObject({ scale: { x: 1, y: 1, z: 1 } });
   });
 
