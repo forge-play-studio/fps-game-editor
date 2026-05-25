@@ -10,7 +10,6 @@ import {
 import { createEditorEventGuard, type EditorEventGuard } from './event-guard';
 import { createEditorInputController } from './input-controller';
 import { createEditorToolController, type EditorToolController } from './tool-controller';
-import { syncBabylonEditorDisplayScale } from './display-scale';
 import type {
   BabylonRuntimeGlobal,
   EditorGameLike,
@@ -197,9 +196,10 @@ export function createEditorEditSession(options: EditorEditSessionOptions): Edit
 
     if (canvas && scene.getEngine) {
       const engine = scene.getEngine();
-      syncBabylonEditorDisplayScale(engine, canvas);
       state.resizeObs = scene.onAfterRenderObservable?.add?.(() => {
-        syncBabylonEditorDisplayScale(engine, canvas);
+        if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+          engine.resize();
+        }
       }) ?? null;
       state.eventGuard = state.eventGuard ?? createEditorEventGuard({
         host,

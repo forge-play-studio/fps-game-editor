@@ -187,7 +187,7 @@
 
       <p class="nav-label">入口</p>
       <ul class="nav-list">
-        <li><a href="fps-game-editor使用指南.html">用户教学文档</a></li>
+        <li><a href="index.html">用户教学文档</a></li>
         <li><a href="system.html">系统模板与 Manifest</a></li>
       </ul>
 
@@ -208,7 +208,7 @@
           <h1>Agent 参考文档</h1>
           <p class="hero-copy">这页约束 agent 如何维护对外教学文档。它不面向最终用户，也不存放模板正文；Manifest 和系统模板在独立的系统文档中。</p>
           <div class="hero-actions">
-            <a class="button primary" href="fps-game-editor使用指南.html">打开用户文档</a>
+            <a class="button primary" href="index.html">打开用户文档</a>
             <a class="button" href="system.html">查看系统模板</a>
           </div>
         </div>
@@ -218,25 +218,25 @@
         <section class="doc-panel" id="boundary">
           <h2>文档分层</h2>
           <ol>
-            <li><code>fps-game-editor使用指南.html</code> 是外部教学文档，只放用户需要直接阅读的学习路径、教程、手册、参考和排障内容，并且必须能作为单个 HTML 在其他电脑上完整阅读。</li>
-            <li><code>fps-game-editor使用指南.md</code> 是 <code>fps-game-editor使用指南.html</code> 的 Markdown 发布副本，用于上传其他平台，不作为源文档；它必须自包含，不能依赖同目录 HTML sidecar 才能读懂。</li>
-            <li><code>shortcuts.html</code> 是外部快捷键页面，按用户查阅方式分类整理快捷键与鼠标操作；它可以作为站内独立参考页，但不能成为 <code>fps-game-editor使用指南.html</code> / <code>fps-game-editor使用指南.md</code> 的必需内容来源。</li>
+            <li><code>index.html</code> 是外部教学文档，只放用户需要直接阅读的学习路径、教程、手册、参考和排障内容。</li>
+            <li><code>index.md</code> 是 <code>index.html</code> 的 Markdown 发布副本，用于上传其他平台，不作为源文档。</li>
+            <li><code>shortcuts.html</code> 是外部快捷键页面，按用户查阅方式分类整理快捷键与鼠标操作。</li>
             <li><code>agent.html</code> 是 Agent 参考文档，只放写作目标、更新流程、事实来源和质量检查。</li>
             <li><code>system.html</code> 是系统模板与 Manifest，只放内容契约、稳定术语、页面类型和模板骨架。</li>
           </ol>
           <div class="callout">
-            不要把 Manifest、系统模板、占位标题、内部写作约束或源码遍历计划写进 <code>fps-game-editor使用指南.html</code>。
+            不要把 Manifest、系统模板、占位标题、内部写作约束或源码遍历计划写进 <code>index.html</code>。
           </div>
         </section>
 
         <section class="doc-panel" id="workflow">
           <h2>更新流程</h2>
           <ol>
-            <li>先读 <code>fps-game-editor使用指南.html</code>，理解当前用户能看到的教学路径。</li>
+            <li>先读 <code>index.html</code>，理解当前用户能看到的教学路径。</li>
             <li>再读 <code>system.html</code>，确认受众、内容类型、必需标题和稳定术语。</li>
             <li>读取必要事实来源，确认当前代码、README、示例项目或架构说明是否已经变化。</li>
             <li>只更新用户真正需要阅读的内容；内部判断、模板引用和 Manifest 变化写回本页或 <code>system.html</code>。</li>
-            <li>更新后检查导航、锚点、外部读者语气、是否混入内部文档生产资料，以及单文件 HTML / Markdown 是否缺少关键用户内容，再同步 <code>fps-game-editor使用指南.md</code>。</li>
+            <li>更新后检查导航、锚点、外部读者语气和是否混入内部文档生产资料，再同步 <code>index.md</code>。</li>
           </ol>
         </section>
 
@@ -285,8 +285,7 @@
           <ol>
             <li>用户页导航只出现面向使用者的章节。</li>
             <li>用户页没有 Manifest、模板占位符、Agent 写作规则或“生成文档”的指令。</li>
-            <li><code>fps-game-editor使用指南.md</code> 和 <code>fps-game-editor使用指南.html</code> 表达同一套用户入口内容，且 Markdown 顶部声明 HTML 为准。</li>
-            <li><code>fps-game-editor使用指南.html</code> 和 <code>fps-game-editor使用指南.md</code> 自包含：单独复制到其他电脑或上传到平台时，不会因为缺少 <code>shortcuts.html</code> 等 sidecar 页面而漏掉关键用户内容。</li>
+            <li><code>index.md</code> 和 <code>index.html</code> 表达同一套用户入口内容，且 Markdown 顶部声明 HTML 为准。</li>
             <li>快捷键页按工具、视图、鼠标、选择、文档、层级和面板分类，不把未实现能力写成已可用承诺。</li>
             <li>教程保留目标、步骤、原因、检查点、常见问题和下一步。</li>
             <li>手册页解释概念和边界，不承诺尚未稳定的项目行为。</li>

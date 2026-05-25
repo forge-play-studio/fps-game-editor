@@ -1,10 +1,8 @@
-import {
-  combineEditorTransforms,
-  toEditorLocalTransformFromWorld,
-  type EditorSelectionState,
-  type EditorTransformPivot,
-  type EditorTransformSnapshot,
-  type EditorTransformVec3,
+import type {
+  EditorSelectionState,
+  EditorTransformPivot,
+  EditorTransformSnapshot,
+  EditorTransformVec3,
 } from '@fps-games/editor-core';
 import type {
   BabylonRuntimeGlobal,
@@ -99,8 +97,6 @@ export interface BabylonEditorProjectionOptions {
 
 export interface ProjectedBabylonEditorNode {
   nodeId: string;
-  parentId: string | null;
-  baseTransform: EditorTransformSnapshot;
   root: any;
   outlineMeshes: any[];
   animationGroups: any[];
@@ -148,89 +144,10 @@ function requireBabylonCtor<T>(value: T | undefined, name: string): T {
   return value;
 }
 
-function normalizeProjectionParentId(parentId: string | null | undefined): string | null {
-  return parentId ?? null;
-}
-
-function cloneEditorTransformSnapshot(transform: BabylonEditorProjectionTransform): EditorTransformSnapshot {
-  const scale = transform.scale ?? { x: 1, y: 1, z: 1 };
-  return {
-    position: { ...transform.position },
-    rotation: { ...transform.rotation },
-    scale: { ...scale },
-  };
-}
-
-function resolveProjectionPreviewTransforms(
-  projections: Map<string, ProjectedBabylonEditorNode>,
-  childIdsByParentId: Map<string, Set<string>>,
-  transforms: Record<string, EditorTransformSnapshot>,
-): Map<string, EditorTransformSnapshot> {
-  const explicitIds = new Set<string>();
-  const resolvedTransforms = new Map<string, EditorTransformSnapshot>();
-  for (const [nodeId, transform] of Object.entries(transforms)) {
-    if (!projections.has(nodeId)) continue;
-    explicitIds.add(nodeId);
-    resolvedTransforms.set(nodeId, cloneEditorTransformSnapshot(transform));
-  }
-  for (const nodeId of explicitIds) {
-    const projection = projections.get(nodeId);
-    const after = resolvedTransforms.get(nodeId);
-    if (!projection || !after) continue;
-    propagateProjectionPreviewToDescendants({
-      projections,
-      childIdsByParentId,
-      explicitIds,
-      resolvedTransforms,
-      parentId: nodeId,
-      parentBefore: projection.baseTransform,
-      parentAfter: after,
-      visitedIds: new Set([nodeId]),
-    });
-  }
-  return resolvedTransforms;
-}
-
-function propagateProjectionPreviewToDescendants(input: {
-  projections: Map<string, ProjectedBabylonEditorNode>;
-  childIdsByParentId: Map<string, Set<string>>;
-  explicitIds: Set<string>;
-  resolvedTransforms: Map<string, EditorTransformSnapshot>;
-  parentId: string;
-  parentBefore: EditorTransformSnapshot;
-  parentAfter: EditorTransformSnapshot;
-  visitedIds: Set<string>;
-}): void {
-  const childIds = input.childIdsByParentId.get(input.parentId);
-  if (!childIds) return;
-  for (const childId of childIds) {
-    if (input.visitedIds.has(childId)) continue;
-    const childProjection = input.projections.get(childId);
-    if (!childProjection) continue;
-    const childBefore = childProjection.baseTransform;
-    let childAfter = input.resolvedTransforms.get(childId) ?? null;
-    if (!input.explicitIds.has(childId)) {
-      const childLocal = toEditorLocalTransformFromWorld(input.parentBefore, childBefore);
-      childAfter = childLocal ? combineEditorTransforms(input.parentAfter, childLocal) : null;
-      if (childAfter) input.resolvedTransforms.set(childId, childAfter);
-    }
-    if (!childAfter) continue;
-    input.visitedIds.add(childId);
-    propagateProjectionPreviewToDescendants({
-      ...input,
-      parentId: childId,
-      parentBefore: childBefore,
-      parentAfter: childAfter,
-    });
-    input.visitedIds.delete(childId);
-  }
-}
-
 export function createBabylonEditorProjection(
   options: BabylonEditorProjectionOptions,
 ): BabylonEditorProjection {
   const projections = new Map<string, ProjectedBabylonEditorNode>();
-  const childIdsByParentId = new Map<string, Set<string>>();
 
   const disposeProjectedNode = (projection: ProjectedBabylonEditorNode): void => {
     for (const animationGroup of projection.animationGroups) {
@@ -247,27 +164,22 @@ export function createBabylonEditorProjection(
       disposeProjectedNode(projection);
     }
     projections.clear();
-    childIdsByParentId.clear();
   };
 
   const projectNode = (node: BabylonEditorProjectionNode): ProjectedBabylonEditorNode | null => {
     removeNode(node.id);
     const root = createProjectionRoot(options.babylon, options.scene, node);
     if (!root) return null;
-    const baseTransform = cloneEditorTransformSnapshot(node.transform ?? readProjectionTransform(root));
     const projection: ProjectedBabylonEditorNode = {
       nodeId: node.id,
-      parentId: normalizeProjectionParentId(node.parentId),
-      baseTransform,
       root,
       outlineMeshes: [],
       animationGroups: [],
       runtimeObjects: [],
     };
     projections.set(node.id, projection);
-    registerProjectedChild(projection);
     root.setEnabled?.(node.active !== false);
-    applyProjectionTransform(options.babylon, root, baseTransform);
+    if (node.transform) applyProjectionTransform(options.babylon, root, node.transform);
 
     if (!attachRuntimeProjection(options.babylon, options.scene, node, projection)) {
       if (node.asset && options.importModel) {
@@ -284,48 +196,8 @@ export function createBabylonEditorProjection(
   const removeNode = (nodeId: string): void => {
     const existing = projections.get(nodeId);
     if (!existing) return;
-    unregisterProjectedChild(existing);
     projections.delete(nodeId);
     disposeProjectedNode(existing);
-  };
-
-  const applyPreviewTransforms = (transforms: Record<string, EditorTransformSnapshot>): void => {
-    const resolvedTransforms = resolveProjectionPreviewTransforms(
-      projections,
-      childIdsByParentId,
-      transforms,
-    );
-    for (const [nodeId, transform] of resolvedTransforms) {
-      const projection = projections.get(nodeId);
-      if (!projection?.root) continue;
-      applyProjectionTransform(options.babylon, projection.root, transform);
-    }
-  };
-
-  const updateProjectionParent = (
-    projection: ProjectedBabylonEditorNode,
-    parentId: string | null | undefined,
-  ): void => {
-    const nextParentId = normalizeProjectionParentId(parentId);
-    if (projection.parentId === nextParentId) return;
-    unregisterProjectedChild(projection);
-    projection.parentId = nextParentId;
-    registerProjectedChild(projection);
-  };
-
-  const registerProjectedChild = (projection: ProjectedBabylonEditorNode): void => {
-    if (!projection.parentId) return;
-    const childIds = childIdsByParentId.get(projection.parentId) ?? new Set<string>();
-    childIds.add(projection.nodeId);
-    childIdsByParentId.set(projection.parentId, childIds);
-  };
-
-  const unregisterProjectedChild = (projection: ProjectedBabylonEditorNode): void => {
-    if (!projection.parentId) return;
-    const childIds = childIdsByParentId.get(projection.parentId);
-    if (!childIds) return;
-    childIds.delete(projection.nodeId);
-    if (childIds.size === 0) childIdsByParentId.delete(projection.parentId);
   };
 
   return {
@@ -351,10 +223,14 @@ export function createBabylonEditorProjection(
       return transforms;
     },
     setNodeTransformPreview(nodeId, transform) {
-      applyPreviewTransforms({ [nodeId]: transform });
+      const projection = projections.get(nodeId);
+      if (!projection?.root) return;
+      applyProjectionTransform(options.babylon, projection.root, transform);
     },
     setNodeTransformsPreview(transforms) {
-      applyPreviewTransforms(transforms);
+      for (const [nodeId, transform] of Object.entries(transforms)) {
+        this.setNodeTransformPreview(nodeId, transform);
+      }
     },
     getAttachableRoot(nodeId) {
       return projections.get(nodeId)?.root ?? null;
@@ -382,15 +258,11 @@ export function createBabylonEditorProjection(
     syncNodeTransform(node) {
       const projection = projections.get(node.id);
       if (!projection) return;
-      updateProjectionParent(projection, node.parentId);
       projection.root?.setEnabled?.(node.active !== false);
       for (const runtimeObject of projection.runtimeObjects) {
         runtimeObject.setEnabled?.(node.active !== false);
       }
-      if (node.transform) {
-        projection.baseTransform = cloneEditorTransformSnapshot(node.transform);
-        applyProjectionTransform(options.babylon, projection.root, projection.baseTransform);
-      }
+      if (node.transform) applyProjectionTransform(options.babylon, projection.root, node.transform);
     },
     syncSelection(selection) {
       syncProjectionSelection(options.babylon, projections, selection);

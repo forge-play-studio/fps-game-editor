@@ -127,23 +127,12 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
 
   const onDoubleClick = (event: MouseEvent): void => {
     const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target?.closest('[data-editor-hierarchy-rename-input]')) return;
     if (target?.closest('[data-editor-hierarchy-toggle]')) return;
     const hierarchyButton = target?.closest<HTMLButtonElement>('[data-editor-hierarchy-id]');
     const id = hierarchyButton?.dataset.editorHierarchyId;
     if (!id) return;
-    const state = getState();
-    const node = state ? getModel(state).getNode(id) : null;
-    if (!node || !isNodeSelectable(node)) return;
     event.preventDefault();
-    event.stopPropagation();
-    hierarchyRename = null;
-    submitHierarchyContextAction({
-      region: 'hierarchy',
-      action: 'focus',
-      targetIds: [id],
-      activeId: id,
-    });
+    beginHierarchyRename(id);
   };
 
   const onInput = (event: Event): void => {

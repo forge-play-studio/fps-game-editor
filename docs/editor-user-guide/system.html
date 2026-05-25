@@ -214,7 +214,7 @@
 
       <p class="nav-label">入口</p>
       <ul class="nav-list">
-        <li><a href="fps-game-editor使用指南.html">用户教学文档</a></li>
+        <li><a href="index.html">用户教学文档</a></li>
         <li><a href="agent.html">Agent 参考文档</a></li>
       </ul>
 
@@ -234,7 +234,7 @@
           <p class="hero-copy">这里放内容类型、稳定术语和模板骨架。它是文档生成系统的契约，不是对外用户教程，也不是 Agent 工作流说明。</p>
           <div class="hero-actions">
             <a class="button primary" href="agent.html">打开 Agent 参考</a>
-            <a class="button" href="fps-game-editor使用指南.html">打开用户文档</a>
+            <a class="button" href="index.html">打开用户文档</a>
           </div>
         </div>
       </header>
@@ -248,9 +248,9 @@
           <table>
             <tbody>
               <tr><th>name</th><td>editor-user-guide</td></tr>
-              <tr><th>user guide html</th><td><code>docs/editor-user-guide/fps-game-editor使用指南.html</code></td></tr>
-              <tr><th>markdown export</th><td><code>docs/editor-user-guide/fps-game-editor使用指南.md</code> mirrors <code>fps-game-editor使用指南.html</code> as a self-contained external platform upload.</td></tr>
-              <tr><th>user shortcuts reference</th><td><code>docs/editor-user-guide/shortcuts.html</code> is an optional standalone reference, not required to understand <code>fps-game-editor使用指南.html</code> or <code>fps-game-editor使用指南.md</code>.</td></tr>
+              <tr><th>user guide index</th><td><code>docs/editor-user-guide/index.html</code></td></tr>
+              <tr><th>markdown export</th><td><code>docs/editor-user-guide/index.md</code> mirrors <code>index.html</code> for external platform upload.</td></tr>
+              <tr><th>user shortcuts reference</th><td><code>docs/editor-user-guide/shortcuts.html</code></td></tr>
               <tr><th>agent reference</th><td><code>docs/editor-user-guide/agent.html</code></td></tr>
               <tr><th>system templates</th><td><code>docs/editor-user-guide/system.html</code></td></tr>
               <tr><th>docs-site config</th><td>none</td></tr>
@@ -260,9 +260,8 @@
           <h3>原则</h3>
           <ol>
             <li>用户指南只放外部读者需要阅读的内容。</li>
-            <li><code>fps-game-editor使用指南.html</code> 是用户教学入口的权威版本；<code>fps-game-editor使用指南.md</code> 只是发布副本。</li>
-            <li><code>fps-game-editor使用指南.html</code> 和导出的 <code>fps-game-editor使用指南.md</code> 必须自包含，单独带到其他电脑或平台时不能缺少关键用户内容。</li>
-            <li>可独立查阅的用户参考页可以拆成单独 HTML，但不能成为用户指南入口或 Markdown 发布副本的必需内容来源。</li>
+            <li><code>index.html</code> 是用户教学入口的权威版本；<code>index.md</code> 只是发布副本。</li>
+            <li>可独立查阅的用户参考页可以拆成单独 HTML，并从用户指南入口链接。</li>
             <li>Agent 参考只放写作流程、事实来源和质量检查。</li>
             <li>Manifest、稳定术语和模板只放在系统文档中。</li>
             <li>页面先从用户任务解释编辑器使用，再补充实现边界。</li>

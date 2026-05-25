@@ -1,5 +1,4 @@
 export * from './camera-controller';
-export * from './display-scale';
 export * from './edit-session';
 export * from './editor-world';
 export * from './editor-sky';

@@ -94,11 +94,9 @@ import {
   createBabylonSceneViewSpatialOverlayController,
   createBabylonTransformGizmoController,
   focusEditorViewportSelection,
-  syncBabylonEditorDisplayScale,
   type BabylonEditorProjection,
   type BabylonProjectionSelectionBox,
   type BabylonProjectionSelectionController,
-  type BabylonEditorDisplayScaleOptions,
   type BabylonSceneViewCameraController,
   type BabylonSceneViewInputController,
   type BabylonSceneViewMeasurementController,
@@ -408,7 +406,6 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     sky?: BabylonEditorSkyOptions | false;
     useRightHandedSystem?: boolean;
     coordinateAxes?: boolean;
-    displayScale?: BabylonEditorDisplayScaleOptions | false;
   };
   inspector?: LocalEditorHarnessInspectorOptions<TDocument>;
   createGrid?: (
@@ -1398,13 +1395,9 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     projection.syncSelection(selection);
     gizmo.setSelection(selection);
   }
-  const resize = () => syncBabylonEditorDisplayScale(engine, canvas, options.world?.displayScale);
+  const resize = () => engine.resize?.();
   window.addEventListener('resize', resize);
-  resize();
-  engine.runRenderLoop?.(() => {
-    syncBabylonEditorDisplayScale(engine, canvas, options.world?.displayScale);
-    world.render();
-  });
+  engine.runRenderLoop?.(() => world.render());
   state.babylon = babylon;
   state.engine = engine;
   state.world = world;
@@ -1510,9 +1503,7 @@ function handleContextAction<TDocument, TPatch, TAsset>(
   if (action.region !== 'hierarchy') return false;
   if (action.action === 'focus') {
     const activeId = action.activeId ?? action.targetIds[action.targetIds.length - 1] ?? null;
-    if (!activeId) return focusSelectedProjection(state);
-    const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
-    const selectionChanged = selection.activeId !== activeId || !selection.selectedIds.includes(activeId)
+    const selectionChanged = activeId && !state.session?.getState().selection.selectedIds.includes(activeId)
       ? dispatchSelectionCommand(state, options, {
           type: 'selection.replace',
           selectedIds: [activeId],
@@ -1520,7 +1511,7 @@ function handleContextAction<TDocument, TPatch, TAsset>(
           label: 'Select Context Target',
         })
       : false;
-    return focusProjectionNode(state, activeId) || selectionChanged;
+    return focusSelectedProjection(state) || selectionChanged;
   }
   if (action.action === 'rename') return false;
   if (action.action === 'create-group') {
