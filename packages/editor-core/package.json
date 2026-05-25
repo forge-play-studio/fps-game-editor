@@ -1,6 +1,6 @@
 {
   "name": "@fps-games/editor-core",
-  "version": "0.1.1-beta.9",
+  "version": "0.1.1-beta.10",
   "private": true,
   "type": "module",
   "description": "Core runtime shell and adapter contracts for fps-game-editor.",
@@ -21,6 +21,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@fps-games/editor-protocol": "0.1.1-beta.9"
+    "@fps-games/editor-protocol": "0.1.1-beta.10"
   }
 }
