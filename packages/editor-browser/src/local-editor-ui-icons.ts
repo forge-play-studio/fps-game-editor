@@ -19,6 +19,8 @@ export const LOCAL_EDITOR_ICON_NAMES = [
   'place-ground',
   'place-off',
   'place-surface',
+  'projection-ortho',
+  'projection-perspective',
   'redo',
   'root',
   'rotate',
@@ -29,6 +31,12 @@ export const LOCAL_EDITOR_ICON_NAMES = [
   'status',
   'theme',
   'undo',
+  'view-front',
+  'view-overlay',
+  'view-perspective',
+  'view-right',
+  'view-top',
+  'measure',
   'world',
 ] as const;
 
@@ -133,6 +141,14 @@ const LOCAL_EDITOR_ICON_DEFINITIONS = {
     { tag: 'path', attrs: { d: 'M4 16l5-5 4 4 7-7' } },
     { tag: 'path', attrs: { d: 'M12 4v10M8 10l4 4 4-4' } },
   ],
+  'projection-ortho': [
+    { tag: 'rect', attrs: { x: '5', y: '5', width: '14', height: '14', rx: '1.5' } },
+    { tag: 'path', attrs: { d: 'M8 8h8v8H8z' } },
+  ],
+  'projection-perspective': [
+    { tag: 'path', attrs: { d: 'M4 18l8-12 8 12z' } },
+    { tag: 'path', attrs: { d: 'M8 18l4-6 4 6M12 6v6' } },
+  ],
   redo: [
     { tag: 'path', attrs: { d: 'M19 7v6h-6' } },
     { tag: 'path', attrs: { d: 'M18 13a6 6 0 1 1-1.7-4.2L19 11' } },
@@ -175,6 +191,32 @@ const LOCAL_EDITOR_ICON_DEFINITIONS = {
   undo: [
     { tag: 'path', attrs: { d: 'M5 7v6h6' } },
     { tag: 'path', attrs: { d: 'M6 13a6 6 0 1 0 1.7-4.2L5 11' } },
+  ],
+  'view-front': [
+    { tag: 'rect', attrs: { x: '5', y: '6', width: '14', height: '12', rx: '1.5' } },
+    { tag: 'path', attrs: { d: 'M8 9h8M8 15h8M12 6v12' } },
+  ],
+  'view-overlay': [
+    { tag: 'path', attrs: { d: 'M12 3l7 4v10l-7 4-7-4V7z' } },
+    { tag: 'path', attrs: { d: 'M5 7l7 4 7-4M5 17l7-4 7 4' } },
+    { tag: 'circle', attrs: { cx: '12', cy: '13', r: '1.5' } },
+  ],
+  'view-perspective': [
+    { tag: 'path', attrs: { d: 'M4 17l8-10 8 10' } },
+    { tag: 'path', attrs: { d: 'M8 17h8M12 7v10' } },
+  ],
+  'view-right': [
+    { tag: 'path', attrs: { d: 'M6 5l12 4v10L6 15z' } },
+    { tag: 'path', attrs: { d: 'M6 5v10M18 9v10M6 15l12 4' } },
+  ],
+  'view-top': [
+    { tag: 'rect', attrs: { x: '5', y: '5', width: '14', height: '14', rx: '1.5' } },
+    { tag: 'path', attrs: { d: 'M9 5v14M15 5v14M5 9h14M5 15h14' } },
+  ],
+  measure: [
+    { tag: 'path', attrs: { d: 'M5 17L17 5' } },
+    { tag: 'path', attrs: { d: 'M7 19l-2-2 2-2M15 7l2-2 2 2' } },
+    { tag: 'path', attrs: { d: 'M9 15l1.5 1.5M12 12l1.5 1.5M15 9l1.5 1.5' } },
   ],
   world: [
     { tag: 'circle', attrs: { cx: '12', cy: '12', r: '9' } },

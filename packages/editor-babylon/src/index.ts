@@ -16,6 +16,8 @@ export * from './runtime-globals';
 export * from './scene-camera-preview';
 export * from './scene-view-camera-controller';
 export * from './scene-view-input-controller';
+export * from './scene-view-measurement-controller';
+export * from './scene-view-spatial-overlay-controller';
 export * from './tool-controller';
 export * from './transform-gizmo-controller';
 export type * from './types';

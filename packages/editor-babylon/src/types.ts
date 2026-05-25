@@ -26,6 +26,10 @@ export type BabylonRuntimeGlobal = {
     target: any,
     scene: RuntimeScene,
   ) => RuntimeCamera;
+  Camera?: {
+    PERSPECTIVE_CAMERA?: number;
+    ORTHOGRAPHIC_CAMERA?: number;
+  };
   Vector3?: new (x: number, y: number, z: number) => any;
   Color3?: new (r: number, g: number, b: number) => any;
   Color4?: new (r: number, g: number, b: number, a: number) => any;

@@ -6,6 +6,7 @@ export type SceneViewPointerIntent =
   | 'gizmo-drag'
   | 'view-plane-move'
   | 'placement'
+  | 'measurement'
   | 'orbit'
   | 'pan'
   | 'dolly'

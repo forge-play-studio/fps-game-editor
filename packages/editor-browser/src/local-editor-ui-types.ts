@@ -7,6 +7,13 @@ import type {
   EditorTransformSpace,
   EditorTransformTool,
   EditorTransformToolDescriptor,
+  EditorViewportGroundMeasurement,
+  EditorViewportOverlaySettings,
+  EditorViewportProjectionMode,
+  EditorViewportSpatialOverlayState,
+  EditorViewportToolState,
+  EditorViewportUtilityTool,
+  EditorViewportViewPreset,
   SceneGraphPrimitiveShape,
   SelectionCommand,
 } from '@fps-games/editor-core';
@@ -194,6 +201,20 @@ export interface LocalEditorBrowserTransformOperationState {
   canDistribute: boolean;
 }
 
+export type LocalEditorBrowserViewportViewPreset = EditorViewportViewPreset;
+
+export type LocalEditorBrowserViewportProjectionMode = EditorViewportProjectionMode;
+
+export type LocalEditorBrowserViewportUtilityTool = EditorViewportUtilityTool;
+
+export type LocalEditorBrowserViewportOverlaySettings = EditorViewportOverlaySettings;
+
+export type LocalEditorBrowserViewportToolState = EditorViewportToolState;
+
+export type LocalEditorBrowserViewportMeasurementState = EditorViewportGroundMeasurement;
+
+export type LocalEditorBrowserViewportSpatialOverlayState = EditorViewportSpatialOverlayState;
+
 export interface LocalEditorBrowserHistoryEntry {
   id: string;
   label: string;
@@ -245,6 +266,9 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   coordinateAxes?: LocalEditorBrowserCoordinateAxesState | null;
   transformTool?: LocalEditorBrowserTransformToolState | null;
   transformOperations?: LocalEditorBrowserTransformOperationState | null;
+  viewportTools?: LocalEditorBrowserViewportToolState | null;
+  viewportMeasurement?: LocalEditorBrowserViewportMeasurementState | null;
+  viewportSpatialOverlay?: LocalEditorBrowserViewportSpatialOverlayState | null;
   sceneCameraPreview?: {
     enabled: boolean;
     available: boolean;
@@ -429,6 +453,11 @@ export interface LocalEditorBrowserUiCallbacks {
   onTransformSnapStepChange?: (input: { kind: LocalEditorBrowserTransformSnapStepKind; value: number }) => void;
   onPlacementModeChange?: (mode: LocalEditorBrowserPlacementMode) => void;
   onTransformAction?: (action: LocalEditorBrowserTransformAction) => void;
+  onViewportViewPresetChange?: (preset: LocalEditorBrowserViewportViewPreset) => void;
+  onViewportProjectionModeChange?: (mode: LocalEditorBrowserViewportProjectionMode) => void;
+  onViewportOverlaySettingsChange?: (settings: LocalEditorBrowserViewportOverlaySettings) => void;
+  onViewportUtilityToolChange?: (tool: LocalEditorBrowserViewportUtilityTool) => void;
+  onViewportMeasurementClear?: () => void;
   onSceneCameraPreviewToggle?: (enabled: boolean) => void;
   onGridVisibleChange?: (visible: boolean) => void;
   onFocusSelection?: () => void;
