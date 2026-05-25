@@ -3,6 +3,8 @@ import { composeEditorTransformMatrix, editorTransformMatricesAlmostEqual } from
 import type { EditorSceneDocument, EditorSceneGameObject } from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-document';
 import { findEditorSceneTransform } from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-document';
 import {
+  applyEditorSceneSerializedPropertyPatch,
+  createEditorSceneInspectorPropertyPatch,
   createEditorSceneCreateGroupPatch,
   createEditorSceneGroupSelectionPatch,
   createEditorSceneHierarchyMovePatch,
@@ -36,6 +38,84 @@ describe('mini-game-lab hierarchy adapter', () => {
       depth: 0,
       canHaveChildren: true,
     });
+  });
+
+  it('normalizes the hidden MVP root to an immutable identity transform', () => {
+    let document = normalizeEditorSceneHierarchyDocument(createMiniEditorSceneDocument({
+      rootPosition: { x: 10, y: 2, z: -3 },
+    }));
+    const root = findMiniGameObject(document, 'mvp_root')!;
+    expect(findEditorSceneTransform(root)).toEqual({
+      type: 'Transform',
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    });
+    expect(getEditorSceneGameObjectWorldTransform(document, 'mvp_root')).toEqual({
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    });
+    expect(getEditorSceneHierarchyItems(document).some(item => item.id === 'mvp_root')).toBe(false);
+    expect(findEditorSceneTransform(findMiniGameObject(document, 'mvp_tree_01')!)?.position)
+      .toEqual({ x: 12, y: 2, z: -3 });
+
+    document = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      label: 'Move root',
+      patch: {
+        kind: 'game-object.transform',
+        targetId: 'mvp_root',
+        transform: {
+          position: { x: 5, y: 6, z: 7 },
+          rotation: { x: 1, y: 2, z: 3 },
+          scale: { x: 4, y: 5, z: 6 },
+        },
+      },
+    });
+    document = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      label: 'Batch move root',
+      patch: {
+        kind: 'game-object.transform-batch',
+        targets: [{
+          targetId: 'mvp_root',
+          transform: {
+            position: { x: 8 },
+            rotation: { y: 9 },
+            scale: { z: 10 },
+          },
+        }],
+      },
+    });
+    document = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      label: 'Inspector move root',
+      patch: {
+        kind: 'game-object.field',
+        targetId: 'mvp_root',
+        path: 'transform.position.x',
+        value: 11,
+      },
+    });
+    document = applyEditorSceneSerializedPropertyPatch(document, {
+      targetId: 'mvp_root',
+      path: 'transform.position.x',
+      value: 12,
+    });
+
+    expect(findEditorSceneTransform(findMiniGameObject(document, 'mvp_root')!)).toEqual({
+      type: 'Transform',
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    });
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'mvp_root',
+      path: 'transform.position.x',
+      value: 13,
+    })).toBeNull();
   });
 
   it('moves nodes across parents while preserving world transform and sibling order', () => {
@@ -208,7 +288,7 @@ describe('mini-game-lab hierarchy adapter', () => {
 
     const created = findMiniGameObject(document, 'tree')!;
     expect(created.parentId).toBe('mvp_root');
-    expect(findEditorSceneTransform(created)?.position).toEqual({ x: -10, y: 0, z: 1.8 });
+    expect(findEditorSceneTransform(created)?.position).toEqual({ x: 0, y: 0, z: 1.8 });
     expect(getEditorSceneGameObjectWorldTransform(document, 'tree')?.position).toEqual({ x: 0, y: 0, z: 1.8 });
   });
 
@@ -219,14 +299,12 @@ describe('mini-game-lab hierarchy adapter', () => {
     const tree = findMiniGameObject(normalized, 'mvp_tree_02')!;
 
     expect(tree.parentId).toBe('mvp_root');
-    expect(findEditorSceneTransform(tree)?.position).toEqual({ x: -4, y: 0, z: 0 });
+    expect(findEditorSceneTransform(tree)?.position).toEqual({ x: 6, y: 0, z: 0 });
     expect(getEditorSceneGameObjectWorldTransform(normalized, 'mvp_tree_02')?.position).toEqual({ x: 6, y: 0, z: 0 });
   });
 
   it('preserves world hierarchy moves through nested rotated and scaled parent chains', () => {
     let document = createMiniEditorSceneDocument({
-      rootRotation: { x: 0, y: Math.PI / 6, z: 0 },
-      rootScale: { x: 2, y: 2, z: 2 },
       groupRotation: { x: 0.1, y: -0.25, z: 0.05 },
       groupScale: { x: 0.5, y: 0.5, z: 0.5 },
     });
@@ -312,7 +390,7 @@ describe('mini-game-lab hierarchy adapter', () => {
 
   it('rejects preserve-world hierarchy moves through zero-scale parent chains', () => {
     const document = createMiniEditorSceneDocument({
-      rootScale: { x: 1, y: 0, z: 1 },
+      groupScale: { x: 1, y: 0, z: 1 },
     });
 
     expect(validateEditorSceneHierarchyMove(document, {
@@ -348,6 +426,7 @@ describe('mini-game-lab hierarchy adapter', () => {
 });
 
 function createMiniEditorSceneDocument(options: {
+  rootPosition?: { x: number; y: number; z: number };
   rootRotation?: { x: number; y: number; z: number };
   rootScale?: { x: number; y: number; z: number };
   groupRotation?: { x: number; y: number; z: number };
@@ -365,7 +444,7 @@ function createMiniEditorSceneDocument(options: {
         createMiniGameObject({
           id: 'mvp_root',
           name: 'MVP Root',
-          position: { x: 10, y: 0, z: 0 },
+          position: options.rootPosition ?? { x: 0, y: 0, z: 0 },
           rotation: options.rootRotation,
           scale: options.rootScale,
           group: true,

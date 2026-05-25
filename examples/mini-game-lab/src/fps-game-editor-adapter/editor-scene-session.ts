@@ -22,6 +22,7 @@ import {
   type SerializedObject,
   type SerializedPropertyDescriptor,
   type SerializedPropertyPatch,
+  combineEditorTransforms,
   composeEditorTransformChain,
   createIdentityEditorTransform,
   getTopLevelSceneGraphNodeIds,
@@ -137,6 +138,7 @@ type EditorSceneHierarchyMovePatchEntry = {
 export const EDITOR_SCENE_MAIN_CAMERA_ID = 'main_camera';
 export const EDITOR_SCENE_SUN_LIGHT_ID = 'sun_light';
 const EDITOR_SCENE_ROOT_ID = 'mvp_root';
+const EDITOR_SCENE_ROOT_TRANSFORM = createIdentityEditorTransform();
 
 export const DEFAULT_EDITOR_SCENE_CAMERA: EditorSceneCameraRig = {
   alpha: 3.9269908169872414,
@@ -152,7 +154,107 @@ export const DEFAULT_EDITOR_SCENE_SUN_LIGHT: EditorSceneDirectionalLight = {
   diffuseColor: { r: 1, g: 1, b: 1 },
 };
 
+function isEditorSceneRootGameObjectId(gameObjectId: string | null | undefined): boolean {
+  return gameObjectId === EDITOR_SCENE_ROOT_ID;
+}
+
+function isEditorSceneRootGameObject(gameObject: EditorSceneGameObject): boolean {
+  return isEditorSceneRootGameObjectId(gameObject.id);
+}
+
+function isEditorSceneRootTransformPath(targetId: string, path: string): boolean {
+  return isEditorSceneRootGameObjectId(targetId)
+    && /^transform\.(position|rotation|scale)\.(x|y|z)$/.test(path);
+}
+
+function createEditorSceneRootTransformComponent(): EditorSceneGameObject['components'][number] {
+  return {
+    type: 'Transform',
+    position: { ...EDITOR_SCENE_ROOT_TRANSFORM.position },
+    rotation: { ...EDITOR_SCENE_ROOT_TRANSFORM.rotation },
+    scale: { ...EDITOR_SCENE_ROOT_TRANSFORM.scale },
+  };
+}
+
+function normalizeEditorSceneRootTransformDocument(document: EditorSceneDocument): EditorSceneDocument {
+  const root = document.scene.gameObjects.find(isEditorSceneRootGameObject);
+  if (!root) return document;
+  const rootLocalTransform = readRawGameObjectLocalTransform(root);
+  const bakeRootTransformIntoChildren = !!findEditorSceneTransform(root)
+    && !isIdentityEditorTransform(rootLocalTransform);
+  let changed = false;
+  const gameObjects = document.scene.gameObjects.map((gameObject) => {
+    if (isEditorSceneRootGameObject(gameObject)) {
+      const next = normalizeEditorSceneRootGameObject(gameObject);
+      changed = changed || next !== gameObject;
+      return next;
+    }
+    if (!bakeRootTransformIntoChildren || gameObject.parentId !== EDITOR_SCENE_ROOT_ID) return gameObject;
+    const childTransform = findEditorSceneTransform(gameObject);
+    if (!childTransform) return gameObject;
+    const bakedTransform = combineEditorTransforms(rootLocalTransform, readRawGameObjectLocalTransform(gameObject));
+    if (!bakedTransform) return gameObject;
+    const next = patchEditorSceneGameObjectLocalTransform(gameObject, bakedTransform);
+    changed = changed || next !== gameObject;
+    return next;
+  });
+  return changed
+    ? {
+        ...document,
+        scene: {
+          ...document.scene,
+          gameObjects,
+        },
+      }
+    : document;
+}
+
+function normalizeEditorSceneRootGameObject(gameObject: EditorSceneGameObject): EditorSceneGameObject {
+  let hasTransform = false;
+  const components = gameObject.components.map((component) => {
+    if (component.type !== 'Transform') return component;
+    hasTransform = true;
+    return createEditorSceneRootTransformComponent();
+  });
+  if (!hasTransform) components.unshift(createEditorSceneRootTransformComponent());
+
+  const next: EditorSceneGameObject = {
+    ...gameObject,
+    components,
+  };
+  delete next.parentId;
+  return shallowEditorSceneGameObjectsEqual(next, gameObject) ? gameObject : next;
+}
+
+function patchEditorSceneGameObjectLocalTransform(
+  gameObject: EditorSceneGameObject,
+  transform: EditorTransformSnapshot,
+): EditorSceneGameObject {
+  const next = {
+    ...gameObject,
+    components: gameObject.components.map((component) => {
+      if (component.type !== 'Transform') return component;
+      return {
+        ...component,
+        position: { ...transform.position },
+        rotation: { ...transform.rotation },
+        scale: { ...transform.scale },
+      };
+    }),
+  };
+  return shallowEditorSceneGameObjectsEqual(next, gameObject) ? gameObject : next;
+}
+
 export function reduceEditorSceneDocument(
+  document: EditorSceneDocument,
+  command: DocumentCommand<EditorSceneDocument, EditorSceneDocumentPatch>,
+): EditorSceneDocument {
+  return normalizeEditorSceneRootTransformDocument(
+    reduceEditorSceneDocumentUnchecked(document, command),
+  );
+}
+
+function reduceEditorSceneDocumentUnchecked(
   document: EditorSceneDocument,
   command: DocumentCommand<EditorSceneDocument, EditorSceneDocumentPatch>,
 ): EditorSceneDocument {
@@ -169,6 +271,7 @@ export function reduceEditorSceneDocument(
     return addAssetLibraryItemToEditorSceneDocument(document, patch.assetItem, patch.placement).document;
   }
   if (patch.kind === 'game-object.transform') {
+    if (isEditorSceneRootGameObjectId(patch.targetId)) return document;
     return patchEditorSceneGameObjectTransform(document, patch.targetId, {
       position: patch.transform.position,
       rotation: patch.transform.rotation,
@@ -178,6 +281,7 @@ export function reduceEditorSceneDocument(
   if (patch.kind === 'game-object.transform-batch') {
     return patch.targets.reduce(
       (nextDocument, target) => {
+        if (isEditorSceneRootGameObjectId(target.targetId)) return nextDocument;
         const gameObject = nextDocument.scene.gameObjects.find((entry) => entry.id === target.targetId);
         const transform = gameObject ? findEditorSceneTransform(gameObject) : null;
         return patchEditorSceneGameObjectTransform(nextDocument, target.targetId, {
@@ -198,7 +302,9 @@ export function reduceEditorSceneDocument(
   if (patch.kind === 'game-object.duplicate-selection') {
     const existingIds = new Set(document.scene.gameObjects.map((gameObject) => gameObject.id));
     const gameObjects = patch.gameObjects.filter((gameObject) => (
-      !existingIds.has(gameObject.id) && !isEditorSceneCameraGameObject(gameObject)
+      !existingIds.has(gameObject.id)
+      && !isEditorSceneRootGameObject(gameObject)
+      && !isEditorSceneCameraGameObject(gameObject)
     ));
     if (gameObjects.length === 0) return document;
     return {
@@ -244,6 +350,7 @@ export function reduceEditorSceneDocument(
     };
   }
   if (patch.kind === 'game-object.delete-subtree') {
+    if (patch.targetIds.some(isEditorSceneRootGameObjectId)) return document;
     const deleteIds = collectEditorSceneSubtreeIds(document, patch.targetIds);
     if (deleteIds.size === 0) return document;
     if (document.scene.gameObjects.some((gameObject) => deleteIds.has(gameObject.id) && isEditorSceneCameraGameObject(gameObject))) {
@@ -258,6 +365,7 @@ export function reduceEditorSceneDocument(
     };
   }
   if (patch.kind === 'game-object.reparent') {
+    if (isEditorSceneRootGameObjectId(patch.targetId)) return document;
     return {
       ...document,
       scene: {
@@ -284,7 +392,10 @@ export function reduceEditorSceneDocument(
     };
   }
   if (patch.kind === 'game-object.hierarchy-move') {
-    const moves = new Map(patch.moves.map((move) => [move.targetId, move]));
+    const moves = new Map(patch.moves
+      .filter((move) => !isEditorSceneRootGameObjectId(move.targetId))
+      .map((move) => [move.targetId, move]));
+    if (moves.size === 0) return document;
     const gameObjects = document.scene.gameObjects.map((gameObject) => {
       const move = moves.get(gameObject.id);
       if (!move) return gameObject;
@@ -311,8 +422,10 @@ export function reduceEditorSceneDocument(
     };
   }
   if (patch.kind === 'game-object.group-selection') {
+    if (isEditorSceneRootGameObject(patch.gameObject)) return document;
     if (document.scene.gameObjects.some((gameObject) => gameObject.id === patch.gameObject.id)) return document;
-    const childIds = new Set(patch.childIds);
+    const childIds = new Set(patch.childIds.filter((id) => !isEditorSceneRootGameObjectId(id)));
+    if (childIds.size === 0) return document;
     const updated = document.scene.gameObjects.map((gameObject) => {
       if (!childIds.has(gameObject.id)) return gameObject;
       const transform = patch.childTransforms[gameObject.id];
@@ -369,10 +482,11 @@ function isEditorSceneProtectedSystemGameObject(gameObject: EditorSceneGameObjec
 }
 
 export function ensureEditorSceneEnvironmentDefaults(document: EditorSceneDocument): EditorSceneDocument {
-  const rootId = resolveEditorSceneRootContainerId(document);
+  const normalizedDocument = normalizeEditorSceneRootTransformDocument(document);
+  const rootId = resolveEditorSceneRootContainerId(normalizedDocument);
   let cameraSeen = false;
   let changed = false;
-  const gameObjects = document.scene.gameObjects.map((gameObject) => {
+  const gameObjects = normalizedDocument.scene.gameObjects.map((gameObject) => {
     if (isEditorSceneCameraGameObject(gameObject)) {
       if (!cameraSeen) {
         cameraSeen = true;
@@ -403,13 +517,13 @@ export function ensureEditorSceneEnvironmentDefaults(document: EditorSceneDocume
 
   return changed
     ? {
-        ...document,
+        ...normalizedDocument,
         scene: {
-          ...document.scene,
+          ...normalizedDocument.scene,
           gameObjects,
         },
       }
-    : document;
+    : normalizedDocument;
 }
 
 export function getEditorSceneHierarchyItems(document: EditorSceneDocument): SceneGraphTreeItem[] {
@@ -435,13 +549,14 @@ export function getEditorSceneHierarchyItems(document: EditorSceneDocument): Sce
 }
 
 export function normalizeEditorSceneHierarchyDocument(document: EditorSceneDocument): EditorSceneDocument {
-  const rootId = resolveEditorSceneRootContainerId(document);
-  if (!rootId) return document;
+  const normalizedDocument = normalizeEditorSceneRootTransformDocument(document);
+  const rootId = resolveEditorSceneRootContainerId(normalizedDocument);
+  if (!rootId) return normalizedDocument;
   let changed = false;
-  const gameObjects = document.scene.gameObjects.map((gameObject) => {
+  const gameObjects = normalizedDocument.scene.gameObjects.map((gameObject) => {
     if (gameObject.id === rootId || gameObject.parentId) return gameObject;
-    const world = getEditorSceneGameObjectWorldTransform(document, gameObject.id);
-    const local = world ? toLocalTransformForParent(document, rootId, world) : null;
+    const world = getEditorSceneGameObjectWorldTransform(normalizedDocument, gameObject.id);
+    const local = world ? toLocalTransformForParent(normalizedDocument, rootId, world) : null;
     changed = true;
     return {
       ...gameObject,
@@ -461,13 +576,13 @@ export function normalizeEditorSceneHierarchyDocument(document: EditorSceneDocum
   });
   return changed
     ? {
-        ...document,
+        ...normalizedDocument,
         scene: {
-          ...document.scene,
+          ...normalizedDocument.scene,
           gameObjects,
         },
       }
-    : document;
+    : normalizedDocument;
 }
 
 export function createEditorSceneRenamePatch(
@@ -881,6 +996,7 @@ export function getEditorSceneGameObjectWorldTransform(
   document: EditorSceneDocument,
   gameObjectId: string,
 ): EditorTransformSnapshot | null {
+  if (isEditorSceneRootGameObjectId(gameObjectId)) return identityTransform();
   const gameObject = findEditorSceneGameObject(document, gameObjectId);
   if (!gameObject) return null;
   const chain: EditorSceneGameObject[] = [];
@@ -2008,6 +2124,7 @@ export function createEditorSceneInspectorPropertyPatch(
   if (!gameObject) return null;
   const path = input.path;
   const value = normalizeEditorSceneInspectorValue(path, input.value);
+  if (isEditorSceneRootTransformPath(input.targetId, path)) return null;
   if (!validateEditorSceneInspectorValue(input.document, gameObject, path, value).ok) return null;
   if (isBlockedEditorSceneCameraFieldPatch(input.document, input.targetId, path, value)) return null;
   if (isUnsafeGroupRotationOrScale(input.document, input.targetId, path)) return null;
@@ -2288,6 +2405,11 @@ function getEditorSceneGameObjectDepth(document: EditorSceneDocument, gameObject
 }
 
 function readGameObjectLocalTransform(gameObject: EditorSceneGameObject): EditorTransformSnapshot {
+  if (isEditorSceneRootGameObject(gameObject)) return identityTransform();
+  return readRawGameObjectLocalTransform(gameObject);
+}
+
+function readRawGameObjectLocalTransform(gameObject: EditorSceneGameObject): EditorTransformSnapshot {
   const transform = findEditorSceneTransform(gameObject);
   if (!transform) return identityTransform();
   return {
@@ -2299,6 +2421,10 @@ function readGameObjectLocalTransform(gameObject: EditorSceneGameObject): Editor
 
 function identityTransform(): EditorTransformSnapshot {
   return createIdentityEditorTransform();
+}
+
+function isIdentityEditorTransform(transform: EditorTransformSnapshot): boolean {
+  return transformsEqual(transform, EDITOR_SCENE_ROOT_TRANSFORM);
 }
 
 function transformsEqual(left: EditorTransformSnapshot, right: EditorTransformSnapshot): boolean {
@@ -2631,20 +2757,25 @@ function createTransformInspectorProperties(
 ): InspectorProperty<EditorSceneDocument>[] {
   const properties: InspectorProperty<EditorSceneDocument>[] = [];
   let order = 0;
+  const rootTransform = isEditorSceneRootGameObject(gameObject);
+  const displayTransform = rootTransform ? EDITOR_SCENE_ROOT_TRANSFORM : transform;
   for (const vectorName of ['position', 'rotation', 'scale'] as const) {
-    const vector = readTransformVector(transform, vectorName);
+    const vector = readTransformVector(displayTransform, vectorName);
     for (const axis of ['x', 'y', 'z'] as const) {
       const path = `transform.${vectorName}.${axis}`;
-      properties.push(createDocumentInspectorProperty(null, nodeKind, {
-        path,
-        label: `${toEditorSceneTransformVectorLabel('local', vectorName)}.${axis}`,
-        valueType: 'number',
-        control: 'number',
-        value: vectorName === 'rotation' ? roundForInspector(radiansToDegrees(vector[axis])) : vector[axis],
-        commitMode: 'live',
-        order,
-        step: vectorName === 'rotation' ? 1 : 0.1,
-      }));
+      const value = vectorName === 'rotation' ? roundForInspector(radiansToDegrees(vector[axis])) : vector[axis];
+      properties.push(rootTransform
+        ? createReadonlyInspectorProperty(path, `${toEditorSceneTransformVectorLabel('local', vectorName)}.${axis}`, value, order)
+        : createDocumentInspectorProperty(null, nodeKind, {
+            path,
+            label: `${toEditorSceneTransformVectorLabel('local', vectorName)}.${axis}`,
+            valueType: 'number',
+            control: 'number',
+            value,
+            commitMode: 'live',
+            order,
+            step: vectorName === 'rotation' ? 1 : 0.1,
+          }));
       order += 1;
     }
   }
@@ -3676,6 +3807,7 @@ export function patchEditorSceneGameObjectField(
   path: string,
   value: unknown,
 ): EditorSceneDocument {
+  if (isEditorSceneRootTransformPath(targetId, path)) return document;
   const gameObject = findEditorSceneGameObject(document, targetId);
   if (!gameObject) return document;
   const normalizedValue = normalizeEditorSceneInspectorValue(path, value);
@@ -4031,6 +4163,7 @@ export function applyEditorSceneSerializedPropertyPatch(
   document: EditorSceneDocument,
   patch: SerializedPropertyPatch,
 ): EditorSceneDocument {
+  if (isEditorSceneRootTransformPath(patch.targetId, patch.path)) return document;
   const gameObject = document.scene.gameObjects.find((entry) => entry.id === patch.targetId);
   if (!gameObject) return document;
   return applySerializedPropertyPatch(
@@ -4051,7 +4184,7 @@ export function addAssetLibraryItemToEditorSceneDocument(
     : createEditorSceneAssetFromLibraryItem(document, assetItem);
   const gameObject = createGameObjectForAsset(document, assetItem, asset.id, placement);
   return {
-    document: {
+    document: normalizeEditorSceneRootTransformDocument({
       ...document,
       assets: existingAsset
         ? document.assets.map((candidate) => candidate.id === asset.id ? asset : candidate)
@@ -4060,7 +4193,7 @@ export function addAssetLibraryItemToEditorSceneDocument(
         ...document.scene,
         gameObjects: [...document.scene.gameObjects, gameObject],
       },
-    },
+    }),
     gameObject,
   };
 }
@@ -4086,39 +4219,46 @@ function createEditorScenePropertyDescriptors(
   ];
   const transform = findEditorSceneTransform(gameObject);
   if (transform) {
+    const rootTransform = isEditorSceneRootGameObject(gameObject);
+    const displayTransform = rootTransform ? EDITOR_SCENE_ROOT_TRANSFORM : transform;
     for (const vectorName of ['position', 'rotation', 'scale'] as const) {
       for (const axis of ['x', 'y', 'z'] as const) {
         descriptors.push({
           path: `transform.${vectorName}.${axis}`,
           label: `${vectorName}.${axis}`,
           valueType: 'number',
+          readOnly: rootTransform,
           getValue: () => {
-            const value = readTransformVector(transform, vectorName)[axis];
+            const value = readTransformVector(displayTransform, vectorName)[axis];
             return vectorName === 'rotation' ? roundForInspector(radiansToDegrees(value)) : value;
           },
-          setValue: (document, value, context) => {
-            const targetId = context.targetId;
-            const numericValue = Number(value);
-            if (!targetId || !Number.isFinite(numericValue)) return document;
-            const target = document.scene.gameObjects.find((entry) => entry.id === targetId);
-            const targetTransform = target ? findEditorSceneTransform(target) : null;
-            if (!targetTransform) return document;
-            const storedValue = vectorName === 'rotation' ? degreesToRadians(numericValue) : numericValue;
-            const position = vectorName === 'position'
-              ? { ...targetTransform.position, [axis]: storedValue }
-              : targetTransform.position;
-            const rotation = vectorName === 'rotation'
-              ? { ...targetTransform.rotation, [axis]: storedValue }
-              : targetTransform.rotation;
-            const scale = vectorName === 'scale'
-              ? { ...readTransformVector(targetTransform, 'scale'), [axis]: storedValue }
-              : readTransformVector(targetTransform, 'scale');
-            return patchEditorSceneGameObjectTransform(document, targetId, {
-              position,
-              rotation,
-              scale,
-            });
-          },
+          ...(rootTransform
+            ? {}
+            : {
+                setValue: (document, value, context) => {
+                  const targetId = context.targetId;
+                  const numericValue = Number(value);
+                  if (!targetId || !Number.isFinite(numericValue)) return document;
+                  const target = document.scene.gameObjects.find((entry) => entry.id === targetId);
+                  const targetTransform = target ? findEditorSceneTransform(target) : null;
+                  if (!targetTransform) return document;
+                  const storedValue = vectorName === 'rotation' ? degreesToRadians(numericValue) : numericValue;
+                  const position = vectorName === 'position'
+                    ? { ...targetTransform.position, [axis]: storedValue }
+                    : targetTransform.position;
+                  const rotation = vectorName === 'rotation'
+                    ? { ...targetTransform.rotation, [axis]: storedValue }
+                    : targetTransform.rotation;
+                  const scale = vectorName === 'scale'
+                    ? { ...readTransformVector(targetTransform, 'scale'), [axis]: storedValue }
+                    : readTransformVector(targetTransform, 'scale');
+                  return patchEditorSceneGameObjectTransform(document, targetId, {
+                    position,
+                    rotation,
+                    scale,
+                  });
+                },
+              }),
         });
       }
     }
