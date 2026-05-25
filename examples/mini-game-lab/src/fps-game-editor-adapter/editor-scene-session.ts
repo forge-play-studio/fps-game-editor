@@ -164,7 +164,7 @@ function isEditorSceneRootGameObject(gameObject: EditorSceneGameObject): boolean
 
 function isEditorSceneRootTransformPath(targetId: string, path: string): boolean {
   return isEditorSceneRootGameObjectId(targetId)
-    && /^transform\.(position|rotation|scale)\.(x|y|z)$/.test(path);
+    && /^transform\.(position|rotation|scale)(?:\.(x|y|z))?$/.test(path);
 }
 
 function createEditorSceneRootTransformComponent(): EditorSceneGameObject['components'][number] {
@@ -2127,7 +2127,6 @@ export function createEditorSceneInspectorPropertyPatch(
   if (isEditorSceneRootTransformPath(input.targetId, path)) return null;
   if (!validateEditorSceneInspectorValue(input.document, gameObject, path, value).ok) return null;
   if (isBlockedEditorSceneCameraFieldPatch(input.document, input.targetId, path, value)) return null;
-  if (isUnsafeGroupRotationOrScale(input.document, input.targetId, path)) return null;
   const changedIds = path.startsWith('transform.')
     ? collectEditorSceneSubtreeIdList(input.document, [input.targetId])
     : [input.targetId];
@@ -3790,17 +3789,6 @@ function normalizeEditorSceneInspectorValue(path: string, value: unknown): unkno
   return value;
 }
 
-function isUnsafeGroupRotationOrScale(
-  editorScene: EditorSceneDocument,
-  targetId: string,
-  serializedPath: string,
-): boolean {
-  if (!serializedPath.startsWith('transform.rotation.') && !serializedPath.startsWith('transform.scale.')) {
-    return false;
-  }
-  return collectEditorSceneSubtreeIdList(editorScene, [targetId]).length > 1;
-}
-
 export function patchEditorSceneGameObjectField(
   document: EditorSceneDocument,
   targetId: string,
@@ -3866,6 +3854,29 @@ function patchEditorSceneGameObject(
       if (value === 'groundDecal' && !next.groundDecal) next.groundDecal = createDefaultGroundDecal();
       else if (value !== 'groundDecal') delete next.groundDecal;
     }
+    return next;
+  }
+  const transformVectorMatch = path.match(/^transform\.(position|rotation|scale)$/);
+  if (transformVectorMatch) {
+    const transform = findEditorSceneTransform(next);
+    if (!transform) return next;
+    const vectorName = transformVectorMatch[1] as 'position' | 'rotation' | 'scale';
+    if (vectorName === 'scale') {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        transform.scale = { x: value, y: value, z: value };
+      } else if (isVec3(value)) {
+        transform.scale = { ...value };
+      }
+      return next;
+    }
+    if (!isVec3(value)) return next;
+    transform[vectorName] = vectorName === 'rotation'
+      ? {
+          x: degreesToRadians(value.x),
+          y: degreesToRadians(value.y),
+          z: degreesToRadians(value.z),
+        }
+      : { ...value };
     return next;
   }
   const transformMatch = path.match(/^transform\.(position|rotation|scale)\.(x|y|z)$/);
@@ -4223,8 +4234,9 @@ function createEditorScenePropertyDescriptors(
     const displayTransform = rootTransform ? EDITOR_SCENE_ROOT_TRANSFORM : transform;
     for (const vectorName of ['position', 'rotation', 'scale'] as const) {
       for (const axis of ['x', 'y', 'z'] as const) {
+        const path = `transform.${vectorName}.${axis}`;
         descriptors.push({
-          path: `transform.${vectorName}.${axis}`,
+          path,
           label: `${vectorName}.${axis}`,
           valueType: 'number',
           readOnly: rootTransform,
@@ -4242,6 +4254,7 @@ function createEditorScenePropertyDescriptors(
                   const target = document.scene.gameObjects.find((entry) => entry.id === targetId);
                   const targetTransform = target ? findEditorSceneTransform(target) : null;
                   if (!targetTransform) return document;
+                  if (!validateEditorSceneInspectorValue(document, target, path, numericValue).ok) return document;
                   const storedValue = vectorName === 'rotation' ? degreesToRadians(numericValue) : numericValue;
                   const position = vectorName === 'position'
                     ? { ...targetTransform.position, [axis]: storedValue }
