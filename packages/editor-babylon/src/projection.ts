@@ -840,11 +840,11 @@ function createCameraFrustumLines(
   const distance = Math.max(0.4, settings.radius * 0.12);
   const halfHeight = Math.max(0.12, settings.orthoSize * 0.08);
   const halfWidth = halfHeight * (16 / 9);
-  const near = new Vector3(0, 0, -0.18);
-  const topLeft = new Vector3(-halfWidth, halfHeight, distance);
-  const topRight = new Vector3(halfWidth, halfHeight, distance);
-  const bottomRight = new Vector3(halfWidth, -halfHeight, distance);
-  const bottomLeft = new Vector3(-halfWidth, -halfHeight, distance);
+  const near = new Vector3(0, 0, 0.18);
+  const topLeft = new Vector3(-halfWidth, halfHeight, -distance);
+  const topRight = new Vector3(halfWidth, halfHeight, -distance);
+  const bottomRight = new Vector3(halfWidth, -halfHeight, -distance);
+  const bottomLeft = new Vector3(-halfWidth, -halfHeight, -distance);
   const frustum = MeshBuilder.CreateLineSystem(`${node.id}.cameraFrustum`, {
     lines: [
       [topLeft, topRight, bottomRight, bottomLeft, topLeft],

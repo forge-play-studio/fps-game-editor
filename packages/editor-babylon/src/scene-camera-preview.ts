@@ -1,5 +1,7 @@
 import type {
   BabylonEditorProjectionCameraSettings,
+  BabylonEditorProjectionNode,
+  BabylonEditorProjectionTransform,
 } from './projection';
 import type {
   BabylonRuntimeGlobal,
@@ -9,6 +11,7 @@ import type {
 
 export interface BabylonSceneCameraPreviewRig {
   target?: { x: number; y: number; z: number };
+  transform?: BabylonEditorProjectionTransform | null;
   settings?: BabylonEditorProjectionCameraSettings | null;
 }
 
@@ -36,24 +39,48 @@ export function createBabylonSceneCameraPreviewController(
   options: BabylonSceneCameraPreviewControllerOptions,
 ): BabylonSceneCameraPreviewController {
   let previewCamera: RuntimeCamera | null = null;
+  let previewCameraKind: 'orbit' | 'transform' | null = null;
   let savedActiveCamera: RuntimeCamera | null = null;
   let savedActiveCameras: RuntimeCamera[] | null = null;
   let savedPointerCamera: RuntimeCamera | null = null;
   let active = false;
 
-  function ensurePreviewCamera(): RuntimeCamera | null {
-    if (previewCamera) return previewCamera;
-    const ArcRotateCamera = options.babylon.ArcRotateCamera;
+  function getPreviewCameraKind(rig: BabylonSceneCameraPreviewRig | null | undefined): 'orbit' | 'transform' {
+    return rig?.transform && options.babylon.UniversalCamera ? 'transform' : 'orbit';
+  }
+
+  function ensurePreviewCamera(kind: 'orbit' | 'transform'): RuntimeCamera | null {
+    if (previewCamera && previewCameraKind === kind) return previewCamera;
+    previewCamera?.dispose?.();
+    previewCamera = null;
+    previewCameraKind = null;
     const Vector3 = options.babylon.Vector3;
-    if (!ArcRotateCamera || !Vector3) return null;
-    previewCamera = new ArcRotateCamera(
-      'editor-scene-camera-preview',
-      DEFAULT_SCENE_CAMERA_SETTINGS.alpha,
-      DEFAULT_SCENE_CAMERA_SETTINGS.beta,
-      DEFAULT_SCENE_CAMERA_SETTINGS.radius,
-      new Vector3(0, 0, 0),
-      options.scene,
-    );
+    if (!Vector3) return null;
+    if (kind === 'transform' && options.babylon.UniversalCamera) {
+      previewCamera = new options.babylon.UniversalCamera(
+        'editor-scene-camera-preview',
+        new Vector3(0, 0, 0),
+        options.scene,
+      );
+    } else if (options.babylon.ArcRotateCamera) {
+      previewCamera = new options.babylon.ArcRotateCamera(
+        'editor-scene-camera-preview',
+        DEFAULT_SCENE_CAMERA_SETTINGS.alpha,
+        DEFAULT_SCENE_CAMERA_SETTINGS.beta,
+        DEFAULT_SCENE_CAMERA_SETTINGS.radius,
+        new Vector3(0, 0, 0),
+        options.scene,
+      );
+    } else if (options.babylon.UniversalCamera) {
+      previewCamera = new options.babylon.UniversalCamera(
+        'editor-scene-camera-preview',
+        new Vector3(0, 0, 0),
+        options.scene,
+      );
+    } else {
+      return null;
+    }
+    previewCameraKind = kind;
     previewCamera.mode = options.babylon.Camera?.ORTHOGRAPHIC_CAMERA ?? previewCamera.mode ?? 1;
     previewCamera.inertia = 0;
     return previewCamera;
@@ -75,7 +102,7 @@ export function createBabylonSceneCameraPreviewController(
   }
 
   function applyRig(rig: BabylonSceneCameraPreviewRig | null | undefined): void {
-    const camera = ensurePreviewCamera();
+    const camera = ensurePreviewCamera(getPreviewCameraKind(rig));
     const Vector3 = options.babylon.Vector3;
     if (!camera || !Vector3) return;
     const settings = {
@@ -83,16 +110,29 @@ export function createBabylonSceneCameraPreviewController(
       ...(rig?.settings ?? {}),
     };
     const target = rig?.target ?? { x: 0, y: 0, z: 0 };
-    camera.target = new Vector3(target.x, target.y, target.z);
-    camera.alpha = settings.alpha;
-    camera.beta = settings.beta;
-    camera.radius = settings.radius;
-    camera.lowerAlphaLimit = settings.alpha;
-    camera.upperAlphaLimit = settings.alpha;
-    camera.lowerBetaLimit = settings.beta;
-    camera.upperBetaLimit = settings.beta;
-    camera.lowerRadiusLimit = settings.radius;
-    camera.upperRadiusLimit = settings.radius;
+    if (rig?.transform) {
+      const transform = rig.transform;
+      camera.position = new Vector3(transform.position.x, transform.position.y, transform.position.z);
+      if (camera.rotationQuaternion) camera.rotationQuaternion = null;
+      camera.rotation = new Vector3(transform.rotation.x, transform.rotation.y, transform.rotation.z);
+    } else {
+      const targetVector = new Vector3(target.x, target.y, target.z);
+      if (typeof camera.alpha === 'number') {
+        camera.target = targetVector;
+        camera.alpha = settings.alpha;
+        camera.beta = settings.beta;
+        camera.radius = settings.radius;
+        camera.lowerAlphaLimit = settings.alpha;
+        camera.upperAlphaLimit = settings.alpha;
+        camera.lowerBetaLimit = settings.beta;
+        camera.upperBetaLimit = settings.beta;
+        camera.lowerRadiusLimit = settings.radius;
+        camera.upperRadiusLimit = settings.radius;
+      } else {
+        camera.position = createOrbitPosition(Vector3, target, settings);
+        camera.setTarget?.(targetVector);
+      }
+    }
     camera.mode = options.babylon.Camera?.ORTHOGRAPHIC_CAMERA ?? camera.mode ?? 1;
     const aspect = readSceneAspect(options.scene);
     const halfHeight = settings.orthoSize;
@@ -116,7 +156,7 @@ export function createBabylonSceneCameraPreviewController(
             : null;
           savedPointerCamera = options.scene.cameraToUseForPointers ?? null;
         }
-        const camera = ensurePreviewCamera();
+        const camera = ensurePreviewCamera(getPreviewCameraKind(rig));
         if (!camera) {
           savedActiveCamera = null;
           savedActiveCameras = null;
@@ -146,10 +186,41 @@ export function createBabylonSceneCameraPreviewController(
   };
 }
 
+export function createBabylonSceneCameraPreviewRigFromProjectionNode(
+  node: BabylonEditorProjectionNode | null | undefined,
+): BabylonSceneCameraPreviewRig | null {
+  if (!node || node.runtimeKind !== 'camera' || node.active === false) return null;
+  return {
+    ...(node.transform
+      ? {
+          transform: {
+            position: { ...node.transform.position },
+            rotation: { ...node.transform.rotation },
+            ...(node.transform.scale ? { scale: { ...node.transform.scale } } : {}),
+          },
+        }
+      : {}),
+    ...(node.camera ? { settings: { ...node.camera } } : {}),
+  };
+}
+
 function readSceneAspect(scene: RuntimeScene): number {
   const engine = scene.getEngine?.();
   const width = Number(engine?.getRenderWidth?.() ?? engine?.getRenderingCanvas?.()?.width ?? 1);
   const height = Number(engine?.getRenderHeight?.() ?? engine?.getRenderingCanvas?.()?.height ?? 1);
   if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) return 16 / 9;
   return Math.max(0.01, width / height);
+}
+
+function createOrbitPosition(
+  Vector3: new (x: number, y: number, z: number) => any,
+  target: { x: number; y: number; z: number },
+  settings: BabylonEditorProjectionCameraSettings,
+): any {
+  const sinBeta = Math.sin(settings.beta);
+  return new Vector3(
+    target.x + settings.radius * Math.cos(settings.alpha) * sinBeta,
+    target.y + settings.radius * Math.cos(settings.beta),
+    target.z + settings.radius * Math.sin(settings.alpha) * sinBeta,
+  );
 }

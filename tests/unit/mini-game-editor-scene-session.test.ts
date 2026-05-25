@@ -498,10 +498,28 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     const document = ensureEditorSceneEnvironmentDefaults(createMiniEditorSceneDocument());
     const rig = createSceneCameraPreviewRig(document);
 
-    expect(rig).toEqual({
-      target: { x: 0, y: 0, z: 0 },
+    expect(rig).toMatchObject({
+      transform: {
+        position: { x: 0, y: 5, z: -8 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
       settings: DEFAULT_EDITOR_SCENE_CAMERA,
     });
+    expect(rig?.transform?.rotation.x).toBeCloseTo(0);
+    expect(rig?.transform?.rotation.y).toBeCloseTo(0);
+    expect(rig?.transform?.rotation.z).toBeCloseTo(0);
+
+    const rotationPatch = createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'main_camera',
+      path: 'transform.rotation.x',
+      value: 30,
+    });
+    const rotated = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      patch: rotationPatch!.patch,
+    });
+    expect(createSceneCameraPreviewRig(rotated)?.transform?.rotation.x).toBeCloseTo(Math.PI / 6);
 
     const disabled = {
       ...document,
