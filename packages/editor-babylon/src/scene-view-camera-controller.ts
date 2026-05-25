@@ -1,4 +1,8 @@
 import type {
+  EditorViewportProjectionMode,
+  EditorViewportViewPreset,
+} from '@fps-games/editor-core';
+import type {
   BabylonSceneViewInputController,
   BabylonSceneViewInputPointerEvent,
   BabylonSceneViewInputWheelEvent,
@@ -20,9 +24,29 @@ export interface BabylonSceneViewCameraControllerOptions {
 }
 
 export interface BabylonSceneViewCameraController {
+  getState(): BabylonSceneViewCameraState;
+  setViewPreset(preset: EditorViewportViewPreset, options?: BabylonSceneViewCameraPresetOptions): boolean;
+  setProjectionMode(mode: EditorViewportProjectionMode): boolean;
   handlePointerIntentMove(event: BabylonSceneViewInputPointerEvent): boolean;
   handleWheel(event: BabylonSceneViewInputWheelEvent): boolean;
   dispose(): void;
+}
+
+export interface BabylonSceneViewCameraState {
+  viewPreset: EditorViewportViewPreset;
+  projectionMode: EditorViewportProjectionMode;
+}
+
+export interface BabylonSceneViewCameraPresetOptions {
+  target?: Vec3 | null;
+  radius?: number;
+}
+
+interface PerspectiveSnapshot {
+  alpha?: number;
+  beta?: number;
+  radius?: number;
+  target?: Vec3;
 }
 
 interface Vec3 {
@@ -36,6 +60,8 @@ const DEFAULT_PAN_SENSITIVITY = 0.0015;
 const DEFAULT_DOLLY_SENSITIVITY = 0.001;
 const MIN_CAMERA_RADIUS = 0.2;
 const MAX_CAMERA_RADIUS = 10000;
+const DEFAULT_ORTHO_RADIUS = 10;
+const DEFAULT_ORTHO_SIZE = 6;
 
 export function createBabylonSceneViewCameraController(
   options: BabylonSceneViewCameraControllerOptions,
@@ -49,6 +75,9 @@ export function createBabylonSceneViewCameraController(
   const dollySensitivity = options.dollySensitivity ?? DEFAULT_DOLLY_SENSITIVITY;
   let disposed = false;
   let renderObserver: unknown = null;
+  let viewPreset: EditorViewportViewPreset = 'perspective';
+  let projectionMode: EditorViewportProjectionMode = readProjectionMode();
+  let lastPerspective: PerspectiveSnapshot | null = readPerspectiveSnapshot();
 
   if (scene?.onBeforeRenderObservable?.add) {
     renderObserver = scene.onBeforeRenderObservable.add(() => {
@@ -62,10 +91,12 @@ export function createBabylonSceneViewCameraController(
     const { intent, delta } = event.state;
     if (intent === 'orbit') {
       orbitCamera(delta.x, delta.y);
+      viewPreset = 'perspective';
       return true;
     }
     if (intent === 'flythrough') {
       lookCamera(delta.x, delta.y);
+      viewPreset = 'perspective';
       return true;
     }
     if (intent === 'pan') {
@@ -83,6 +114,47 @@ export function createBabylonSceneViewCameraController(
     if (disposed) return false;
     if (input.getState().navigationMode === 'flythrough') return true;
     dollyCamera(event.deltaY);
+    return true;
+  }
+
+  function getState(): BabylonSceneViewCameraState {
+    return {
+      viewPreset,
+      projectionMode: readProjectionMode(),
+    };
+  }
+
+  function setViewPreset(
+    preset: EditorViewportViewPreset,
+    presetOptions: BabylonSceneViewCameraPresetOptions = {},
+  ): boolean {
+    if (disposed) return false;
+    const nextPreset = preset === 'top' || preset === 'front' || preset === 'right' ? preset : 'perspective';
+    if (nextPreset === 'perspective') {
+      viewPreset = 'perspective';
+      restorePerspective();
+      setProjectionMode('perspective');
+      return true;
+    }
+
+    if (readProjectionMode() === 'perspective') {
+      lastPerspective = readPerspectiveSnapshot() ?? lastPerspective;
+    }
+    viewPreset = nextPreset;
+    applyOrthographicPreset(nextPreset, presetOptions);
+    setProjectionMode('orthographic');
+    return true;
+  }
+
+  function setProjectionMode(mode: EditorViewportProjectionMode): boolean {
+    if (disposed) return false;
+    const nextMode = mode === 'orthographic' ? 'orthographic' : 'perspective';
+    const Camera = options.babylon.Camera;
+    camera.mode = nextMode === 'orthographic'
+      ? Camera?.ORTHOGRAPHIC_CAMERA ?? 1
+      : Camera?.PERSPECTIVE_CAMERA ?? 0;
+    projectionMode = nextMode;
+    if (nextMode === 'orthographic') updateOrthoExtents(resolveOrthoSize());
     return true;
   }
 
@@ -152,6 +224,7 @@ export function createBabylonSceneViewCameraController(
     if (Number.isFinite(camera.radius)) {
       const factor = 1 + deltaY * dollySensitivity;
       camera.radius = clamp(Number(camera.radius) * Math.max(0.05, factor), MIN_CAMERA_RADIUS, MAX_CAMERA_RADIUS);
+      if (readProjectionMode() === 'orthographic') updateOrthoExtents(resolveOrthoSize());
       return;
     }
     const forward = getCameraForward();
@@ -167,6 +240,101 @@ export function createBabylonSceneViewCameraController(
     if (camera.position) {
       addInPlace(camera.position, delta);
     }
+  }
+
+  function applyOrthographicPreset(
+    preset: Exclude<EditorViewportViewPreset, 'perspective'>,
+    presetOptions: BabylonSceneViewCameraPresetOptions,
+  ): void {
+    const target = presetOptions.target ?? readTarget() ?? { x: 0, y: 0, z: 0 };
+    const currentRadius = Number(camera.radius);
+    const radius = clamp(
+      presetOptions.radius
+        ?? (Number.isFinite(currentRadius) ? currentRadius : lastPerspective?.radius ?? DEFAULT_ORTHO_RADIUS),
+      MIN_CAMERA_RADIUS,
+      MAX_CAMERA_RADIUS,
+    );
+    if (camera.target && Vector3) camera.target = new Vector3(target.x, target.y, target.z);
+    else if (camera.setTarget && Vector3) camera.setTarget(new Vector3(target.x, target.y, target.z));
+
+    if (Number.isFinite(camera.alpha) && Number.isFinite(camera.beta)) {
+      if (preset === 'top') {
+        camera.alpha = Math.PI / 2;
+        camera.beta = 0.01;
+      } else if (preset === 'front') {
+        camera.alpha = -Math.PI / 2;
+        camera.beta = Math.PI / 2;
+      } else {
+        camera.alpha = 0;
+        camera.beta = Math.PI / 2;
+      }
+      camera.radius = radius;
+    } else if (camera.position && Vector3) {
+      const offset = preset === 'top'
+        ? { x: 0, y: radius, z: 0 }
+        : preset === 'front'
+          ? { x: 0, y: 0, z: -radius }
+          : { x: radius, y: 0, z: 0 };
+      camera.position = new Vector3(target.x + offset.x, target.y + offset.y, target.z + offset.z);
+      camera.setTarget?.(new Vector3(target.x, target.y, target.z));
+    }
+    updateOrthoExtents(Math.max(radius * 0.5, DEFAULT_ORTHO_SIZE));
+  }
+
+  function restorePerspective(): void {
+    const snapshot = lastPerspective;
+    if (!snapshot) return;
+    if (Number.isFinite(snapshot.alpha)) camera.alpha = snapshot.alpha;
+    if (Number.isFinite(snapshot.beta)) camera.beta = snapshot.beta;
+    if (Number.isFinite(snapshot.radius)) camera.radius = snapshot.radius;
+    if (snapshot.target && Vector3) {
+      if (camera.target) camera.target = new Vector3(snapshot.target.x, snapshot.target.y, snapshot.target.z);
+      else camera.setTarget?.(new Vector3(snapshot.target.x, snapshot.target.y, snapshot.target.z));
+    }
+  }
+
+  function readProjectionMode(): EditorViewportProjectionMode {
+    const Camera = options.babylon.Camera;
+    const orthoMode = Camera?.ORTHOGRAPHIC_CAMERA ?? 1;
+    return camera.mode === orthoMode ? 'orthographic' : 'perspective';
+  }
+
+  function readTarget(): Vec3 | null {
+    if (camera.target) return readVec3(camera.target);
+    const target = camera.getTarget?.();
+    return target ? readVec3(target) : null;
+  }
+
+  function readPerspectiveSnapshot(): PerspectiveSnapshot | null {
+    if (!camera) return null;
+    return {
+      alpha: Number.isFinite(camera.alpha) ? Number(camera.alpha) : undefined,
+      beta: Number.isFinite(camera.beta) ? Number(camera.beta) : undefined,
+      radius: Number.isFinite(camera.radius) ? Number(camera.radius) : undefined,
+      target: readTarget() ?? undefined,
+    };
+  }
+
+  function resolveOrthoSize(): number {
+    const top = Number(camera.orthoTop);
+    const bottom = Number(camera.orthoBottom);
+    if (Number.isFinite(top) && Number.isFinite(bottom) && top !== bottom) {
+      return Math.abs(top - bottom) / 2;
+    }
+    const radius = Number(camera.radius);
+    return Number.isFinite(radius) ? Math.max(radius * 0.5, DEFAULT_ORTHO_SIZE) : DEFAULT_ORTHO_SIZE;
+  }
+
+  function updateOrthoExtents(halfHeight: number): void {
+    const engine = scene?.getEngine?.();
+    const width = Number(engine?.getRenderWidth?.() ?? engine?.getRenderingCanvas?.()?.width ?? 1);
+    const height = Number(engine?.getRenderHeight?.() ?? engine?.getRenderingCanvas?.()?.height ?? 1);
+    const aspect = height > 0 ? Math.max(0.0001, width / height) : 1;
+    const size = Math.max(0.001, halfHeight);
+    camera.orthoTop = size;
+    camera.orthoBottom = -size;
+    camera.orthoLeft = -size * aspect;
+    camera.orthoRight = size * aspect;
   }
 
   function getCameraForward(): Vec3 | null {
@@ -194,6 +362,9 @@ export function createBabylonSceneViewCameraController(
   }
 
   return {
+    getState,
+    setViewPreset,
+    setProjectionMode,
     handlePointerIntentMove,
     handleWheel,
     dispose() {

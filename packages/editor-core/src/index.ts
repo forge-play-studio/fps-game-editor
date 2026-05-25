@@ -18,6 +18,7 @@ export * from './inspector';
 export * from './transform-gizmo';
 export * from './transform-math';
 export * from './transform-operations';
+export * from './viewport-tools';
 
 export type MaybePromise<T> = T | Promise<T>;
 

@@ -81,6 +81,11 @@ import type {
   LocalEditorBrowserTransformSnapStepKind,
   LocalEditorBrowserTransformTool,
   LocalEditorBrowserTransformToolDescriptor,
+  LocalEditorBrowserViewportProjectionMode,
+  LocalEditorBrowserViewportMeasurementState,
+  LocalEditorBrowserViewportUtilityTool,
+  LocalEditorBrowserViewportViewPreset,
+  LocalEditorBrowserViewportSpatialOverlayState,
   LocalEditorBrowserUi,
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
@@ -171,6 +176,7 @@ export type {
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformTool,
   LocalEditorBrowserTransformToolState,
+  LocalEditorBrowserViewportSpatialOverlayState,
   LocalEditorBrowserUi,
   LocalEditorBrowserUiAssetItem,
   LocalEditorBrowserUiCallbacks,
@@ -238,6 +244,32 @@ const PLACEMENT_MODE_DESCRIPTIONS: Record<LocalEditorBrowserPlacementMode, strin
   off: '关闭放置模式',
   ground: '放置到 XZ 地面',
   surface: '放置到场景表面',
+};
+
+const VIEW_PRESET_ICONS: Record<LocalEditorBrowserViewportViewPreset, LocalEditorIconName> = {
+  perspective: 'view-perspective',
+  top: 'view-top',
+  front: 'view-front',
+  right: 'view-right',
+};
+
+const VIEW_PRESET_TOOLTIPS: Record<LocalEditorBrowserViewportViewPreset, string> = {
+  perspective: '透视视图',
+  top: '顶视图 · 自动切换正交',
+  front: '前视图 · 自动切换正交',
+  right: '右视图 · 自动切换正交',
+};
+
+const VIEWPORT_OVERLAY_TOGGLE_LABELS = {
+  bounds: '包围盒',
+  dimensions: '尺寸摘要',
+  edgeLengths: '边长标注',
+  anchor: '锚点坐标',
+} as const;
+
+const VIEWPORT_PROJECTION_LABELS: Record<LocalEditorBrowserViewportProjectionMode, string> = {
+  perspective: '透视',
+  orthographic: '正交',
 };
 
 const TRANSFORM_ACTION_GROUPS = [
@@ -487,6 +519,300 @@ function renderCoordinateAxesOverlay(
     overlay.labelLayer.appendChild(group);
   }
   overlay.labelLayer.appendChild(overlay.centerDot);
+}
+
+interface SpatialOverlayElements {
+  root: HTMLDivElement;
+  svg: SVGSVGElement;
+  lineLayer: SVGGElement;
+  markerLayer: SVGGElement;
+  labelLayer: HTMLDivElement;
+  lines: Map<string, SVGLineElement>;
+  markers: Map<string, SVGCircleElement>;
+  labels: Map<string, HTMLDivElement>;
+}
+
+function createSpatialOverlay(doc: Document): SpatialOverlayElements {
+  const root = doc.createElement('div');
+  root.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  root.dataset.editorSpatialOverlay = 'true';
+  root.style.cssText = [
+    'position:absolute',
+    'top:38px',
+    'left:0',
+    'right:0',
+    'bottom:0',
+    'z-index:1',
+    'display:none',
+    'pointer-events:none',
+    'font-family:var(--fps-editor-font)',
+    'color:var(--fps-editor-text)',
+    'overflow:hidden',
+  ].join(';');
+
+  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.cssText = [
+    'position:absolute',
+    'inset:0',
+    'width:100%',
+    'height:100%',
+    'overflow:hidden',
+  ].join(';');
+  const lineLayer = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const markerLayer = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  svg.appendChild(lineLayer);
+  svg.appendChild(markerLayer);
+  root.appendChild(svg);
+
+  const labelLayer = doc.createElement('div');
+  labelLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none';
+  root.appendChild(labelLayer);
+
+  return {
+    root,
+    svg,
+    lineLayer,
+    markerLayer,
+    labelLayer,
+    lines: new Map(),
+    markers: new Map(),
+    labels: new Map(),
+  };
+}
+
+function renderSpatialOverlay(
+  overlay: SpatialOverlayElements,
+  state: LocalEditorBrowserViewportSpatialOverlayState | null,
+): void {
+  if (!state?.active) {
+    overlay.root.style.display = 'none';
+    clearSpatialOverlayElements(overlay);
+    return;
+  }
+  overlay.root.style.display = '';
+  const rect = overlay.root.getBoundingClientRect();
+  overlay.svg.setAttribute('width', formatSvgNumber(rect.width));
+  overlay.svg.setAttribute('height', formatSvgNumber(rect.height));
+  overlay.svg.setAttribute('viewBox', `0 0 ${formatSvgNumber(rect.width)} ${formatSvgNumber(rect.height)}`);
+
+  const visibleLineIds = new Set<string>();
+  for (const lineState of state.lines) {
+    const line = ensureSpatialOverlayLine(overlay, lineState.id);
+    line.setAttribute('x1', formatSvgNumber(lineState.start.x - rect.left));
+    line.setAttribute('y1', formatSvgNumber(lineState.start.y - rect.top));
+    line.setAttribute('x2', formatSvgNumber(lineState.end.x - rect.left));
+    line.setAttribute('y2', formatSvgNumber(lineState.end.y - rect.top));
+    visibleLineIds.add(lineState.id);
+  }
+  for (const [id, line] of overlay.lines) {
+    if (!visibleLineIds.has(id)) {
+      line.remove();
+      overlay.lines.delete(id);
+    }
+  }
+
+  const visibleMarkerIds = new Set<string>();
+  for (const markerState of state.markers) {
+    const marker = ensureSpatialOverlayMarker(overlay, markerState.id);
+    marker.setAttribute('cx', formatSvgNumber(markerState.position.x - rect.left));
+    marker.setAttribute('cy', formatSvgNumber(markerState.position.y - rect.top));
+    visibleMarkerIds.add(markerState.id);
+  }
+  for (const [id, marker] of overlay.markers) {
+    if (!visibleMarkerIds.has(id)) {
+      marker.remove();
+      overlay.markers.delete(id);
+    }
+  }
+
+  const visibleLabelIds = new Set<string>();
+  for (const labelState of state.labels) {
+    const label = ensureSpatialOverlayLabel(overlay, labelState.id, labelState.kind);
+    label.textContent = labelState.text;
+    label.style.left = `${labelState.x - rect.left}px`;
+    label.style.top = `${labelState.y - rect.top}px`;
+    visibleLabelIds.add(labelState.id);
+  }
+  for (const [id, label] of overlay.labels) {
+    if (!visibleLabelIds.has(id)) {
+      label.remove();
+      overlay.labels.delete(id);
+    }
+  }
+}
+
+function clearSpatialOverlayElements(overlay: SpatialOverlayElements): void {
+  for (const line of overlay.lines.values()) line.remove();
+  for (const marker of overlay.markers.values()) marker.remove();
+  for (const label of overlay.labels.values()) label.remove();
+  overlay.lines.clear();
+  overlay.markers.clear();
+  overlay.labels.clear();
+}
+
+function ensureSpatialOverlayLine(overlay: SpatialOverlayElements, id: string): SVGLineElement {
+  const existing = overlay.lines.get(id);
+  if (existing) return existing;
+  const line = overlay.root.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('stroke', 'color-mix(in srgb, var(--fps-editor-drop-target) 82%, white)');
+  line.setAttribute('stroke-width', '1.4');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('vector-effect', 'non-scaling-stroke');
+  line.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.45))';
+  overlay.lineLayer.appendChild(line);
+  overlay.lines.set(id, line);
+  return line;
+}
+
+function ensureSpatialOverlayMarker(overlay: SpatialOverlayElements, id: string): SVGCircleElement {
+  const existing = overlay.markers.get(id);
+  if (existing) return existing;
+  const marker = overlay.root.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  marker.setAttribute('r', '4.5');
+  marker.setAttribute('fill', 'var(--fps-editor-drop-target)');
+  marker.setAttribute('stroke', 'var(--fps-editor-panel)');
+  marker.setAttribute('stroke-width', '2');
+  marker.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))';
+  overlay.markerLayer.appendChild(marker);
+  overlay.markers.set(id, marker);
+  return marker;
+}
+
+function ensureSpatialOverlayLabel(
+  overlay: SpatialOverlayElements,
+  id: string,
+  kind: LocalEditorBrowserViewportSpatialOverlayState['labels'][number]['kind'],
+): HTMLDivElement {
+  const existing = overlay.labels.get(id);
+  if (existing) return existing;
+  const label = overlay.root.ownerDocument.createElement('div');
+  label.dataset.editorSpatialOverlayLabel = kind;
+  label.style.cssText = [
+    'position:absolute',
+    'transform:translate(-50%, -50%)',
+    'max-width:220px',
+    'padding:2px 5px',
+    'border:1px solid color-mix(in srgb, var(--fps-editor-border) 82%, transparent)',
+    'border-radius:3px',
+    'background:color-mix(in srgb, var(--fps-editor-panel) 88%, transparent)',
+    'box-shadow:0 1px 4px rgba(0,0,0,0.22)',
+    'color:var(--fps-editor-text-strong)',
+    'font-size:10px',
+    'font-weight:900',
+    'line-height:1.25',
+    'letter-spacing:0',
+    'white-space:nowrap',
+  ].join(';');
+  if (kind === 'anchor') label.style.color = 'var(--fps-editor-drop-target)';
+  overlay.labelLayer.appendChild(label);
+  overlay.labels.set(id, label);
+  return label;
+}
+
+interface MeasurementOverlayElements {
+  root: HTMLDivElement;
+  svg: SVGSVGElement;
+  line: SVGLineElement;
+  startMarker: SVGCircleElement;
+  endMarker: SVGCircleElement;
+  label: HTMLDivElement;
+}
+
+function createMeasurementOverlay(doc: Document): MeasurementOverlayElements {
+  const root = doc.createElement('div');
+  root.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  root.dataset.editorMeasurementOverlay = 'true';
+  root.style.cssText = [
+    'position:absolute',
+    'top:38px',
+    'left:0',
+    'right:0',
+    'bottom:0',
+    'z-index:2',
+    'display:none',
+    'pointer-events:none',
+    'overflow:hidden',
+    'font-family:var(--fps-editor-font)',
+  ].join(';');
+  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;overflow:hidden';
+  const line = doc.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('stroke', 'var(--fps-editor-drop-target)');
+  line.setAttribute('stroke-width', '2');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('vector-effect', 'non-scaling-stroke');
+  line.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))';
+  const startMarker = createMeasurementMarker(doc);
+  const endMarker = createMeasurementMarker(doc);
+  svg.appendChild(line);
+  svg.appendChild(startMarker);
+  svg.appendChild(endMarker);
+  root.appendChild(svg);
+  const label = doc.createElement('div');
+  label.dataset.editorMeasurementLabel = 'true';
+  label.style.cssText = [
+    'position:absolute',
+    'transform:translate(-50%, -50%)',
+    'padding:3px 6px',
+    'border:1px solid color-mix(in srgb, var(--fps-editor-drop-target) 72%, var(--fps-editor-border))',
+    'border-radius:3px',
+    'background:color-mix(in srgb, var(--fps-editor-panel) 90%, transparent)',
+    'box-shadow:0 1px 4px rgba(0,0,0,0.24)',
+    'color:var(--fps-editor-text-strong)',
+    'font-size:10px',
+    'font-weight:900',
+    'line-height:1.25',
+    'letter-spacing:0',
+    'white-space:nowrap',
+  ].join(';');
+  root.appendChild(label);
+  return { root, svg, line, startMarker, endMarker, label };
+}
+
+function createMeasurementMarker(doc: Document): SVGCircleElement {
+  const marker = doc.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  marker.setAttribute('r', '4');
+  marker.setAttribute('fill', 'var(--fps-editor-drop-target)');
+  marker.setAttribute('stroke', 'var(--fps-editor-panel)');
+  marker.setAttribute('stroke-width', '2');
+  return marker;
+}
+
+function renderMeasurementOverlay(
+  overlay: MeasurementOverlayElements,
+  state: LocalEditorBrowserViewportMeasurementState | null,
+): void {
+  const start = state?.screenStart ?? null;
+  const end = state?.screenEnd ?? state?.screenPreview ?? null;
+  if (!start || !end) {
+    overlay.root.style.display = 'none';
+    return;
+  }
+  overlay.root.style.display = '';
+  const rect = overlay.root.getBoundingClientRect();
+  overlay.svg.setAttribute('width', formatSvgNumber(rect.width));
+  overlay.svg.setAttribute('height', formatSvgNumber(rect.height));
+  overlay.svg.setAttribute('viewBox', `0 0 ${formatSvgNumber(rect.width)} ${formatSvgNumber(rect.height)}`);
+  const startX = start.x - rect.left;
+  const startY = start.y - rect.top;
+  const endX = end.x - rect.left;
+  const endY = end.y - rect.top;
+  overlay.line.setAttribute('x1', formatSvgNumber(startX));
+  overlay.line.setAttribute('y1', formatSvgNumber(startY));
+  overlay.line.setAttribute('x2', formatSvgNumber(endX));
+  overlay.line.setAttribute('y2', formatSvgNumber(endY));
+  overlay.startMarker.setAttribute('cx', formatSvgNumber(startX));
+  overlay.startMarker.setAttribute('cy', formatSvgNumber(startY));
+  overlay.endMarker.setAttribute('cx', formatSvgNumber(endX));
+  overlay.endMarker.setAttribute('cy', formatSvgNumber(endY));
+  overlay.label.textContent = state?.label?.text ?? '';
+  overlay.label.style.display = state?.label ? '' : 'none';
+  if (state?.label) {
+    overlay.label.style.left = `${state.label.x - rect.left}px`;
+    overlay.label.style.top = `${state.label.y - rect.top}px`;
+  }
 }
 
 function formatSvgNumber(value: number): string {
@@ -911,6 +1237,74 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const sceneCameraButton = createToolbarIconButton(doc, '从 Main Camera 查看场景', 'camera');
   sceneCameraButton.dataset.sceneCameraPreviewToggle = 'true';
   cameraPreviewGroup.appendChild(sceneCameraButton);
+  const viewportToolsGroup = doc.createElement('div');
+  viewportToolsGroup.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'gap:4px',
+    'padding-left:8px',
+    'border-left:1px solid var(--fps-editor-divider)',
+  ].join(';');
+  const viewportPresetButtons = new Map<LocalEditorBrowserViewportViewPreset, HTMLButtonElement>();
+  for (const preset of ['perspective', 'top', 'front', 'right'] as LocalEditorBrowserViewportViewPreset[]) {
+    const button = createToolbarIconButton(doc, VIEW_PRESET_TOOLTIPS[preset], VIEW_PRESET_ICONS[preset], VIEW_PRESET_TOOLTIPS[preset]);
+    button.dataset.viewportViewPreset = preset;
+    viewportPresetButtons.set(preset, button);
+    viewportToolsGroup.appendChild(button);
+  }
+  const projectionToggleButton = createToolbarIconButton(doc, '投影模式', 'projection-perspective', '切换投影模式');
+  projectionToggleButton.dataset.viewportProjectionToggle = 'true';
+  viewportToolsGroup.appendChild(projectionToggleButton);
+  const overlaySettingsButton = createToolbarIconButton(doc, '视口信息层设置', 'view-overlay', '视口信息层设置', 'settings');
+  overlaySettingsButton.dataset.viewportOverlaySettingsToggle = 'true';
+  viewportToolsGroup.appendChild(overlaySettingsButton);
+  const measureButton = createToolbarIconButton(doc, '测量距离', 'measure', '测量 XZ 地面距离', 'toggle');
+  measureButton.dataset.viewportMeasureToggle = 'true';
+  viewportToolsGroup.appendChild(measureButton);
+  const clearMeasurementButton = createToolbarIconButton(doc, '清除测量结果', 'discard', '清除测量结果');
+  clearMeasurementButton.dataset.viewportMeasurementClear = 'true';
+  viewportToolsGroup.appendChild(clearMeasurementButton);
+  const overlaySettingsPopover = doc.createElement('div');
+  overlaySettingsPopover.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  overlaySettingsPopover.dataset.viewportOverlaySettingsPopover = 'true';
+  overlaySettingsPopover.setAttribute('role', 'dialog');
+  overlaySettingsPopover.setAttribute('aria-label', '视口信息层设置');
+  overlaySettingsPopover.style.cssText = [
+    'position:fixed',
+    'z-index:2147483641',
+    'display:none',
+    'flex-direction:column',
+    'gap:7px',
+    'width:190px',
+    'padding:8px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-panel)',
+    'box-shadow:var(--fps-editor-shadow-popover)',
+    'pointer-events:auto',
+  ].join(';');
+  const overlayInputs = new Map<keyof typeof VIEWPORT_OVERLAY_TOGGLE_LABELS, HTMLInputElement>();
+  for (const key of Object.keys(VIEWPORT_OVERLAY_TOGGLE_LABELS) as Array<keyof typeof VIEWPORT_OVERLAY_TOGGLE_LABELS>) {
+    const row = doc.createElement('label');
+    row.style.cssText = [
+      'display:flex',
+      'align-items:center',
+      'justify-content:space-between',
+      'gap:10px',
+      'color:var(--fps-editor-text)',
+      'font-size:11px',
+      'font-weight:800',
+    ].join(';');
+    const text = doc.createElement('span');
+    text.textContent = VIEWPORT_OVERLAY_TOGGLE_LABELS[key];
+    const input = doc.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.viewportOverlaySetting = key;
+    row.appendChild(text);
+    row.appendChild(input);
+    overlaySettingsPopover.appendChild(row);
+    overlayInputs.set(key, input);
+  }
   const toolbarOverflowButton = createToolbarIconButton(doc, '更多', 'chevron-down', '显示隐藏的工具栏命令');
   toolbarOverflowButton.dataset.editorToolbarOverflowToggle = 'true';
   toolbarOverflowButton.style.display = 'none';
@@ -935,29 +1329,36 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'pointer-events:auto',
   ].join(';');
   const coordinateAxesOverlay = createCoordinateAxesOverlay(doc);
+  const spatialOverlay = createSpatialOverlay(doc);
+  const measurementOverlay = createMeasurementOverlay(doc);
   sceneToolOverlay.appendChild(sceneTitle);
   sceneToolOverlay.appendChild(sceneQuickActions);
-  sceneToolOverlay.appendChild(sceneUtilityActions);
-  sceneToolOverlay.appendChild(cameraPreviewGroup);
   sceneToolOverlay.appendChild(toolGroup);
   sceneToolOverlay.appendChild(spaceGroup);
   sceneToolOverlay.appendChild(snapGroup);
   sceneToolOverlay.appendChild(placementGroup);
   sceneToolOverlay.appendChild(actionGroup);
+  sceneToolOverlay.appendChild(viewportToolsGroup);
+  sceneToolOverlay.appendChild(sceneUtilityActions);
+  sceneToolOverlay.appendChild(cameraPreviewGroup);
   sceneToolOverlay.appendChild(editorStatusButton);
   sceneToolOverlay.appendChild(toolbarOverflowButton);
   workbench.sceneHeader.appendChild(sceneToolOverlay);
+  workbench.sceneFrame.appendChild(spatialOverlay.root);
+  workbench.sceneFrame.appendChild(measurementOverlay.root);
   workbench.sceneFrame.appendChild(coordinateAxesOverlay.root);
   root.appendChild(localTestMenu);
   root.appendChild(toolbarOverflowMenu);
   root.appendChild(snapSettingsPopover);
   root.appendChild(placementSettingsPopover);
   root.appendChild(transformActionPopover);
+  root.appendChild(overlaySettingsPopover);
   tooltipSurfaces.add(localTestMenu);
   tooltipSurfaces.add(toolbarOverflowMenu);
   tooltipSurfaces.add(snapSettingsPopover);
   tooltipSurfaces.add(placementSettingsPopover);
   tooltipSurfaces.add(transformActionPopover);
+  tooltipSurfaces.add(overlaySettingsPopover);
 
   const boxSelectionOverlay = doc.createElement('div');
   boxSelectionOverlay.classList.add(LOCAL_EDITOR_THEME_CLASS);
@@ -981,6 +1382,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   function applyThemeToSurfaces(): void {
     applyLocalEditorTheme(hostChrome, activeTheme);
     applyLocalEditorTheme(workbench.root, activeTheme);
+    applyLocalEditorTheme(spatialOverlay.root, activeTheme);
+    applyLocalEditorTheme(measurementOverlay.root, activeTheme);
     applyLocalEditorTheme(shortcutHelpPanel, activeTheme);
     applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
     applyLocalEditorTheme(localTestMenu, activeTheme);
@@ -988,6 +1391,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     applyLocalEditorTheme(snapSettingsPopover, activeTheme);
     applyLocalEditorTheme(placementSettingsPopover, activeTheme);
     applyLocalEditorTheme(transformActionPopover, activeTheme);
+    applyLocalEditorTheme(overlaySettingsPopover, activeTheme);
     tooltipController.setTheme(activeTheme);
     contextMenu.setTheme?.(activeTheme);
   }
@@ -1009,6 +1413,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   let snapSettingsOpen = false;
   let placementSettingsOpen = false;
   let transformActionOpen = false;
+  let overlaySettingsOpen = false;
 
   function closeLocalTestMenu(): void {
     localTestMenuOpen = false;
@@ -1041,12 +1446,21 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     LocalEditorShared.applyButtonActiveState(transformActionButton, false);
   }
 
+  function closeOverlaySettingsPopover(): void {
+    overlaySettingsOpen = false;
+    overlaySettingsPopover.style.display = 'none';
+    overlaySettingsButton.setAttribute('aria-expanded', 'false');
+    LocalEditorShared.applyButtonActiveState(overlaySettingsButton, false);
+  }
+
   function openLocalTestMenu(): void {
     if (!localTestActionsEnabled || localTestButton.style.display === 'none') return;
     closeToolbarOverflowMenu();
     closeSnapSettingsPopover();
     closePlacementSettingsPopover();
     closeTransformActionPopover();
+    closeOverlaySettingsPopover();
+    closeOverlaySettingsPopover();
     const win = doc.defaultView;
     const rect = localTestButton.getBoundingClientRect();
     const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
@@ -1063,6 +1477,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     closeLocalTestMenu();
     closePlacementSettingsPopover();
     closeTransformActionPopover();
+    closeOverlaySettingsPopover();
     const win = doc.defaultView;
     const rect = snapButton.getBoundingClientRect();
     const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
@@ -1086,6 +1501,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     closeLocalTestMenu();
     closeSnapSettingsPopover();
     closeTransformActionPopover();
+    closeOverlaySettingsPopover();
     const win = doc.defaultView;
     const rect = placementButton.getBoundingClientRect();
     const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
@@ -1109,6 +1525,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     closeLocalTestMenu();
     closeSnapSettingsPopover();
     closePlacementSettingsPopover();
+    closeOverlaySettingsPopover();
     const win = doc.defaultView;
     const rect = transformActionButton.getBoundingClientRect();
     const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
@@ -1124,6 +1541,30 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   function toggleTransformActionPopover(): void {
     if (transformActionOpen) closeTransformActionPopover();
     else openTransformActionPopover();
+  }
+
+  function openOverlaySettingsPopover(): void {
+    if (overlaySettingsButton.disabled || viewportToolsGroup.style.display === 'none') return;
+    const win = doc.defaultView;
+    const rect = overlaySettingsButton.getBoundingClientRect();
+    const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
+    closeLocalTestMenu();
+    closeSnapSettingsPopover();
+    closePlacementSettingsPopover();
+    closeTransformActionPopover();
+    closeToolbarOverflowMenu();
+    overlaySettingsPopover.style.display = 'flex';
+    const popoverWidth = overlaySettingsPopover.offsetWidth || 190;
+    overlaySettingsPopover.style.top = `${Math.max(8, rect.bottom + 5)}px`;
+    overlaySettingsPopover.style.left = `${Math.max(8, Math.min(rect.left, viewportWidth - popoverWidth - 8))}px`;
+    overlaySettingsOpen = true;
+    overlaySettingsButton.setAttribute('aria-expanded', 'true');
+    LocalEditorShared.applyButtonActiveState(overlaySettingsButton, true);
+  }
+
+  function toggleOverlaySettingsPopover(): void {
+    if (overlaySettingsOpen) closeOverlaySettingsPopover();
+    else openOverlaySettingsPopover();
   }
 
   const onLocalTestButtonClick = (event: MouseEvent): void => {
@@ -1174,24 +1615,26 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const toolbarOrder: HTMLElement[] = [
     sceneTitle,
     sceneQuickActions,
-    sceneUtilityActions,
-    cameraPreviewGroup,
     toolGroup,
     spaceGroup,
     snapGroup,
     placementGroup,
     actionGroup,
+    viewportToolsGroup,
+    sceneUtilityActions,
+    cameraPreviewGroup,
     editorStatusButton,
     toolbarOverflowButton,
   ];
   const toolbarOverflowItems: ToolbarOverflowItem[] = [
     { id: 'editor-status', element: editorStatusButton, kind: 'group' },
+    { id: 'scene-utilities', element: sceneUtilityActions, kind: 'group' },
+    { id: 'camera-preview', element: cameraPreviewGroup, kind: 'group' },
+    { id: 'viewport-tools', element: viewportToolsGroup, kind: 'group' },
     { id: 'transform-actions', element: actionGroup, kind: 'group' },
     { id: 'placement', element: placementGroup, kind: 'group' },
     { id: 'snap', element: snapGroup, kind: 'group' },
     { id: 'space', element: spaceGroup, kind: 'group' },
-    { id: 'camera-preview', element: cameraPreviewGroup, kind: 'group' },
-    { id: 'scene-utilities', element: sceneUtilityActions, kind: 'group' },
   ];
   let toolbarOverflowOpen = false;
   let toolbarOverflowRaf: number | null = null;
@@ -1267,6 +1710,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     closeSnapSettingsPopover();
     closePlacementSettingsPopover();
     closeTransformActionPopover();
+    closeOverlaySettingsPopover();
     const win = doc.defaultView;
     const rect = toolbarOverflowButton.getBoundingClientRect();
     const viewportWidth = win?.innerWidth ?? doc.documentElement.clientWidth;
@@ -1340,11 +1784,13 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (target.closest('[data-transform-snap-settings-popover]') || target.closest('[data-transform-snap-toggle]')) return;
     if (target.closest('[data-placement-settings-popover]') || target.closest('[data-placement-mode-toggle]')) return;
     if (target.closest('[data-transform-action-popover]') || target.closest('[data-transform-action-toggle]')) return;
+    if (target.closest('[data-viewport-overlay-settings-popover]') || target.closest('[data-viewport-overlay-settings-toggle]')) return;
     closeLocalTestMenu();
     closeToolbarOverflowMenu();
     closeSnapSettingsPopover();
     closePlacementSettingsPopover();
     closeTransformActionPopover();
+    closeOverlaySettingsPopover();
   };
   const ResizeObserverCtor = doc.defaultView?.ResizeObserver;
   const toolbarResizeObserver = ResizeObserverCtor
@@ -1381,6 +1827,38 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneCameraButton.addEventListener('click', () => {
     const enabled = currentState?.sceneCameraPreview?.enabled ?? false;
     callbacks.onSceneCameraPreviewToggle?.(!enabled);
+  });
+  viewportToolsGroup.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const preset = target?.closest<HTMLButtonElement>('[data-viewport-view-preset]')?.dataset.viewportViewPreset as LocalEditorBrowserViewportViewPreset | undefined;
+    if (preset) {
+      callbacks.onViewportViewPresetChange?.(preset);
+      return;
+    }
+    const projectionToggle = target?.closest<HTMLButtonElement>('[data-viewport-projection-toggle]');
+    if (projectionToggle) {
+      const currentMode = currentState?.viewportTools?.projectionMode ?? 'perspective';
+      const nextMode: LocalEditorBrowserViewportProjectionMode = currentMode === 'orthographic' ? 'perspective' : 'orthographic';
+      callbacks.onViewportProjectionModeChange?.(nextMode);
+      return;
+    }
+    const overlayToggle = target?.closest<HTMLButtonElement>('[data-viewport-overlay-settings-toggle]');
+    if (overlayToggle) {
+      event.stopPropagation();
+      toggleOverlaySettingsPopover();
+      return;
+    }
+    const measureToggle = target?.closest<HTMLButtonElement>('[data-viewport-measure-toggle]');
+    if (measureToggle) {
+      const currentTool = currentState?.viewportTools?.activeUtilityTool ?? 'none';
+      const nextTool: LocalEditorBrowserViewportUtilityTool = currentTool === 'measure-distance' ? 'none' : 'measure-distance';
+      callbacks.onViewportUtilityToolChange?.(nextTool);
+      return;
+    }
+    const clearMeasurement = target?.closest<HTMLButtonElement>('[data-viewport-measurement-clear]');
+    if (clearMeasurement) {
+      callbacks.onViewportMeasurementClear?.();
+    }
   });
   const setShortcutHelpOpen = (open: boolean): void => {
     if (open) contextMenu.close();
@@ -1457,6 +1935,21 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!transformOperations || !isTransformActionEnabled(action, transformOperations)) return;
     callbacks.onTransformAction?.(action);
     closeTransformActionPopover();
+  });
+  overlaySettingsPopover.addEventListener('change', (event) => {
+    const input = event.target instanceof HTMLInputElement
+      ? event.target.closest<HTMLInputElement>('[data-viewport-overlay-setting]')
+      : null;
+    const key = input?.dataset.viewportOverlaySetting as keyof typeof VIEWPORT_OVERLAY_TOGGLE_LABELS | undefined;
+    if (!input || !key) return;
+    const currentOverlay = currentState?.viewportTools?.overlay;
+    callbacks.onViewportOverlaySettingsChange?.({
+      bounds: currentOverlay?.bounds ?? true,
+      dimensions: currentOverlay?.dimensions ?? true,
+      edgeLengths: currentOverlay?.edgeLengths ?? false,
+      anchor: currentOverlay?.anchor ?? true,
+      [key]: input.checked,
+    });
   });
   assetPanel.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -1546,6 +2039,11 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (key === 'escape' && transformActionOpen) {
       event.preventDefault();
       closeTransformActionPopover();
+      return;
+    }
+    if (key === 'escape' && overlaySettingsOpen) {
+      event.preventDefault();
+      closeOverlaySettingsPopover();
       return;
     }
     const primaryModifier = event.metaKey || event.ctrlKey;
@@ -1690,6 +2188,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!inEditor) closeSnapSettingsPopover();
     if (!inEditor) closePlacementSettingsPopover();
     if (!inEditor) closeTransformActionPopover();
+    if (!inEditor) closeOverlaySettingsPopover();
     const sceneCameraPreview = state.sceneCameraPreview ?? { enabled: false, available: false };
     cameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
     sceneCameraButton.disabled = disabled || !sceneCameraPreview.available;
@@ -1698,6 +2197,50 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       : '当前场景没有可预览的 Main Camera';
     setToolbarButtonTooltip(sceneCameraButton, sceneCameraTooltip);
     LocalEditorShared.applyButtonActiveState(sceneCameraButton, sceneCameraPreview.enabled);
+    const viewportTools = state.viewportTools ?? null;
+    const viewportControlsDisabled = disabled || sceneCameraPreview.enabled;
+    const viewportControlsTooltip = sceneCameraPreview.enabled
+      ? '请先关闭 Scene Camera 预览，再使用视口工具'
+      : '';
+    viewportToolsGroup.style.display = inEditor ? 'flex' : 'none';
+    for (const [preset, button] of viewportPresetButtons) {
+      button.disabled = viewportControlsDisabled;
+      setToolbarButtonTooltip(button, viewportControlsTooltip || VIEW_PRESET_TOOLTIPS[preset]);
+      LocalEditorShared.applyButtonActiveState(button, viewportTools?.viewPreset === preset);
+    }
+    projectionToggleButton.disabled = viewportControlsDisabled;
+    const projectionMode = viewportTools?.projectionMode ?? 'perspective';
+    const nextProjectionMode: LocalEditorBrowserViewportProjectionMode = projectionMode === 'orthographic' ? 'perspective' : 'orthographic';
+    setToolbarButtonIcon(doc, projectionToggleButton, projectionMode === 'orthographic' ? 'projection-ortho' : 'projection-perspective');
+    setToolbarButtonTooltip(
+      projectionToggleButton,
+      viewportControlsTooltip || `投影模式：${VIEWPORT_PROJECTION_LABELS[projectionMode]}。切换为${VIEWPORT_PROJECTION_LABELS[nextProjectionMode]}`,
+    );
+    LocalEditorShared.applyButtonActiveState(projectionToggleButton, projectionMode === 'orthographic');
+    overlaySettingsButton.disabled = disabled;
+    setToolbarButtonTooltip(overlaySettingsButton, '视口信息层设置');
+    LocalEditorShared.applyButtonActiveState(overlaySettingsButton, overlaySettingsOpen);
+    const overlaySettings = viewportTools?.overlay;
+    for (const [key, input] of overlayInputs) {
+      input.disabled = disabled;
+      input.checked = overlaySettings?.[key] ?? false;
+    }
+    measureButton.disabled = viewportControlsDisabled;
+    setToolbarButtonTooltip(
+      measureButton,
+      viewportControlsTooltip || '测量 XZ 地面距离',
+    );
+    LocalEditorShared.applyButtonActiveState(measureButton, viewportTools?.activeUtilityTool === 'measure-distance');
+    const hasMeasurement = !!(
+      state.viewportMeasurement?.start
+      || state.viewportMeasurement?.end
+      || state.viewportMeasurement?.preview
+    );
+    clearMeasurementButton.style.display = hasMeasurement ? 'inline-flex' : 'none';
+    clearMeasurementButton.disabled = disabled || !hasMeasurement;
+    setToolbarButtonTooltip(clearMeasurementButton, '清除测量结果');
+    LocalEditorShared.applyButtonActiveState(clearMeasurementButton, false);
+    if (!inEditor || disabled || viewportToolsGroup.style.display === 'none') closeOverlaySettingsPopover();
     const gridState = state.grid ?? { visible: false, available: false };
     gridToggleButton.disabled = disabled || !gridState.available;
     setToolbarButtonTooltip(gridToggleButton, gridState.visible ? '隐藏 Scene View 网格' : '显示 Scene View 网格');
@@ -1793,6 +2336,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       ? 'var(--fps-editor-border)'
       : statusToneColor;
     renderCoordinateAxesOverlay(coordinateAxesOverlay, inEditor ? state.coordinateAxes ?? null : null);
+    renderSpatialOverlay(spatialOverlay, inEditor ? state.viewportSpatialOverlay ?? null : null);
+    renderMeasurementOverlay(measurementOverlay, inEditor ? state.viewportMeasurement ?? null : null);
     const boxSelection = state.boxSelection;
     if (inEditor && boxSelection?.active) {
       boxSelectionOverlay.style.display = '';
@@ -1843,6 +2388,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       snapSettingsPopover.remove();
       placementSettingsPopover.remove();
       transformActionPopover.remove();
+      overlaySettingsPopover.remove();
+      spatialOverlay.root.remove();
+      measurementOverlay.root.remove();
       boxSelectionOverlay.remove();
       shortcutHelpPanel.remove();
       hierarchyController.dispose();

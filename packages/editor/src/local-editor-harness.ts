@@ -4,6 +4,8 @@ import {
   createEditorSession,
   createInspectorRegistry,
   DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS,
+  DEFAULT_EDITOR_VIEWPORT_TOOL_STATE,
+  createEmptyEditorViewportSpatialOverlayState,
   type DocumentCommand,
   type EditorPlacementHit,
   type EditorSelectionState,
@@ -22,6 +24,15 @@ import {
   type EditorTransformTargetSnapshot,
   type EditorTransformTool,
   type EditorTransformVec3,
+  type EditorViewportGroundMeasurement,
+  type EditorViewportOverlaySettings,
+  type EditorViewportProjectionMode,
+  type EditorViewportSpatialOverlayState,
+  type EditorViewportToolState,
+  type EditorViewportUtilityTool,
+  type EditorViewportViewPreset,
+  cloneEditorViewportToolState,
+  cloneEditorViewportSpatialOverlayState,
   type SelectionCommand,
   type SceneGraphCreateGroupIntent,
   type SceneGraphCreatePrimitiveIntent,
@@ -79,6 +90,8 @@ import {
   createBabylonSceneCameraPreviewController,
   createBabylonSceneViewCameraController,
   createBabylonSceneViewInputController,
+  createBabylonSceneViewMeasurementController,
+  createBabylonSceneViewSpatialOverlayController,
   createBabylonTransformGizmoController,
   focusEditorViewportSelection,
   syncBabylonEditorDisplayScale,
@@ -88,6 +101,8 @@ import {
   type BabylonEditorDisplayScaleOptions,
   type BabylonSceneViewCameraController,
   type BabylonSceneViewInputController,
+  type BabylonSceneViewMeasurementController,
+  type BabylonSceneViewSpatialOverlayController,
   type BabylonEditorProjectionImportContext,
   type BabylonEditorProjectionImportResult,
   type BabylonEditorProjectionNode,
@@ -117,6 +132,19 @@ export interface LocalEditorHarnessAssetItem {
   meta?: string;
   placeable?: boolean;
   raw?: unknown;
+}
+
+export interface LocalEditorHarnessViewportMeasurementState {
+  viewportTools: EditorViewportToolState;
+  viewportMeasurement: EditorViewportGroundMeasurement;
+  sceneViewMeasurement: Pick<
+    BabylonSceneViewMeasurementController,
+    'beginAt' | 'previewAt' | 'completeAt' | 'clear'
+  > | null;
+  status: string;
+  statusTone?: 'default' | 'success' | 'warning' | 'error';
+  statusToneStatus: string;
+  statusDetails: string;
 }
 
 export interface LocalEditorHarnessPropertyInput<TDocument = unknown> {
@@ -422,12 +450,17 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   sceneCameraPreviewEnabled: boolean;
   sceneViewInput: BabylonSceneViewInputController | null;
   sceneViewCamera: BabylonSceneViewCameraController | null;
+  sceneViewMeasurement: BabylonSceneViewMeasurementController | null;
+  sceneViewSpatialOverlay: BabylonSceneViewSpatialOverlayController | null;
   selectionController: BabylonProjectionSelectionController | null;
   boxSelection: BabylonProjectionSelectionBox | null;
   transformTool: EditorTransformTool;
   transformSpace: EditorTransformSpace;
   transformConstraint: EditorTransformCanonicalConstraint;
   transformOperationSettings: EditorTransformOperationSettings;
+  viewportTools: EditorViewportToolState;
+  viewportMeasurement: EditorViewportGroundMeasurement;
+  viewportSpatialOverlay: EditorViewportSpatialOverlayState;
   duplicateDrag: {
     originalSelection: EditorSelectionState;
     createdIds: string[];
@@ -467,12 +500,17 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     sceneCameraPreviewEnabled: false,
     sceneViewInput: null,
     sceneViewCamera: null,
+    sceneViewMeasurement: null,
+    sceneViewSpatialOverlay: null,
     selectionController: null,
     boxSelection: null,
     transformTool: 'select',
     transformSpace: 'world',
     transformConstraint: 'axis',
     transformOperationSettings: cloneTransformOperationSettings(DEFAULT_EDITOR_TRANSFORM_OPERATION_SETTINGS),
+    viewportTools: cloneEditorViewportToolState(DEFAULT_EDITOR_VIEWPORT_TOOL_STATE),
+    viewportMeasurement: createEmptyViewportMeasurement(),
+    viewportSpatialOverlay: createEmptyEditorViewportSpatialOverlayState(),
     duplicateDrag: null,
     armedPlacement: null,
     resizeHandler: null,
@@ -612,6 +650,21 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       onTransformAction: (action) => {
         if (executeTransformAction(state, options, action)) harness.render();
       },
+      onViewportViewPresetChange: (preset) => {
+        if (setViewportViewPreset(state, preset)) harness.render();
+      },
+      onViewportProjectionModeChange: (mode) => {
+        if (setViewportProjectionMode(state, mode)) harness.render();
+      },
+      onViewportOverlaySettingsChange: (settings) => {
+        if (setViewportOverlaySettings(state, settings)) harness.render();
+      },
+      onViewportUtilityToolChange: (tool) => {
+        if (setViewportUtilityTool(state, tool)) harness.render();
+      },
+      onViewportMeasurementClear: () => {
+        if (clearViewportMeasurement(state)) harness.render();
+      },
       onSceneCameraPreviewToggle: (enabled) => {
         if (setSceneCameraPreviewEnabled(state, options, enabled)) harness.render();
       },
@@ -634,6 +687,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
   harness = {
     render() {
       syncSceneCameraPreview(state, options);
+      syncViewportCameraState(state);
+      syncViewportMeasurementState(state);
+      syncViewportSpatialOverlay(state);
       ui.update(createUiState(state, options));
     },
     setTheme(theme) {
@@ -857,6 +913,270 @@ function normalizePlacementMode(mode: EditorPlacementMode): EditorPlacementMode 
   return mode === 'ground' || mode === 'surface' ? mode : 'off';
 }
 
+function normalizeViewportViewPreset(
+  preset: EditorViewportViewPreset,
+): EditorViewportViewPreset {
+  return preset === 'top' || preset === 'front' || preset === 'right' ? preset : 'perspective';
+}
+
+function normalizeViewportProjectionMode(
+  mode: EditorViewportProjectionMode,
+): EditorViewportProjectionMode {
+  return mode === 'orthographic' ? 'orthographic' : 'perspective';
+}
+
+function createEmptyViewportMeasurement(): EditorViewportGroundMeasurement {
+  return {
+    active: false,
+    start: null,
+    end: null,
+    preview: null,
+    distance: null,
+    screenStart: null,
+    screenEnd: null,
+    screenPreview: null,
+    label: null,
+  };
+}
+
+function cloneViewportMeasurement(
+  measurement: EditorViewportGroundMeasurement,
+): EditorViewportGroundMeasurement {
+  return {
+    active: measurement.active,
+    start: measurement.start ? { ...measurement.start } : null,
+    end: measurement.end ? { ...measurement.end } : null,
+    preview: measurement.preview ? { ...measurement.preview } : null,
+    distance: measurement.distance,
+    screenStart: measurement.screenStart ? { ...measurement.screenStart } : null,
+    screenEnd: measurement.screenEnd ? { ...measurement.screenEnd } : null,
+    screenPreview: measurement.screenPreview ? { ...measurement.screenPreview } : null,
+    label: measurement.label ? { ...measurement.label } : null,
+  };
+}
+
+function setViewportViewPreset<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  preset: EditorViewportViewPreset,
+): boolean {
+  if (state.sceneCameraPreviewEnabled) {
+    state.status = 'Viewport view unavailable during Scene Camera preview';
+    state.statusTone = 'warning';
+    state.statusToneStatus = state.status;
+    state.statusDetails = 'Disable Scene Camera preview before switching editor viewport views.';
+    return true;
+  }
+  const nextPreset = normalizeViewportViewPreset(preset);
+  const target = resolveViewportPresetTarget(state);
+  const radius = resolveViewportPresetRadius(state);
+  const changed = state.sceneViewCamera?.setViewPreset(nextPreset, { target, radius }) ?? false;
+  if (!changed) return false;
+  const cameraState = state.sceneViewCamera?.getState();
+  state.viewportTools = {
+    ...state.viewportTools,
+    viewPreset: cameraState?.viewPreset ?? nextPreset,
+    projectionMode: cameraState?.projectionMode ?? (nextPreset === 'perspective' ? 'perspective' : 'orthographic'),
+  };
+  state.status = `Viewport view: ${state.viewportTools.viewPreset}`;
+  state.statusTone = 'default';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
+  return true;
+}
+
+function setViewportProjectionMode<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  mode: EditorViewportProjectionMode,
+): boolean {
+  if (state.sceneCameraPreviewEnabled) {
+    state.status = 'Viewport projection unavailable during Scene Camera preview';
+    state.statusTone = 'warning';
+    state.statusToneStatus = state.status;
+    state.statusDetails = 'Disable Scene Camera preview before switching editor viewport projection.';
+    return true;
+  }
+  const nextMode = normalizeViewportProjectionMode(mode);
+  const changed = state.sceneViewCamera?.setProjectionMode(nextMode) ?? false;
+  if (!changed) return false;
+  const cameraState = state.sceneViewCamera?.getState();
+  state.viewportTools = {
+    ...state.viewportTools,
+    projectionMode: cameraState?.projectionMode ?? nextMode,
+  };
+  state.status = `Viewport projection: ${state.viewportTools.projectionMode}`;
+  state.statusTone = 'default';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
+  return true;
+}
+
+function setViewportOverlaySettings<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  settings: Partial<EditorViewportOverlaySettings>,
+): boolean {
+  state.viewportTools = {
+    ...state.viewportTools,
+    overlay: {
+      ...state.viewportTools.overlay,
+      bounds: settings.bounds ?? state.viewportTools.overlay.bounds,
+      dimensions: settings.dimensions ?? state.viewportTools.overlay.dimensions,
+      edgeLengths: settings.edgeLengths ?? state.viewportTools.overlay.edgeLengths,
+      anchor: settings.anchor ?? state.viewportTools.overlay.anchor,
+    },
+  };
+  state.status = 'Viewport overlay settings updated';
+  state.statusTone = 'default';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
+  return true;
+}
+
+function setViewportUtilityTool<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  tool: EditorViewportUtilityTool,
+): boolean {
+  const nextTool = tool === 'measure-distance' ? 'measure-distance' : 'none';
+  state.viewportTools = {
+    ...state.viewportTools,
+    activeUtilityTool: nextTool,
+  };
+  if (nextTool === 'measure-distance') {
+    state.viewportMeasurement = {
+      ...cloneViewportMeasurement(state.viewportMeasurement),
+      active: !!state.viewportMeasurement.start && !state.viewportMeasurement.end,
+    };
+    state.status = 'Measure distance: pick first XZ ground point';
+  } else {
+    const unfinishedMeasurement = state.viewportMeasurement.active
+      || (!!state.viewportMeasurement.start && !state.viewportMeasurement.end);
+    state.viewportMeasurement = unfinishedMeasurement
+      ? state.sceneViewMeasurement?.clear() ?? createEmptyViewportMeasurement()
+      : {
+          ...cloneViewportMeasurement(state.viewportMeasurement),
+          active: false,
+          preview: null,
+          screenPreview: null,
+        };
+    state.status = 'Viewport utility: none';
+  }
+  state.statusTone = 'default';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
+  return true;
+}
+
+function clearViewportMeasurement<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): boolean {
+  state.viewportMeasurement = state.sceneViewMeasurement?.clear() ?? createEmptyViewportMeasurement();
+  state.viewportTools = {
+    ...state.viewportTools,
+    activeUtilityTool: 'none',
+  };
+  state.status = 'Measurement cleared';
+  state.statusTone = 'default';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
+  return true;
+}
+
+export function applyLocalEditorHarnessViewportMeasurementPointerStart(
+  state: LocalEditorHarnessViewportMeasurementState,
+  event: Pick<PointerEvent, 'clientX' | 'clientY'>,
+): boolean {
+  if (state.viewportTools.activeUtilityTool !== 'measure-distance') return false;
+  if (!state.viewportMeasurement.start || state.viewportMeasurement.end) {
+    const next = state.sceneViewMeasurement?.beginAt(event.clientX, event.clientY) ?? null;
+    if (!next) return false;
+    state.viewportMeasurement = next;
+    state.status = 'Measure distance: pick second XZ ground point';
+    state.statusTone = 'default';
+    state.statusToneStatus = state.status;
+    state.statusDetails = '';
+    return true;
+  }
+  const next = state.sceneViewMeasurement?.completeAt(event.clientX, event.clientY) ?? null;
+  if (!next) return false;
+  state.viewportMeasurement = next;
+  state.viewportTools = {
+    ...state.viewportTools,
+    activeUtilityTool: 'none',
+  };
+  state.status = `Measured distance: ${formatViewportMeasurementDistance(next.distance)} units`;
+  state.statusTone = 'default';
+  state.statusToneStatus = state.status;
+  state.statusDetails = next.start && next.end
+    ? `A (${formatViewportMeasurementDistance(next.start.x)}, ${formatViewportMeasurementDistance(next.start.z)}) · B (${formatViewportMeasurementDistance(next.end.x)}, ${formatViewportMeasurementDistance(next.end.z)})`
+    : '';
+  return true;
+}
+
+export function applyLocalEditorHarnessViewportMeasurementPointerMove(
+  state: LocalEditorHarnessViewportMeasurementState,
+  event: Pick<PointerEvent, 'clientX' | 'clientY'>,
+): boolean {
+  if (state.viewportTools.activeUtilityTool !== 'measure-distance') return false;
+  const next = state.sceneViewMeasurement?.previewAt(event.clientX, event.clientY) ?? null;
+  if (!next) return false;
+  state.viewportMeasurement = next;
+  return true;
+}
+
+export function applyLocalEditorHarnessViewportMeasurementPointerEnd(
+  _state: LocalEditorHarnessViewportMeasurementState,
+): boolean {
+  return false;
+}
+
+function handleViewportMeasurementStart<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  event: PointerEvent,
+): boolean {
+  return applyLocalEditorHarnessViewportMeasurementPointerStart(state, event);
+}
+
+function handleViewportMeasurementMove<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  event: PointerEvent,
+): boolean {
+  return applyLocalEditorHarnessViewportMeasurementPointerMove(state, event);
+}
+
+function handleViewportMeasurementEnd<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): boolean {
+  return applyLocalEditorHarnessViewportMeasurementPointerEnd(state);
+}
+
+function formatViewportMeasurementDistance(value: number | null | undefined): string {
+  if (!Number.isFinite(value)) return '0';
+  const rounded = Math.abs(value as number) < 0.005 ? 0 : value as number;
+  return rounded.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function resolveViewportPresetTarget<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): EditorTransformVec3 | null {
+  const selection = state.session?.getState().selection;
+  const activeId = selection?.activeId ?? null;
+  if (!activeId || selection?.selectedIds.length !== 1) return null;
+  const bounds = state.projection?.getSelectionBounds([activeId]) ?? null;
+  return bounds?.center ?? null;
+}
+
+function resolveViewportPresetRadius<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): number | undefined {
+  const selection = state.session?.getState().selection;
+  const activeId = selection?.activeId ?? null;
+  if (!activeId || selection?.selectedIds.length !== 1) return undefined;
+  const bounds = state.projection?.getSelectionBounds([activeId]) ?? null;
+  if (!bounds) return undefined;
+  const size = bounds.size;
+  const radius = Math.hypot(size.x, size.y, size.z);
+  return Number.isFinite(radius) && radius > 0 ? Math.max(radius * 1.5, 2) : undefined;
+}
+
 function validateTransformActionSelection<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   action: EditorTransformAction,
@@ -958,6 +1278,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       render();
     },
   });
+  const sceneViewMeasurement = createBabylonSceneViewMeasurementController({
+    babylon,
+    scene: world.scene,
+  });
   const sceneViewInput = createBabylonSceneViewInputController({
     canvas,
     isEnabled: () => state.mode === 'editor',
@@ -965,7 +1289,12 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     isBoxSelectCandidate: (event) => selectionController.isBoxSelectionCandidate(event),
     isViewPlaneMoveCandidate: (event) => gizmo.isViewPlaneMoveCandidate(event),
     isPlacementCandidate: () => isPlacementArmed(state),
+    isMeasurementCandidate: () => state.viewportTools.activeUtilityTool === 'measure-distance',
     onPointerIntentStart(event) {
+      if (event.state.intent === 'measurement') {
+        if (handleViewportMeasurementStart(state, event.originalEvent)) render();
+        return;
+      }
       if (event.state.intent === 'gizmo-drag') {
         gizmo.preparePointerDrag(event.originalEvent);
         return;
@@ -983,6 +1312,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentMove(event) {
+      if (event.state.intent === 'measurement') {
+        if (handleViewportMeasurementMove(state, event.originalEvent)) render();
+        return;
+      }
       if (event.state.intent === 'placement') {
         if (previewArmedPlacement(state, event.originalEvent)) render();
         return;
@@ -1000,6 +1333,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentEnd(event) {
+      if (event.state.intent === 'measurement') {
+        if (handleViewportMeasurementEnd(state)) render();
+        return;
+      }
       if (event.state.intent === 'placement') {
         if (commitArmedPlacement(state, options, event.originalEvent)) render();
         return;
@@ -1013,6 +1350,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentCancel(event) {
+      if (event.state.intent === 'measurement') {
+        render();
+        return;
+      }
       if (event.state.intent === 'placement') {
         state.gizmo?.setPlacementMarker(null);
         render();
@@ -1046,6 +1387,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     scene: world.scene,
     editorCamera: world.camera,
   });
+  const sceneViewSpatialOverlay = createBabylonSceneViewSpatialOverlayController({
+    babylon,
+    scene: world.scene,
+  });
   const document = state.session?.getState().workingDocument;
   if (document) {
     projection.projectNodes(options.documentAdapter.getProjectionNodes(document));
@@ -1069,6 +1414,8 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   state.sceneCameraPreview = sceneCameraPreview;
   state.sceneViewInput = sceneViewInput;
   state.sceneViewCamera = sceneViewCamera;
+  state.sceneViewMeasurement = sceneViewMeasurement;
+  state.sceneViewSpatialOverlay = sceneViewSpatialOverlay;
   state.selectionController = selectionController;
   state.resizeHandler = resize;
 }
@@ -1085,11 +1432,21 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
   state.sceneCameraPreviewEnabled = false;
   state.sceneViewCamera?.dispose();
   state.sceneViewCamera = null;
+  state.sceneViewMeasurement?.dispose();
+  state.sceneViewMeasurement = null;
+  state.sceneViewSpatialOverlay?.dispose();
+  state.sceneViewSpatialOverlay = null;
   state.sceneViewInput?.dispose();
   state.sceneViewInput = null;
   state.selectionController?.dispose();
   state.selectionController = null;
   state.boxSelection = null;
+  state.viewportSpatialOverlay = createEmptyEditorViewportSpatialOverlayState();
+  state.viewportMeasurement = createEmptyViewportMeasurement();
+  state.viewportTools = {
+    ...state.viewportTools,
+    activeUtilityTool: 'none',
+  };
   state.gizmo?.dispose();
   state.gizmo = null;
   state.projection?.dispose();
@@ -2216,6 +2573,13 @@ function cancelEditorIntent<TDocument, TPatch, TAsset>(
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
 ): boolean {
   if (state.mode !== 'editor') return false;
+  if (
+    state.viewportTools.activeUtilityTool === 'measure-distance'
+    || state.viewportMeasurement.start
+    || state.viewportMeasurement.end
+  ) {
+    return clearViewportMeasurement(state);
+  }
   const selection = state.session?.getSelection();
   if (selection && selection.selectedIds.length > 0) {
     return dispatchSelectionCommand(state, options, { type: 'selection.clear', label: 'Clear Selection' });
@@ -2427,6 +2791,46 @@ function syncSceneCameraPreview<TDocument, TPatch, TAsset>(
   return controller.isActive();
 }
 
+function syncViewportCameraState<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): void {
+  const cameraState = state.sceneViewCamera?.getState();
+  if (!cameraState) return;
+  state.viewportTools = {
+    ...state.viewportTools,
+    viewPreset: cameraState.viewPreset,
+    projectionMode: cameraState.projectionMode,
+  };
+}
+
+function syncViewportSpatialOverlay<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): void {
+  const overlay = state.sceneViewSpatialOverlay;
+  const selection = state.session?.getState().selection;
+  const activeId = selection?.activeId ?? null;
+  if (state.mode !== 'editor' || !overlay || !activeId || selection?.selectedIds.length !== 1) {
+    state.viewportSpatialOverlay = createEmptyEditorViewportSpatialOverlayState();
+    return;
+  }
+  const bounds = state.projection?.getSelectionBounds([activeId]) ?? null;
+  const anchor = state.projection?.readNodeTransform(activeId)?.position ?? bounds?.center ?? null;
+  state.viewportSpatialOverlay = overlay.compute({
+    nodeId: activeId,
+    bounds,
+    anchor,
+    settings: state.viewportTools.overlay,
+  });
+}
+
+function syncViewportMeasurementState<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): void {
+  if (state.mode !== 'editor') return;
+  const measurement = state.sceneViewMeasurement?.getState();
+  if (measurement) state.viewportMeasurement = measurement;
+}
+
 function hasSceneCameraPreviewRig<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -2502,6 +2906,9 @@ function createUiState<TDocument, TPatch, TAsset>(
       canAlign: selectedIds.length >= 2 && activeId != null,
       canDistribute: selectedIds.length >= 3,
     },
+    viewportTools: cloneEditorViewportToolState(state.viewportTools),
+    viewportMeasurement: cloneViewportMeasurement(state.viewportMeasurement),
+    viewportSpatialOverlay: cloneEditorViewportSpatialOverlayState(state.viewportSpatialOverlay),
     sceneCameraPreview: {
       enabled: state.sceneCameraPreviewEnabled,
       available: hasSceneCameraPreviewRig(state, options),
