@@ -78,12 +78,16 @@ describe('Babylon editor projection runtime helpers', () => {
     });
 
     expect(scene.meshes.filter(mesh => mesh.name === 'main_camera.cameraHelper')).toHaveLength(1);
-    expect(scene.meshes.find(mesh => mesh.name === 'main_camera.cameraFrustum')?.metadata?.editorProjection).toMatchObject({
+    const frustum = scene.meshes.find(mesh => mesh.name === 'main_camera.cameraFrustum');
+    expect(frustum?.metadata?.editorProjection).toMatchObject({
       nodeId: 'main_camera',
       runtimeKind: 'camera',
       helper: 'frustum',
       orthoSize: 8,
     });
+    const positions = frustum?.getVerticesData(BABYLON.VertexBuffer.PositionKind) ?? [];
+    expect(Math.min(...positions.filter((_value, index) => index % 3 === 2))).toBeLessThan(0);
+    expect(Math.max(...positions.filter((_value, index) => index % 3 === 2))).toBeCloseTo(0.18);
 
     projection.projectNode({
       id: 'main_camera',

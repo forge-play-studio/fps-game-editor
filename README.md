@@ -77,6 +77,12 @@ npm run pack:dry-run
 
 如果项目需要新的类型或 helper，应优先从 `@fps-games/editor` 统一 re-export，而不是让项目直接 import 内部分层包。
 
+## 坐标系约定
+
+编辑器世界坐标系应与 GLB/glTF 模型资产保持一致：右手直角坐标系，以模型导入后的 authored transform 语义为准。Transform Inspector、gizmo、Scene View helper、相机预览和项目 adapter 都应围绕这个编辑器语义工作。
+
+Babylon runtime 可以通过 `scene.useRightHandedSystem` 切换 handedness，但这只描述底层渲染场景的左右手系，不等价于完整的编辑器坐标语义。凡是 Babylon camera、本地 helper mesh、项目 runtime config 或其他宿主使用不同本地轴约定的地方，都应在公共框架边界做显式转换，避免项目 adapter 各自补偿。
+
 ## 安装
 
 ### 推荐安装方式

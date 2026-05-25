@@ -13,7 +13,10 @@ import type {
   BabylonEditorProjectionNode,
   BabylonSceneCameraPreviewRig,
 } from '@fps-games/editor-babylon';
-import { createBabylonEditorInfiniteGrid } from '@fps-games/editor-babylon';
+import {
+  createBabylonEditorInfiniteGrid,
+  createBabylonSceneCameraPreviewRigFromProjectionNode,
+} from '@fps-games/editor-babylon';
 import baseSceneConfig from '../config/scene.json';
 import type { SceneAssetConfig, SceneConfig } from '../config/types';
 import type { EditorSceneDocument } from '../fps-game-editor-adapter/editor-scene-document';
@@ -37,7 +40,6 @@ import {
   createEditorScenePlacedAssetPatch,
   createEditorSceneRenamePatch,
   createEditorSceneReparentPatch,
-  DEFAULT_EDITOR_SCENE_CAMERA,
   ensureEditorSceneEnvironmentDefaults,
   getEditorSceneHierarchyItems,
   getEditorSceneInspectorMultiObject,
@@ -274,13 +276,7 @@ export function createSceneCameraPreviewRig(
 ): BabylonSceneCameraPreviewRig | null {
   const camera = editorScene.scene.gameObjects.find(isEditorSceneCameraGameObject);
   if (!camera || camera.active === false) return null;
-  return {
-    target: { x: 0, y: 0, z: 0 },
-    settings: {
-      ...DEFAULT_EDITOR_SCENE_CAMERA,
-      ...(camera.camera ?? {}),
-    },
-  };
+  return createBabylonSceneCameraPreviewRigFromProjectionNode(createProjectionNode(editorScene, camera));
 }
 
 async function importEditorProjectionModel(

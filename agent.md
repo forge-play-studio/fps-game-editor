@@ -14,6 +14,7 @@
 - 不把项目 schema、AssetManager 规则、SceneBuilder 逻辑或具体游戏语义搬进通用编辑器包。
 - 保存链路保持两阶段语义：项目 adapter 先保存 authoring source，编译 runtime scene；平台宿主再保存 runtime artifact。Forge Play `Save & Exit` 中 `document.export` 只负责 prepare authoring source 并导出 `sceneJsonText`，平台保存成功后的 `document.commit` 是提交确认，尾部 `mode.change(play, save: true)` 不能重复保存同一事务。
 - 平台资产库只发送 command，不直接写项目场景，也不依赖 native HTML5 drag/drop 作为权威链路。`asset.library.refresh`、`asset.import`、`editor.asset.place` 应由项目侧桥接处理：先注册/刷新资产库，再通过 `LocalEditorHarness` 和项目 document adapter 写入 `EditorSceneDocument`。不要把新资产实例直接写到旧 runtime scene document 或 `scene.json`。
+- 编辑器世界坐标系应与 GLB/glTF 模型资产保持一致：右手直角坐标系，以模型导入后的 authored transform 语义为准。Babylon、项目 runtime、camera 或可视化 helper 如果使用不同的本地轴/handedness 约定，必须在框架边界显式转换；不要把坐标系修正散落在业务 adapter 中，也不要把 `useRightHandedSystem` 当成完整语义。
 - 启动本地服务时，默认启动包含真实 GameWorld 闭环的 `mini-game-lab`（`npm run dev:mini-game-lab`），不要只启动纯编辑器 `editor-lab`。只有用户明确要求轻量 playground、editor-only 调试，或需要隔离公共编辑器框架问题时，才使用 `npm run dev:editor-lab`。
 - handoff 或 push 前，以现有检查通过作为最低质量线。
 - 文档记录当前事实和决策，但不把文档过早写成固定路线图。
