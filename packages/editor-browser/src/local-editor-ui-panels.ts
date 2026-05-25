@@ -228,7 +228,17 @@ function renderAssetBrowserContent<TDocument>(
   const filteredAssets = state.assets
     .filter((asset) => {
       if (!normalizedFilter) return true;
-      return [asset.id, asset.label, asset.meta ?? '']
+      return [
+        asset.id,
+        asset.assetId ?? '',
+        asset.guid ?? '',
+        asset.kind ?? '',
+        asset.label,
+        asset.meta ?? '',
+        asset.external?.platformAssetId ?? '',
+        asset.external?.assetPath ?? '',
+        asset.external?.assetUrl ?? '',
+      ]
         .some(value => value.toLowerCase().includes(normalizedFilter));
     })
     .slice(0, 80);

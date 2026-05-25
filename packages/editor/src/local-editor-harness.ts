@@ -127,8 +127,21 @@ export interface LocalEditorAuthoringFailureStatus {
 export interface LocalEditorHarnessAssetItem {
   id: string;
   label: string;
+  guid?: string;
+  assetId?: string;
+  kind?: string;
+  external?: {
+    platformAssetId?: string;
+    assetPath?: string;
+    assetUrl?: string;
+    [key: string]: unknown;
+  };
+  origin?: string;
+  dedupeKey?: string;
+  displayName?: string;
   meta?: string;
   placeable?: boolean;
+  disabled?: boolean;
   raw?: unknown;
 }
 
@@ -2073,7 +2086,7 @@ function armAssetPlacement<TDocument, TPatch, TAsset>(
 ): boolean {
   if (state.mode !== 'editor') return false;
   cancelActiveOperation(state);
-  const asset = state.assets.find(candidate => resolveAssetId(options, candidate) === assetId);
+  const asset = findAssetByResolvedId(state, options, assetId);
   if (!asset) return false;
   state.armedPlacement = { assetId, asset };
   state.gizmo?.setPlacementMarker(null);
@@ -2192,7 +2205,7 @@ function addAssetToDocument<TDocument, TPatch, TAsset>(
     state.status = 'Asset creation rejected: document is not loaded';
     return { ok: false, assetId, changed: false, status: state.status, error: 'document_not_loaded' };
   }
-  const asset = state.assets.find(candidate => resolveAssetId(options, candidate) === assetId);
+  const asset = findAssetByResolvedId(state, options, assetId);
   if (!asset) {
     state.status = `Asset creation rejected: ${assetId} not found`;
     return { ok: false, assetId, changed: false, status: state.status, error: 'asset_not_found' };
@@ -2856,6 +2869,10 @@ function createUiState<TDocument, TPatch, TAsset>(
   const inspectorMultiObject = document && inspectorMultiObjectBase
     ? withRuntimeInspectorSections(state, options, document, inspectorMultiObjectBase)
     : inspectorMultiObjectBase;
+  const assets = dedupeLocalEditorBrowserAssetItems(
+    state.assets
+      .map(asset => toBrowserAssetItem(options, asset)),
+  );
   return {
     mode: state.mode,
     busy: state.busy,
@@ -2864,10 +2881,8 @@ function createUiState<TDocument, TPatch, TAsset>(
     statusDetails: state.statusToneStatus === state.status ? state.statusDetails : '',
     summary: state.summary,
     assetFilter: state.assetFilter,
-    assets: state.assets
-      .filter(asset => (asset as LocalEditorHarnessAssetItem).placeable !== false)
-      .map(asset => toBrowserAssetItem(options, asset)),
-    assetCountLabel: `${state.assets.length} assets`,
+    assets,
+    assetCountLabel: `${assets.length} assets`,
     hierarchy: document ? options.documentAdapter.getHierarchyItems(document) : [],
     selectedIds,
     activeId,
@@ -3114,8 +3129,9 @@ function createDefaultRuntimeInspectorSections<TDocument>(
   const properties: InspectorProperty<TDocument>[] = [];
   if (projectionNode) {
     properties.push(createRuntimeInspectorProperty('runtime.projection.nodeId', 'Projected ID', projectionNode.id, properties.length));
-    const assetSource = projectionNode.asset?.sourceId ?? projectionNode.asset?.id ?? '';
-    if (assetSource) properties.push(createRuntimeInspectorProperty('runtime.projection.assetSource', 'Asset Source', assetSource, properties.length));
+    const projectionAsset = projectionNode.asset as (typeof projectionNode.asset & { assetId?: string }) | undefined;
+    const assetId = projectionAsset?.assetId ?? projectionAsset?.id ?? '';
+    if (assetId) properties.push(createRuntimeInspectorProperty('runtime.projection.assetId', 'Asset ID', assetId, properties.length));
   }
   const runtimeClass = readRuntimeClassName(root);
   if (runtimeClass) properties.push(createRuntimeInspectorProperty('runtime.root.className', 'Runtime Class', runtimeClass, properties.length));
@@ -3266,7 +3282,24 @@ function resolveAssetId<TDocument, TPatch, TAsset>(
   asset: TAsset,
 ): string {
   return options.worldAdapter.resolveAssetId?.(asset)
+    ?? (asset as LocalEditorHarnessAssetItem).assetId
     ?? (asset as LocalEditorHarnessAssetItem).id;
+}
+
+function findAssetByResolvedId<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  assetId: string,
+): TAsset | undefined {
+  let selected: { asset: TAsset; item: LocalEditorBrowserUiAssetItem } | null = null;
+  for (const asset of state.assets) {
+    if (resolveAssetId(options, asset) !== assetId) continue;
+    const item = toBrowserAssetItem(options, asset);
+    if (!selected || shouldReplaceBrowserAssetItem(selected.item, item)) {
+      selected = { asset, item };
+    }
+  }
+  return selected?.asset;
 }
 
 function toBrowserAssetItem<TDocument, TPatch, TAsset>(
@@ -3275,9 +3308,102 @@ function toBrowserAssetItem<TDocument, TPatch, TAsset>(
 ): LocalEditorBrowserUiAssetItem {
   return options.worldAdapter.toBrowserAssetItem?.(asset)
     ?? {
-      id: (asset as LocalEditorHarnessAssetItem).id,
-      label: (asset as LocalEditorHarnessAssetItem).label,
+      id: (asset as LocalEditorHarnessAssetItem).assetId ?? (asset as LocalEditorHarnessAssetItem).id,
+      label: (asset as LocalEditorHarnessAssetItem).displayName ?? (asset as LocalEditorHarnessAssetItem).label,
+      guid: (asset as LocalEditorHarnessAssetItem).guid,
+      assetId: (asset as LocalEditorHarnessAssetItem).assetId,
+      kind: (asset as LocalEditorHarnessAssetItem).kind,
+      external: (asset as LocalEditorHarnessAssetItem).external,
+      origin: (asset as LocalEditorHarnessAssetItem).origin,
+      dedupeKey: (asset as LocalEditorHarnessAssetItem).dedupeKey,
+      placeable: (asset as LocalEditorHarnessAssetItem).placeable,
       meta: (asset as LocalEditorHarnessAssetItem).meta,
-      disabled: (asset as LocalEditorHarnessAssetItem).placeable === false,
+      disabled: (asset as LocalEditorHarnessAssetItem).disabled ?? (asset as LocalEditorHarnessAssetItem).placeable === false,
     };
+}
+
+export function dedupeLocalEditorBrowserAssetItems(
+  items: LocalEditorBrowserUiAssetItem[],
+): LocalEditorBrowserUiAssetItem[] {
+  const byKey = new Map<string, LocalEditorBrowserUiAssetItem>();
+  for (const item of items) {
+    const key = getBrowserAssetCanonicalKey(item);
+    const existing = byKey.get(key);
+    if (!existing || shouldReplaceBrowserAssetItem(existing, item)) {
+      byKey.set(key, item);
+    }
+  }
+
+  const projectDuplicateKeys = new Set<string>();
+  for (const item of byKey.values()) {
+    if (!item.guid || item.origin !== 'project') continue;
+    for (const duplicateKey of getBrowserAssetDuplicateSuppressionKeys(item)) {
+      projectDuplicateKeys.add(duplicateKey);
+    }
+  }
+
+  return [...byKey.values()].filter((item) => {
+    if (item.guid) return true;
+    return !getBrowserAssetDuplicateSuppressionKeys(item)
+      .some(duplicateKey => projectDuplicateKeys.has(duplicateKey));
+  });
+}
+
+function getBrowserAssetCanonicalKey(item: LocalEditorBrowserUiAssetItem): string {
+  const guid = normalizeBrowserAssetString(item.guid);
+  if (guid) return `guid:${guid}`;
+  const platformAssetId = normalizeBrowserAssetString(item.external?.platformAssetId);
+  if (platformAssetId) return `external:${platformAssetId}`;
+  const dedupeKey = normalizeBrowserAssetString(item.dedupeKey);
+  if (dedupeKey) return `dedupe:${dedupeKey}`;
+  const assetId = normalizeBrowserAssetString(item.assetId);
+  if (assetId) return `asset:${assetId}`;
+  return `id:${normalizeBrowserAssetString(item.id) ?? item.id}`;
+}
+
+function getBrowserAssetDuplicateSuppressionKeys(item: LocalEditorBrowserUiAssetItem): string[] {
+  const keys: string[] = [];
+  pushBrowserAssetDuplicateKey(keys, 'external', item.external?.platformAssetId);
+  pushBrowserAssetDuplicateKey(keys, 'dedupe', item.dedupeKey);
+  pushBrowserAssetDuplicateKey(keys, 'asset', item.assetId);
+  pushBrowserAssetDuplicateKey(keys, 'id', item.id);
+  return keys;
+}
+
+function pushBrowserAssetDuplicateKey(keys: string[], prefix: string, value: unknown): void {
+  const normalized = normalizeBrowserAssetString(value);
+  if (normalized) keys.push(`${prefix}:${normalized}`);
+}
+
+function shouldReplaceBrowserAssetItem(
+  current: LocalEditorBrowserUiAssetItem,
+  candidate: LocalEditorBrowserUiAssetItem,
+): boolean {
+  const currentScore = getBrowserAssetPreferenceScore(current);
+  const candidateScore = getBrowserAssetPreferenceScore(candidate);
+  if (candidateScore !== currentScore) return candidateScore > currentScore;
+  return getBrowserAssetDetailScore(candidate) > getBrowserAssetDetailScore(current);
+}
+
+function getBrowserAssetPreferenceScore(item: LocalEditorBrowserUiAssetItem): number {
+  return (item.origin === 'project' ? 1000 : 0)
+    + (item.guid ? 100 : 0)
+    + (item.assetId ? 40 : 0)
+    + (item.placeable === false ? 0 : 10)
+    + (item.disabled ? 0 : 5);
+}
+
+function getBrowserAssetDetailScore(item: LocalEditorBrowserUiAssetItem): number {
+  return [
+    item.label,
+    item.meta,
+    item.kind,
+    item.external?.platformAssetId,
+    item.external?.assetPath,
+    item.external?.assetUrl,
+  ].filter(value => typeof value === 'string' && value.trim()).length;
+}
+
+function normalizeBrowserAssetString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
