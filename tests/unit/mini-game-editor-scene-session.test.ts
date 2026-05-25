@@ -3,6 +3,7 @@ import {
   compileEditorSceneDocumentToSceneConfig,
 } from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-compiler';
 import {
+  createEditorSceneSerializedMultiPropertyPatch,
   createProjectionNode,
   createSceneCameraPreviewRig,
 } from '../../examples/mini-game-lab/src/debug/local-editor-mode-switcher';
@@ -212,6 +213,34 @@ function createRuntimeProjectionFixture() {
     },
   };
   return { root, projectionNode };
+}
+
+function createMvpRootEditorSceneDocument(): EditorSceneDocument {
+  return {
+    schemaVersion: 1,
+    assets: [],
+    scene: {
+      gameObjects: [
+        {
+          id: 'mvp_root',
+          name: 'MVP Root',
+          active: true,
+          components: [
+            { type: 'Transform', position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
+          ],
+        },
+        {
+          id: 'child',
+          name: 'Child',
+          parentId: 'mvp_root',
+          active: true,
+          components: [
+            { type: 'Transform', position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
+          ],
+        },
+      ],
+    },
+  };
 }
 
 describe('mini-game editor scene Inspector v2 adapter', () => {
@@ -798,6 +827,184 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     if (compiledDecal?.kind === 'transform') expect(compiledDecal.groundDecal).toBeUndefined();
   });
 
+  it('creates schema-backed patches for local scale axes', () => {
+    const document = createMiniEditorSceneDocument();
+    const patch = createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'tree',
+      path: 'transform.scale.x',
+      value: 1.75,
+    });
+
+    expect(patch).toMatchObject({
+      changedId: 'tree',
+      changedIds: ['tree'],
+      patch: {
+        kind: 'game-object.field',
+        targetId: 'tree',
+        path: 'transform.scale.x',
+        value: 1.75,
+      },
+    });
+
+    const next = reduceEditorSceneDocument(document, { type: 'document.patch', patch: patch!.patch });
+    const transform = next.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
+    expect(transform).toMatchObject({ scale: { x: 1.75, y: 1, z: 1 } });
+  });
+
+  it('creates schema-backed patches for local scale vectors', () => {
+    const document = createMiniEditorSceneDocument();
+    const patch = createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'tree',
+      path: 'transform.scale',
+      value: 1.5,
+    });
+
+    expect(patch).toMatchObject({
+      patch: {
+        kind: 'game-object.field',
+        targetId: 'tree',
+        path: 'transform.scale',
+        value: 1.5,
+      },
+    });
+
+    const next = reduceEditorSceneDocument(document, { type: 'document.patch', patch: patch!.patch });
+    const transform = next.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
+    expect(transform).toMatchObject({ scale: { x: 1.5, y: 1.5, z: 1.5 } });
+  });
+
+  it('rejects MVP root transform vector and axis patches', () => {
+    const document = createMvpRootEditorSceneDocument();
+
+    const childInspector = getEditorSceneInspectorObject(document, 'child');
+    const childTransformProperties = childInspector?.sections.find(section => section.id === 'transform')?.properties ?? [];
+    expect(childTransformProperties).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: 'transform.scale.x',
+        label: 'Local Scale.x',
+        readOnly: false,
+        persistence: 'document',
+      }),
+      expect.objectContaining({
+        path: 'transform.world.scale.x',
+        label: 'World Scale.x',
+        readOnly: true,
+        persistence: 'readonly',
+        tags: ['Derived'],
+        effect: 'derived',
+      }),
+    ]));
+
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'mvp_root',
+      path: 'transform.scale',
+      value: 2,
+    })).toBeNull();
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'mvp_root',
+      path: 'transform.scale.x',
+      value: 2,
+    })).toBeNull();
+
+    const next = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      patch: {
+        kind: 'game-object.field',
+        targetId: 'mvp_root',
+        path: 'transform.scale',
+        value: 2,
+      },
+    });
+    const rootTransform = next.scene.gameObjects.find(gameObject => gameObject.id === 'mvp_root')?.components.find(component => component.type === 'Transform');
+    const childTransform = next.scene.gameObjects.find(gameObject => gameObject.id === 'child')?.components.find(component => component.type === 'Transform');
+    expect(rootTransform).toMatchObject({ scale: { x: 1, y: 1, z: 1 } });
+    expect(childTransform).toMatchObject({ scale: { x: 1, y: 1, z: 1 } });
+  });
+
+  it('allows ordinary parent nodes to author local rotation and scale', () => {
+    const document = createMiniEditorSceneDocument();
+    const scalePatch = createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'root',
+      path: 'transform.scale.x',
+      value: 2,
+    });
+    const rotationPatch = createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'root',
+      path: 'transform.rotation.y',
+      value: 45,
+    });
+
+    expect(scalePatch).toMatchObject({ changedId: 'root', changedIds: ['root', 'tree', 'decal'] });
+    expect(rotationPatch).toMatchObject({ changedId: 'root', changedIds: ['root', 'tree', 'decal'] });
+
+    const next = reduceEditorSceneDocument(document, { type: 'document.patch', patch: scalePatch!.patch });
+    const transform = next.scene.gameObjects.find(gameObject => gameObject.id === 'root')?.components.find(component => component.type === 'Transform');
+    expect(transform).toMatchObject({ scale: { x: 2, y: 1, z: 1 } });
+  });
+
+  it('keeps serialized transform patches aligned with scale axis validation', () => {
+    const document = createMiniEditorSceneDocument();
+    const rejected = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      patch: {
+        kind: 'serialized-property',
+        targetId: 'tree',
+        path: 'transform.scale.x',
+        value: 0,
+      },
+    });
+    const accepted = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      patch: {
+        kind: 'serialized-property',
+        targetId: 'tree',
+        path: 'transform.scale.x',
+        value: 1.25,
+      },
+    });
+
+    const rejectedTransform = rejected.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
+    const acceptedTransform = accepted.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
+    expect(rejectedTransform).toMatchObject({ scale: { x: 1, y: 1, z: 1 } });
+    expect(acceptedTransform).toMatchObject({ scale: { x: 1.25, y: 1, z: 1 } });
+  });
+
+  it('keeps serialized multi-transform patches aligned with scale axis validation', () => {
+    const document = createMiniEditorSceneDocument();
+    const accepted = createEditorSceneSerializedMultiPropertyPatch({
+      document,
+      targetIds: ['root'],
+      activeId: 'root',
+      path: 'transform.scale.x',
+      value: 2,
+    });
+    const rejected = createEditorSceneSerializedMultiPropertyPatch({
+      document,
+      targetIds: ['root'],
+      activeId: 'root',
+      path: 'transform.scale.x',
+      value: 0,
+    });
+
+    expect(accepted).toMatchObject({
+      changedIds: ['root', 'tree', 'decal'],
+      patch: {
+        kind: 'game-object.transform-batch',
+        targets: [{
+          targetId: 'root',
+          transform: { scale: { x: 2 } },
+        }],
+      },
+    });
+    expect(rejected).toBeNull();
+  });
+
   it('rejects invalid schema-backed field values before patch creation', () => {
     const document = createMiniEditorSceneDocument();
 
@@ -830,6 +1037,24 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
       targetId: 'tree',
       path: 'overrides.material.albedoTexture.url',
       value: {},
+    })).toBeNull();
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'tree',
+      path: 'transform.scale.x',
+      value: 0,
+    })).toBeNull();
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'tree',
+      path: 'transform.scale.y',
+      value: -1,
+    })).toBeNull();
+    expect(createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'tree',
+      path: 'transform.scale.z',
+      value: null,
     })).toBeNull();
   });
 
@@ -1284,6 +1509,39 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
       expect(tree.overrides?.material?.albedoTexture).toBeUndefined();
       expect(tree.overrides?.material?.pbr?.directIntensity).toBe(0.55);
     }
+  });
+
+  it('expands scalar scene node scale when applying an axis patch', () => {
+    loadProjectEditorDocument({
+      schemaVersion: 2,
+      scene: {
+        rootId: 'root',
+        assets: [{
+          id: 'asset_tree',
+          type: 'glb',
+          sourceId: 'tree_lv1',
+        }],
+        nodes: [{
+          id: 'tree',
+          kind: 'instance',
+          instance: { assetId: 'asset_tree' },
+          transform: { scale: 0.5 },
+        }],
+        materials: [],
+        textures: [],
+      },
+    } as SceneConfig);
+
+    patchProjectEditorSceneNode({
+      nodeId: 'tree',
+      patches: [{
+        path: 'transform.scale.x',
+        value: 1.75,
+      }],
+    });
+
+    const tree = getProjectEditorWorkingDocument().scene?.nodes.find(node => node.id === 'tree');
+    expect(tree?.transform?.scale).toEqual({ x: 1.75, y: 0.5, z: 0.5 });
   });
 
   it('persists ground decal fields and compiles them into scene JSON', () => {
