@@ -1,5 +1,8 @@
 import type { SelectionCommand } from '@fps-games/editor-core';
 import type {
+  LocalEditorBrowserHierarchyContextActionContext,
+  LocalEditorBrowserHierarchyContextActionPlacement,
+  LocalEditorBrowserHierarchyContextActionRegistration,
   LocalEditorBrowserPrimitiveShape,
   LocalEditorBrowserSceneGraphGroupSelectionIntent,
   LocalEditorBrowserUiState,
@@ -40,6 +43,7 @@ export interface LocalEditorHierarchyActionInput<TDocument = unknown> {
   clipboardActiveId?: string | null;
   hasDuplicateHandler?: boolean;
   hasGroupSelectionHandler?: boolean;
+  contextActions?: readonly LocalEditorBrowserHierarchyContextActionRegistration<TDocument>[];
 }
 
 export function createLocalEditorHierarchyNodeMenu<TDocument>(
@@ -58,6 +62,7 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
   const deleteDisabledReason = getDeleteDisabledReason(model, targetIds);
   const groupSelection = createGroupSelectionAction(input, topLevelSelection);
   const actions = new Map<string, LocalEditorHierarchyAction>();
+  const context = createContextActionContext(input, 'node', node.item, targetIds, activeId);
 
   actions.set('hierarchy.focus', {
     kind: 'context-action',
@@ -92,33 +97,48 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
       activeId: resolveActionActiveId(input.clipboardIds ?? [], input.clipboardActiveId),
     },
   });
+  const customItems = addCustomContextActions(actions, input.contextActions, context);
 
   return {
     actions,
-    items: [
-      menuItem('hierarchy.focus', 'Focus in Preview', { shortcut: 'F', disabled: !selectable, disabledReason: 'Protected or locked nodes cannot be focused from Hierarchy.' }),
-      menuItem('hierarchy.rename', 'Rename', { disabled: !canRename, disabledReason: 'This node is protected or read-only.' }),
-      menuItem('hierarchy.create-child-group', 'Add Empty', {
-        disabled: !canCreateChildGroup,
-        disabledReason: 'This node cannot contain children.',
-      }),
-      primitiveItemGroup('hierarchy.create-child-primitive', 'Add', {
-        disabled: !canCreateChildGroup,
-        disabledReason: 'This node cannot contain children.',
-      }),
-      menuItem('hierarchy.group-selection', 'Parent Selection', {
-        disabled: groupSelection.disabled,
-        disabledReason: groupSelection.disabledReason,
-      }),
-      menuItem('hierarchy.delete', 'Delete', {
-        shortcut: 'Delete',
-        danger: true,
-        disabled: !!deleteDisabledReason,
-        disabledReason: deleteDisabledReason,
-      }),
-      ...clipboardItems(duplicateDisabledReason, pasteDisabledReason),
-      ...placeholderItems(),
-    ],
+    items: composeMenuItems({
+      top: customItems.top,
+      primary: [
+        menuItem('hierarchy.focus', 'Focus in Preview', { shortcut: 'F', disabled: !selectable, disabledReason: 'Protected or locked nodes cannot be focused from Hierarchy.' }),
+      ],
+      afterPrimary: customItems.afterPrimary,
+      create: [
+        menuItem('hierarchy.rename', 'Rename', { disabled: !canRename, disabledReason: 'This node is protected or read-only.' }),
+        menuItem('hierarchy.create-child-group', 'Add Empty', {
+          disabled: !canCreateChildGroup,
+          disabledReason: 'This node cannot contain children.',
+        }),
+        primitiveItemGroup('hierarchy.create-child-primitive', 'Add', {
+          disabled: !canCreateChildGroup,
+          disabledReason: 'This node cannot contain children.',
+        }),
+      ],
+      afterCreate: customItems.afterCreate,
+      edit: [
+        menuItem('hierarchy.group-selection', 'Parent Selection', {
+          disabled: groupSelection.disabled,
+          disabledReason: groupSelection.disabledReason,
+        }),
+        menuItem('hierarchy.delete', 'Delete', {
+          shortcut: 'Delete',
+          danger: true,
+          disabled: !!deleteDisabledReason,
+          disabledReason: deleteDisabledReason,
+        }),
+      ],
+      afterEdit: customItems.afterEdit,
+      clipboard: clipboardItems(duplicateDisabledReason, pasteDisabledReason),
+      afterClipboard: customItems.afterClipboard,
+      bottom: [
+        ...customItems.bottom,
+        ...placeholderItems(),
+      ],
+    }),
   };
 }
 
@@ -133,6 +153,7 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
   const duplicateDisabledReason = getDuplicateDisabledReason(input, targetIds);
   const pasteDisabledReason = getPasteDisabledReason(input);
   const actions = new Map<string, LocalEditorHierarchyAction>();
+  const context = createContextActionContext(input, 'blank', null, targetIds, activeId);
   actions.set('hierarchy.create-group', {
     kind: 'context-action',
     action: {
@@ -162,18 +183,32 @@ export function createLocalEditorHierarchyBlankMenu<TDocument>(
       activeId: resolveActionActiveId(input.clipboardIds ?? [], input.clipboardActiveId),
     },
   });
+  const customItems = addCustomContextActions(actions, input.contextActions, context);
   return {
     actions,
-    items: [
-      menuItem('hierarchy.create-group', 'Create Empty'),
-      primitiveItemGroup('hierarchy.create-primitive', 'Create'),
-      menuItem('hierarchy.group-selection', 'Parent Selection', {
-        disabled: groupSelection.disabled,
-        disabledReason: groupSelection.disabledReason,
-      }),
-      ...clipboardItems(duplicateDisabledReason, pasteDisabledReason),
-      ...placeholderItems(),
-    ],
+    items: composeMenuItems({
+      top: customItems.top,
+      primary: [],
+      afterPrimary: customItems.afterPrimary,
+      create: [
+        menuItem('hierarchy.create-group', 'Create Empty'),
+        primitiveItemGroup('hierarchy.create-primitive', 'Create'),
+      ],
+      afterCreate: customItems.afterCreate,
+      edit: [
+        menuItem('hierarchy.group-selection', 'Parent Selection', {
+          disabled: groupSelection.disabled,
+          disabledReason: groupSelection.disabledReason,
+        }),
+      ],
+      afterEdit: customItems.afterEdit,
+      clipboard: clipboardItems(duplicateDisabledReason, pasteDisabledReason),
+      afterClipboard: customItems.afterClipboard,
+      bottom: [
+        ...customItems.bottom,
+        ...placeholderItems(),
+      ],
+    }),
   };
 }
 
@@ -259,6 +294,96 @@ export function createLocalEditorHierarchySelectAllShortcutAction<TDocument>(
       activeId: resolveActionActiveId(selectedIds, input.state.activeId),
     },
   };
+}
+
+type LocalEditorHierarchyMenuItemSlots = Record<
+  'top' | 'primary' | 'afterPrimary' | 'create' | 'afterCreate' | 'edit' | 'afterEdit' | 'clipboard' | 'afterClipboard' | 'bottom',
+  LocalEditorContextMenuItem[]
+>;
+
+function createContextActionContext<TDocument>(
+  input: LocalEditorHierarchyActionInput<TDocument>,
+  menuKind: 'node' | 'blank',
+  node: LocalEditorBrowserHierarchyContextActionContext<TDocument>['node'],
+  targetIds: string[],
+  activeId: string | null,
+): LocalEditorBrowserHierarchyContextActionContext<TDocument> {
+  return {
+    state: input.state,
+    menuKind,
+    node,
+    contextNodeId: node?.id ?? null,
+    targetIds,
+    activeId,
+  };
+}
+
+function addCustomContextActions<TDocument>(
+  actions: Map<string, LocalEditorHierarchyAction>,
+  registrations: readonly LocalEditorBrowserHierarchyContextActionRegistration<TDocument>[] | undefined,
+  context: LocalEditorBrowserHierarchyContextActionContext<TDocument>,
+): Omit<LocalEditorHierarchyMenuItemSlots, 'primary' | 'create' | 'edit' | 'clipboard'> {
+  const slots = {
+    top: [] as LocalEditorContextMenuItem[],
+    afterPrimary: [] as LocalEditorContextMenuItem[],
+    afterCreate: [] as LocalEditorContextMenuItem[],
+    afterEdit: [] as LocalEditorContextMenuItem[],
+    afterClipboard: [] as LocalEditorContextMenuItem[],
+    bottom: [] as LocalEditorContextMenuItem[],
+  };
+  for (const registration of registrations ?? []) {
+    if (!registration.id || registration.visible?.(context) === false) continue;
+    const actionId = `hierarchy.custom.${registration.id}`;
+    const disabled = registration.disabled?.(context);
+    actions.set(actionId, {
+      kind: 'context-action',
+      action: {
+        region: 'hierarchy',
+        action: 'custom',
+        id: registration.id,
+        contextNodeId: context.contextNodeId,
+        targetIds: normalizeActionIds(context.targetIds),
+        activeId: context.activeId,
+        payload: registration.payload?.(context),
+      },
+    });
+    const item = menuItem(actionId, registration.label, {
+      shortcut: registration.shortcut,
+      danger: registration.danger,
+      disabled: disabled === true || typeof disabled === 'string',
+      disabledReason: typeof disabled === 'string' ? disabled : undefined,
+      separatorBefore: registration.separatorBefore,
+    });
+    getCustomContextActionSlot(slots, registration.placement).push(item);
+  }
+  return slots;
+}
+
+function getCustomContextActionSlot(
+  slots: Omit<LocalEditorHierarchyMenuItemSlots, 'primary' | 'create' | 'edit' | 'clipboard'>,
+  placement: LocalEditorBrowserHierarchyContextActionPlacement | undefined,
+): LocalEditorContextMenuItem[] {
+  if (placement === 'top') return slots.top;
+  if (placement === 'after-primary') return slots.afterPrimary;
+  if (placement === 'after-create') return slots.afterCreate;
+  if (placement === 'after-edit') return slots.afterEdit;
+  if (placement === 'after-clipboard') return slots.afterClipboard;
+  return slots.bottom;
+}
+
+function composeMenuItems(slots: LocalEditorHierarchyMenuItemSlots): LocalEditorContextMenuItem[] {
+  return [
+    ...slots.top,
+    ...slots.primary,
+    ...slots.afterPrimary,
+    ...slots.create,
+    ...slots.afterCreate,
+    ...slots.edit,
+    ...slots.afterEdit,
+    ...slots.clipboard,
+    ...slots.afterClipboard,
+    ...slots.bottom,
+  ];
 }
 
 function getDuplicateDisabledReason<TDocument>(

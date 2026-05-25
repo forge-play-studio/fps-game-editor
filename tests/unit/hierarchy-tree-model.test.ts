@@ -260,6 +260,47 @@ describe('local editor hierarchy action registry', () => {
     });
   });
 
+  it('adds custom context actions with target metadata without changing built-in actions', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, ['box', 'sphere'], 'sphere');
+    const menu = createLocalEditorHierarchyNodeMenu({
+      state: createHierarchyState(['box', 'sphere'], 'sphere'),
+      model,
+      node: model.getNode('box')!,
+      hasDuplicateHandler: true,
+      hasGroupSelectionHandler: true,
+      contextActions: [{
+        id: 'agent.context.add',
+        label: '添加到 Agent 对话框',
+        placement: 'after-primary',
+        separatorBefore: true,
+        visible: context => context.menuKind === 'node',
+        payload: context => ({ nodeId: context.node?.id ?? null }),
+      }],
+    });
+
+    const focusIndex = menu.items.findIndex(item => item.id === 'hierarchy.focus');
+    const customIndex = menu.items.findIndex(item => item.id === 'hierarchy.custom.agent.context.add');
+    const renameIndex = menu.items.findIndex(item => item.id === 'hierarchy.rename');
+    expect(customIndex).toBeGreaterThan(focusIndex);
+    expect(customIndex).toBeLessThan(renameIndex);
+    expect(menu.items[customIndex]).toMatchObject({
+      label: '添加到 Agent 对话框',
+      separatorBefore: true,
+    });
+    expect(menu.actions.get('hierarchy.custom.agent.context.add')).toMatchObject({
+      kind: 'context-action',
+      action: {
+        region: 'hierarchy',
+        action: 'custom',
+        id: 'agent.context.add',
+        contextNodeId: 'box',
+        targetIds: ['box', 'sphere'],
+        activeId: 'sphere',
+        payload: { nodeId: 'box' },
+      },
+    });
+  });
+
   it('keeps clipboard shortcuts disabled until the relevant nodes and pipeline exist', () => {
     const model = createLocalEditorHierarchyTreeModel(hierarchy, ['box'], 'box');
     const disconnectedInput = {

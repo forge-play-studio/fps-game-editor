@@ -74,6 +74,8 @@ import {
   createLocalEditorBrowserUi,
   type LocalEditorBrowserUi,
   type LocalEditorBrowserUiAssetItem,
+  type LocalEditorBrowserHierarchyContextActionContext,
+  type LocalEditorBrowserHierarchyContextActionRegistration,
   type LocalEditorBrowserHierarchySelectionInput,
   type LocalEditorBrowserInspectorOptions,
   type LocalEditorBrowserUiPropertyInput,
@@ -220,6 +222,30 @@ export interface LocalEditorHarnessPlacedAssetInput<TDocument = unknown, TAsset 
   document: TDocument;
   asset: TAsset;
   hit: EditorPlacementHit;
+}
+
+export interface LocalEditorHarnessHierarchyContextActionContext<TDocument = unknown> {
+  document: TDocument;
+  contextNodeId: string | null;
+  targetIds: string[];
+  activeId: string | null;
+  hierarchyItem: LocalEditorBrowserUiHierarchyItem | null;
+  projectionNode: BabylonEditorProjectionNode | null;
+  hostServices: EditorHostServices | null;
+  payload?: Record<string, unknown>;
+  browserContext: LocalEditorBrowserHierarchyContextActionContext<TDocument>;
+}
+
+export interface LocalEditorHarnessHierarchyContextActionRegistration<TDocument = unknown> {
+  id: string;
+  label: string;
+  shortcut?: string;
+  danger?: boolean;
+  placement?: LocalEditorBrowserHierarchyContextActionRegistration<TDocument>['placement'];
+  separatorBefore?: boolean;
+  visible?(context: LocalEditorHarnessHierarchyContextActionContext<TDocument>): boolean;
+  disabled?(context: LocalEditorHarnessHierarchyContextActionContext<TDocument>): boolean | string;
+  run(context: LocalEditorHarnessHierarchyContextActionContext<TDocument>): boolean | void;
 }
 
 export interface LocalEditorHarnessPatchResult<TPatch> {
@@ -408,6 +434,9 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     coordinateAxes?: boolean;
   };
   inspector?: LocalEditorHarnessInspectorOptions<TDocument>;
+  hierarchy?: {
+    contextActions?: readonly LocalEditorHarnessHierarchyContextActionRegistration<TDocument>[];
+  };
   createGrid?: (
     babylon: BabylonRuntimeGlobal & Record<string, any>,
     scene: unknown,
@@ -524,6 +553,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     theme: options.theme,
     localTestActions: options.localTestActions,
     inspector: options.inspector,
+    hierarchy: {
+      contextActions: createBrowserHierarchyContextActions(state, options),
+    },
     callbacks: {
       onEnterEditor: () => {
         void runExclusive(state, harness.render, () => harness.enterEditor());
@@ -1495,12 +1527,107 @@ function selectItem<TDocument, TPatch, TAsset>(
   return dispatchSelectionCommand(state, options, command);
 }
 
+function createBrowserHierarchyContextActions<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+): LocalEditorBrowserHierarchyContextActionRegistration<TDocument>[] {
+  return (options.hierarchy?.contextActions ?? []).map((registration) => ({
+    id: registration.id,
+    label: registration.label,
+    shortcut: registration.shortcut,
+    danger: registration.danger,
+    placement: registration.placement,
+    separatorBefore: registration.separatorBefore,
+    visible: (browserContext) => {
+      const context = createHarnessHierarchyContextActionContext(state, options, browserContext);
+      if (!context) return false;
+      return registration.visible?.(context) ?? true;
+    },
+    disabled: (browserContext) => {
+      const context = createHarnessHierarchyContextActionContext(state, options, browserContext);
+      if (!context) return 'No editable document is loaded.';
+      return registration.disabled?.(context) ?? false;
+    },
+  }));
+}
+
+function createHarnessHierarchyContextActionContext<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  browserContext: LocalEditorBrowserHierarchyContextActionContext<TDocument>,
+  payload?: Record<string, unknown>,
+): LocalEditorHarnessHierarchyContextActionContext<TDocument> | null {
+  const document = state.session?.getState().workingDocument ?? null;
+  if (!document) return null;
+  const activeId = browserContext.activeId;
+  return {
+    document,
+    contextNodeId: browserContext.contextNodeId,
+    targetIds: browserContext.targetIds,
+    activeId,
+    hierarchyItem: browserContext.node,
+    projectionNode: browserContext.contextNodeId
+      ? options.documentAdapter.getProjectionNode(document, browserContext.contextNodeId)
+      : null,
+    hostServices: options.hostServices ?? null,
+    payload,
+    browserContext,
+  };
+}
+
+function createBrowserContextForCustomAction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  action: Extract<LocalEditorContextAction, { region: 'hierarchy'; action: 'custom' }>,
+): LocalEditorBrowserHierarchyContextActionContext<TDocument> | null {
+  const document = state.session?.getState().workingDocument ?? null;
+  if (!document) return null;
+  const uiState = createUiState(state, options);
+  const node = action.contextNodeId
+    ? uiState.hierarchy.find(item => item.id === action.contextNodeId) ?? null
+    : null;
+  return {
+    state: uiState,
+    menuKind: node ? 'node' : 'blank',
+    node,
+    contextNodeId: action.contextNodeId,
+    targetIds: action.targetIds,
+    activeId: action.activeId,
+  };
+}
+
+function runHierarchyCustomContextAction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  action: Extract<LocalEditorContextAction, { region: 'hierarchy'; action: 'custom' }>,
+): boolean {
+  const registration = options.hierarchy?.contextActions?.find(candidate => candidate.id === action.id);
+  if (!registration) return false;
+  const browserContext = createBrowserContextForCustomAction(state, options, action);
+  const context = browserContext
+    ? createHarnessHierarchyContextActionContext(state, options, browserContext, action.payload)
+    : null;
+  if (!context) return false;
+  try {
+    return registration.run(context) === true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    state.status = `${registration.label} failed`;
+    state.statusTone = 'error';
+    state.statusToneStatus = state.status;
+    state.statusDetails = message;
+    console.error('[LocalEditorHarness] hierarchy context action failed', error);
+    return true;
+  }
+}
+
 function handleContextAction<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
   action: LocalEditorContextAction,
 ): boolean {
   if (action.region !== 'hierarchy') return false;
+  if (action.action === 'custom') return runHierarchyCustomContextAction(state, options, action);
   if (action.action === 'focus') {
     const activeId = action.activeId ?? action.targetIds[action.targetIds.length - 1] ?? null;
     const selectionChanged = activeId && !state.session?.getState().selection.selectedIds.includes(activeId)
