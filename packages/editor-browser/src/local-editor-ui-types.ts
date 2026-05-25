@@ -163,6 +163,18 @@ export interface LocalEditorBrowserUiHierarchyItem {
 export interface LocalEditorBrowserUiAssetItem {
   id: string;
   label: string;
+  guid?: string;
+  assetId?: string;
+  kind?: string;
+  external?: {
+    platformAssetId?: string;
+    assetPath?: string;
+    assetUrl?: string;
+    [key: string]: unknown;
+  };
+  origin?: string;
+  dedupeKey?: string;
+  placeable?: boolean;
   meta?: string;
   disabled?: boolean;
 }
