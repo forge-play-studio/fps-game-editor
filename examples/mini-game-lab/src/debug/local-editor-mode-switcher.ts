@@ -217,6 +217,10 @@ export function createProjectionNodes(editorScene: EditorSceneDocument): Babylon
   return editorScene.scene.gameObjects.map((gameObject) => createProjectionNode(editorScene, gameObject));
 }
 
+function isEditorSceneRootProjectionNode(gameObject: EditorSceneGameObject): boolean {
+  return gameObject.id === 'mvp_root';
+}
+
 export function createProjectionNode(
   editorScene: EditorSceneDocument,
   gameObject: EditorSceneGameObject,
@@ -238,6 +242,7 @@ export function createProjectionNode(
     name: gameObject.name ?? gameObject.id,
     parentId: gameObject.parentId ?? null,
     active: gameObject.active,
+    ...(isEditorSceneRootProjectionNode(gameObject) ? { helperKind: 'root' as const } : {}),
     ...(runtimeKind ? { runtimeKind } : {}),
     ...(gameObject.camera ? { camera: structuredClone(gameObject.camera) } : {}),
     ...(gameObject.light ? { light: structuredClone(gameObject.light) } : {}),

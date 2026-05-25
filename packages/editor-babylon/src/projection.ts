@@ -65,6 +65,7 @@ export interface BabylonEditorProjectionNode {
   transform?: BabylonEditorProjectionTransform;
   asset?: BabylonEditorProjectionAsset | null;
   primitive?: BabylonEditorProjectionPrimitive | null;
+  helperKind?: 'root';
   runtimeKind?: 'camera' | 'light';
   camera?: BabylonEditorProjectionCameraSettings;
   light?: BabylonEditorProjectionDirectionalLightSettings;
@@ -181,7 +182,9 @@ export function createBabylonEditorProjection(
     root.setEnabled?.(node.active !== false);
     if (node.transform) applyProjectionTransform(options.babylon, root, node.transform);
 
-    if (!attachRuntimeProjection(options.babylon, options.scene, node, projection)) {
+    if (node.helperKind === 'root') {
+      attachRootProjection(options.babylon, options.scene, node, projection);
+    } else if (!attachRuntimeProjection(options.babylon, options.scene, node, projection)) {
       if (node.asset && options.importModel) {
         projection.loadPromise = loadModelProjection(options, node, projection);
       } else if (node.primitive) {
@@ -598,6 +601,137 @@ function attachDirectionalLightProjection(
     arrow.parent = projection.root;
     arrow.isPickable = false;
   }
+}
+
+function attachRootProjection(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+  projection: ProjectedBabylonEditorNode,
+): void {
+  const MeshBuilder = (babylon as any).MeshBuilder;
+  const StandardMaterial = (babylon as any).StandardMaterial;
+  const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
+  if (!MeshBuilder?.CreateSphere || !StandardMaterial) return;
+
+  const sphere = MeshBuilder.CreateSphere(`${node.id}.rootMarker`, {
+    diameter: 0.28,
+    segments: 24,
+  }, scene);
+  sphere.parent = projection.root;
+  sphere.isPickable = false;
+  sphere.metadata = createProjectionMetadata(node.id, {
+    helperKind: 'root',
+    helper: 'anchor',
+  });
+  const sphereMaterial = new StandardMaterial(`${node.id}.rootMarker.material`, scene);
+  sphereMaterial.diffuseColor = new Color3(0.25, 0.64, 1);
+  sphereMaterial.emissiveColor = new Color3(0.08, 0.28, 0.45);
+  sphereMaterial.specularColor = new Color3(0.1, 0.16, 0.2);
+  sphere.material = sphereMaterial;
+  projection.runtimeObjects.push(sphereMaterial);
+  projection.outlineMeshes = [sphere];
+
+  const label = createRootLabelProjection(babylon, scene, node);
+  if (label) {
+    label.parent = projection.root;
+    label.isPickable = false;
+    label.position.y = 0.42;
+    projection.runtimeObjects.push(...(label.metadata?.editorProjectionRuntimeObjects ?? []));
+  }
+}
+
+function createRootLabelProjection(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+): any | null {
+  const MeshBuilder = (babylon as any).MeshBuilder;
+  const StandardMaterial = (babylon as any).StandardMaterial;
+  const DynamicTexture = (babylon as any).DynamicTexture;
+  const Vector3 = requireBabylonCtor(babylon.Vector3, 'Vector3');
+  const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
+  if (!MeshBuilder?.CreatePlane || !StandardMaterial || !DynamicTexture) return null;
+
+  let texture: any;
+  try {
+    texture = new DynamicTexture(`${node.id}.rootLabel.texture`, {
+      width: 256,
+      height: 96,
+    }, scene, false);
+  } catch {
+    return null;
+  }
+  texture.hasAlpha = true;
+  drawRootLabelTexture(texture);
+
+  const material = new StandardMaterial(`${node.id}.rootLabel.material`, scene);
+  material.diffuseTexture = texture;
+  material.emissiveTexture = texture;
+  material.opacityTexture = texture;
+  material.diffuseColor = new Color3(1, 1, 1);
+  material.emissiveColor = new Color3(1, 1, 1);
+  material.specularColor = new Color3(0, 0, 0);
+  material.backFaceCulling = false;
+
+  const label = MeshBuilder.CreatePlane(`${node.id}.rootLabel`, {
+    width: 0.9,
+    height: 0.34,
+  }, scene);
+  label.material = material;
+  label.billboardMode = (babylon as any).Mesh?.BILLBOARDMODE_ALL ?? 7;
+  label.metadata = {
+    ...createProjectionMetadata(node.id, {
+      helperKind: 'root',
+      helper: 'label',
+      text: 'Root',
+    }),
+    editorProjectionRuntimeObjects: [texture, material],
+  };
+  label.position = new Vector3(0, 0.42, 0);
+  return label;
+}
+
+function drawRootLabelTexture(texture: any): void {
+  const context = texture.getContext?.();
+  if (!context) {
+    texture.drawText?.('Root', null, 58, 'bold 44px sans-serif', '#f8fbff', 'transparent', true, true);
+    return;
+  }
+  context.clearRect?.(0, 0, 256, 96);
+  context.fillStyle = 'rgba(10, 18, 28, 0.76)';
+  roundRectPath(context, 14, 18, 228, 56, 18);
+  context.fill?.();
+  context.strokeStyle = 'rgba(100, 190, 255, 0.9)';
+  context.lineWidth = 3;
+  roundRectPath(context, 14, 18, 228, 56, 18);
+  context.stroke?.();
+  context.fillStyle = '#f8fbff';
+  context.font = 'bold 42px sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText?.('Root', 128, 47);
+  texture.update?.();
+}
+
+function roundRectPath(context: any, x: number, y: number, width: number, height: number, radius: number): void {
+  if (context.roundRect) {
+    context.beginPath?.();
+    context.roundRect(x, y, width, height, radius);
+    return;
+  }
+  const right = x + width;
+  const bottom = y + height;
+  context.beginPath?.();
+  context.moveTo?.(x + radius, y);
+  context.lineTo?.(right - radius, y);
+  context.quadraticCurveTo?.(right, y, right, y + radius);
+  context.lineTo?.(right, bottom - radius);
+  context.quadraticCurveTo?.(right, bottom, right - radius, bottom);
+  context.lineTo?.(x + radius, bottom);
+  context.quadraticCurveTo?.(x, bottom, x, bottom - radius);
+  context.lineTo?.(x, y + radius);
+  context.quadraticCurveTo?.(x, y, x + radius, y);
 }
 
 function attachFallbackProjection(

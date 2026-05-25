@@ -4,6 +4,54 @@ import { createBabylonEditorProjection } from '../../packages/editor-babylon/src
 import { createBabylonSceneCameraPreviewController } from '../../packages/editor-babylon/src/scene-camera-preview';
 
 describe('Babylon editor projection runtime helpers', () => {
+  it('renders the MVP root helper as a sphere with a Root label', () => {
+    const { babylon, scene } = createFakeRootProjectionRuntime();
+    const projection = createBabylonEditorProjection({
+      babylon: babylon as any,
+      scene: scene as any,
+    });
+
+    projection.projectNode({
+      id: 'mvp_root',
+      name: 'MVP Root',
+      helperKind: 'root',
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+    });
+
+    expect(scene.meshes.find((mesh: any) => mesh.name === 'mvp_root.rootMarker')?.metadata?.editorProjection).toMatchObject({
+      nodeId: 'mvp_root',
+      helperKind: 'root',
+      helper: 'anchor',
+    });
+    expect(scene.meshes.find((mesh: any) => mesh.name === 'mvp_root.rootLabel')?.metadata?.editorProjection).toMatchObject({
+      nodeId: 'mvp_root',
+      helperKind: 'root',
+      helper: 'label',
+      text: 'Root',
+    });
+
+    projection.projectNode({
+      id: 'mvp_root',
+      name: 'MVP Root',
+      helperKind: 'root',
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+    });
+
+    expect(scene.meshes.filter((mesh: any) => mesh.name === 'mvp_root.rootMarker')).toHaveLength(1);
+    expect(scene.meshes.filter((mesh: any) => mesh.name === 'mvp_root.rootLabel')).toHaveLength(1);
+
+    projection.dispose();
+    expect(scene.meshes.filter((mesh: any) => mesh.name.startsWith('mvp_root.'))).toHaveLength(0);
+  });
+
   it('reprojects Camera helpers from authored camera settings without helper duplicates', () => {
     const engine = new BABYLON.NullEngine();
     const scene = new BABYLON.Scene(engine);
@@ -122,6 +170,89 @@ describe('Babylon editor projection runtime helpers', () => {
     engine.dispose();
   });
 });
+
+function createFakeRootProjectionRuntime() {
+  const scene: { meshes: any[] } = { meshes: [] };
+  class Vector3 {
+    constructor(public x: number, public y: number, public z: number) {}
+  }
+  class Color3 {
+    constructor(public r: number, public g: number, public b: number) {}
+  }
+  class TransformNode {
+    public id = '';
+    public metadata: Record<string, unknown> = {};
+    public position = new Vector3(0, 0, 0);
+    public rotation = new Vector3(0, 0, 0);
+    public scaling = new Vector3(1, 1, 1);
+    public children: any[] = [];
+    constructor(public name: string) {}
+    setEnabled() {}
+    dispose() {
+      for (const child of [...this.children]) child.dispose?.();
+      this.children.length = 0;
+    }
+  }
+  class FakeMesh {
+    public id = '';
+    public metadata: Record<string, any> = {};
+    public position = new Vector3(0, 0, 0);
+    public rotation = new Vector3(0, 0, 0);
+    public scaling = new Vector3(1, 1, 1);
+    public material: any = null;
+    public isPickable = true;
+    public billboardMode = 0;
+    private parentNode: any = null;
+    constructor(public name: string) {
+      scene.meshes.push(this);
+    }
+    set parent(parent: any) {
+      this.parentNode = parent;
+      parent?.children?.push(this);
+    }
+    get parent() {
+      return this.parentNode;
+    }
+    dispose() {
+      scene.meshes = scene.meshes.filter(mesh => mesh !== this);
+    }
+  }
+  class StandardMaterial {
+    constructor(public name: string) {}
+    dispose() {}
+  }
+  class DynamicTexture {
+    public hasAlpha = false;
+    constructor(public name: string) {}
+    getContext() {
+      return {
+        clearRect() {},
+        beginPath() {},
+        roundRect() {},
+        fill() {},
+        stroke() {},
+        fillText() {},
+      };
+    }
+    update() {}
+    dispose() {}
+  }
+  return {
+    scene,
+    babylon: {
+      TransformNode,
+      Vector3,
+      Color3,
+      DynamicTexture,
+      StandardMaterial,
+      Mesh: { BILLBOARDMODE_ALL: 7 },
+      MeshBuilder: {
+        CreateSphere: (name: string) => new FakeMesh(name),
+        CreatePlane: (name: string) => new FakeMesh(name),
+      },
+    },
+  };
+}
 
 describe('Babylon scene camera preview controller', () => {
   it('temporarily switches to authored orthographic camera and restores the editor camera', () => {

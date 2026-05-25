@@ -422,6 +422,36 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     });
   });
 
+  it('marks the hidden MVP root projection as a world helper', () => {
+    const document: EditorSceneDocument = {
+      schemaVersion: 1,
+      assets: [],
+      scene: {
+        gameObjects: [{
+          id: 'mvp_root',
+          name: 'MVP Root',
+          active: true,
+          components: [
+            { type: 'Transform', position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
+          ],
+        }],
+      },
+    };
+    const projection = createProjectionNode(document, document.scene.gameObjects[0]!);
+
+    expect(projection).toMatchObject({
+      id: 'mvp_root',
+      helperKind: 'root',
+      asset: null,
+      primitive: null,
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+    });
+  });
+
   it('provides the unique Main Camera rig for Scene Camera preview without document writes', () => {
     const document = ensureEditorSceneEnvironmentDefaults(createMiniEditorSceneDocument());
     const rig = createSceneCameraPreviewRig(document);
