@@ -23,6 +23,7 @@ import type { LocalEditorWorkbenchInputRouter } from './local-editor-ui-input-ro
 import type {
   LocalEditorBrowserSceneGraphDropIntent,
   LocalEditorBrowserSceneGraphDropPlacement,
+  LocalEditorBrowserHierarchyContextActionRegistration,
   LocalEditorBrowserUiCallbacks,
   LocalEditorBrowserUiState,
   LocalEditorContextAction,
@@ -44,6 +45,7 @@ export interface LocalEditorHierarchyControllerOptions<TDocument = unknown> {
   getState: () => LocalEditorBrowserUiState<TDocument> | null;
   requestRender: () => void;
   onBeforeOpenContextMenu?: () => void;
+  contextActions?: readonly LocalEditorBrowserHierarchyContextActionRegistration<TDocument>[];
 }
 
 export function createLocalEditorHierarchyController<TDocument = unknown>(
@@ -485,6 +487,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
           clipboardActiveId: hierarchyClipboard?.activeId ?? null,
           hasDuplicateHandler: hasDuplicateHandler(),
           hasGroupSelectionHandler: typeof callbacks.onSceneGraphGroupSelection === 'function',
+          contextActions: options.contextActions,
         })
       : createLocalEditorHierarchyBlankMenu({
           state,
@@ -493,6 +496,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
           clipboardActiveId: hierarchyClipboard?.activeId ?? null,
           hasDuplicateHandler: hasDuplicateHandler(),
           hasGroupSelectionHandler: typeof callbacks.onSceneGraphGroupSelection === 'function',
+          contextActions: options.contextActions,
         });
 
     contextMenu.open({

@@ -138,6 +138,9 @@ export type {
   LocalEditorBrowserHierarchySelectionInput,
   LocalEditorBrowserHistoryEntry,
   LocalEditorBrowserHistoryView,
+  LocalEditorBrowserHierarchyContextActionContext,
+  LocalEditorBrowserHierarchyContextActionPlacement,
+  LocalEditorBrowserHierarchyContextActionRegistration,
   LocalEditorBrowserInspectorCommitMode,
   LocalEditorBrowserInspectorConflictStrategy,
   LocalEditorBrowserInspectorControlBindingOptions,
@@ -1974,6 +1977,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     inputRouter,
     contextMenu,
     getState: () => currentState,
+    contextActions: options.hierarchy?.contextActions,
     requestRender: () => {
       if (currentState) render(currentState);
     },

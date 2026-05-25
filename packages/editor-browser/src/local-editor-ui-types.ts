@@ -425,6 +425,35 @@ export interface LocalEditorContextMenuItem {
   children?: LocalEditorContextMenuItem[];
 }
 
+export interface LocalEditorBrowserHierarchyContextActionContext<TDocument = unknown> {
+  state: LocalEditorBrowserUiState<TDocument>;
+  menuKind: 'node' | 'blank';
+  node: LocalEditorBrowserUiHierarchyItem | null;
+  contextNodeId: string | null;
+  targetIds: string[];
+  activeId: string | null;
+}
+
+export type LocalEditorBrowserHierarchyContextActionPlacement =
+  | 'top'
+  | 'after-primary'
+  | 'after-create'
+  | 'after-edit'
+  | 'after-clipboard'
+  | 'bottom';
+
+export interface LocalEditorBrowserHierarchyContextActionRegistration<TDocument = unknown> {
+  id: string;
+  label: string;
+  shortcut?: string;
+  danger?: boolean;
+  placement?: LocalEditorBrowserHierarchyContextActionPlacement;
+  separatorBefore?: boolean;
+  visible?(context: LocalEditorBrowserHierarchyContextActionContext<TDocument>): boolean;
+  disabled?(context: LocalEditorBrowserHierarchyContextActionContext<TDocument>): boolean | string;
+  payload?(context: LocalEditorBrowserHierarchyContextActionContext<TDocument>): Record<string, unknown> | undefined;
+}
+
 export type LocalEditorContextAction =
   | { region: 'hierarchy'; action: 'focus'; targetIds: string[]; activeId: string | null }
   | { region: 'hierarchy'; action: 'rename'; targetId: string }
@@ -432,7 +461,8 @@ export type LocalEditorContextAction =
   | { region: 'hierarchy'; action: 'create-primitive'; parentId?: string | null; activeId?: string | null; shape: LocalEditorBrowserPrimitiveShape; name?: string }
   | { region: 'hierarchy'; action: 'delete'; targetIds: string[]; activeId?: string | null }
   | { region: 'hierarchy'; action: 'duplicate'; targetIds: string[]; activeId?: string | null }
-  | { region: 'hierarchy'; action: 'paste'; sourceIds: string[]; activeId?: string | null };
+  | { region: 'hierarchy'; action: 'paste'; sourceIds: string[]; activeId?: string | null }
+  | { region: 'hierarchy'; action: 'custom'; id: string; contextNodeId: string | null; targetIds: string[]; activeId: string | null; payload?: Record<string, unknown> };
 
 export interface LocalEditorBrowserUiCallbacks {
   onEnterEditor?: () => void;
@@ -481,6 +511,9 @@ export interface LocalEditorBrowserUiOptions<TDocument = unknown> {
   localTestActions?: boolean;
   callbacks?: LocalEditorBrowserUiCallbacks;
   inspector?: LocalEditorBrowserInspectorOptions<TDocument>;
+  hierarchy?: {
+    contextActions?: readonly LocalEditorBrowserHierarchyContextActionRegistration<TDocument>[];
+  };
 }
 
 export interface LocalEditorBrowserUi<TDocument = unknown> {

@@ -1,6 +1,7 @@
 import {
   createLocalEditorHarness,
   type LocalEditorHarness,
+  type LocalEditorHarnessHierarchyContextActionRegistration,
   type LocalEditorHarnessMultiPropertyInput,
   type LocalEditorHarnessPropertyInput,
   type LocalEditorHarnessTransformBatchInput,
@@ -24,6 +25,7 @@ import {
   findEditorSceneModelRenderer,
   findEditorScenePrimitiveRenderer,
   findEditorSceneTransform,
+  readEditorSceneNodeKind,
   type EditorSceneAssetLibraryItem,
   type EditorSceneGameObject,
 } from '../fps-game-editor-adapter/editor-scene-document';
@@ -142,6 +144,11 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
       createSceneGraphMovePatch: createEditorSceneHierarchyMovePatch,
       createSceneGraphGroupSelectionPatch: createEditorSceneGroupSelectionPatch,
       summarize: summarizeEditorScene,
+    },
+    hierarchy: {
+      contextActions: shouldEnableForgePlayAgentContextActions()
+        ? [createForgePlayAgentContextAction()]
+        : [],
     },
     persistenceAdapter: {
       async loadAuthoringSource() {
@@ -429,6 +436,7 @@ const FORGE_PLAY_EVENT = {
   ASSET_LIBRARY_REFRESHED: 'asset.library.refreshed',
   ASSET_IMPORT_RESULT: 'asset.import.result',
   EDITOR_ASSET_PLACE_RESULT: 'editor.asset.place.result',
+  AGENT_CONTEXT_ADD: 'agent.context.add',
   SYSTEM_ERROR: 'system.error',
 } as const;
 
@@ -440,6 +448,111 @@ function postForgePlayEvent(name: string, payload: Record<string, unknown> = {})
     payload: { name, ...payload },
     timestamp: Date.now(),
   }, '*');
+}
+
+function shouldEnableForgePlayAgentContextActions(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.parent !== window;
+}
+
+function createForgePlayAgentContextAction(): LocalEditorHarnessHierarchyContextActionRegistration<EditorSceneDocument> {
+  return {
+    id: 'forge-play.agent-context.add',
+    label: '添加到 Agent 对话框',
+    placement: 'after-primary',
+    separatorBefore: true,
+    visible: (context) => context.browserContext.menuKind === 'node' && context.targetIds.length > 0,
+    disabled: (context) => {
+      const targetId = context.contextNodeId ?? context.activeId ?? context.targetIds[0] ?? null;
+      return targetId && findEditorSceneContextGameObject(context.document, targetId)
+        ? false
+        : 'Cannot find the selected scene object.';
+    },
+    run(context) {
+      const targetId = context.contextNodeId ?? context.activeId ?? context.targetIds[0] ?? null;
+      const item = targetId ? createForgePlayAgentSceneObjectContextItem(context.document, targetId) : null;
+      if (!item) return false;
+      postForgePlayEvent(FORGE_PLAY_EVENT.AGENT_CONTEXT_ADD, { item });
+      return false;
+    },
+  };
+}
+
+function createForgePlayAgentSceneObjectContextItem(
+  document: EditorSceneDocument,
+  targetId: string,
+): Record<string, unknown> | null {
+  const gameObject = findEditorSceneContextGameObject(document, targetId);
+  if (!gameObject) return null;
+  const kind = readEditorSceneNodeKind(gameObject);
+  const transform = findEditorSceneTransform(gameObject);
+  const worldTransform = getEditorSceneGameObjectWorldTransform(document, gameObject.id);
+  const renderer = findEditorSceneModelRenderer(gameObject);
+  const asset = renderer
+    ? document.assets.find((entry) => entry.id === renderer.assetId) ?? null
+    : null;
+  const primitive = findEditorScenePrimitiveRenderer(gameObject);
+  const path = createEditorSceneGameObjectPath(document, gameObject.id);
+  const label = gameObject.name ?? gameObject.id;
+  return {
+    type: 'editor-scene-object',
+    projectObjectId: gameObject.id,
+    label,
+    summary: `${label} (${kind})`,
+    data: {
+      id: gameObject.id,
+      name: gameObject.name ?? null,
+      kind,
+      parentId: gameObject.parentId ?? null,
+      path,
+      active: gameObject.active !== false,
+      transform: transform
+        ? {
+            position: transform.position,
+            rotation: transform.rotation,
+            scale: transform.scale ?? { x: 1, y: 1, z: 1 },
+          }
+        : null,
+      worldTransform,
+      asset: asset
+        ? {
+            id: asset.id,
+            sourceId: asset.sourceId,
+            displayName: asset.displayName ?? null,
+            category: asset.category ?? null,
+            rendererAssetId: renderer?.assetId ?? null,
+          }
+        : null,
+      primitive: primitive ? { shape: primitive.shape } : null,
+      camera: gameObject.camera ? { configured: true } : null,
+      light: gameObject.light ? { configured: true } : null,
+      groundDecal: gameObject.groundDecal ? { configured: true } : null,
+      metadata: gameObject.metadata ?? null,
+    },
+  };
+}
+
+function findEditorSceneContextGameObject(
+  document: EditorSceneDocument,
+  targetId: string,
+): EditorSceneGameObject | null {
+  return document.scene.gameObjects.find((entry) => entry.id === targetId) ?? null;
+}
+
+function createEditorSceneGameObjectPath(
+  document: EditorSceneDocument,
+  targetId: string,
+): string[] {
+  const byId = new Map(document.scene.gameObjects.map((entry) => [entry.id, entry]));
+  const path: string[] = [];
+  const seen = new Set<string>();
+  let cursor = byId.get(targetId) ?? null;
+  while (cursor && !seen.has(cursor.id)) {
+    seen.add(cursor.id);
+    path.unshift(cursor.name ?? cursor.id);
+    cursor = cursor.parentId ? byId.get(cursor.parentId) ?? null : null;
+  }
+  return path;
 }
 
 function installForgePlayModeBridge(harness: LocalEditorHarness): () => void {
