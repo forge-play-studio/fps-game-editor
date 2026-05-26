@@ -12,20 +12,37 @@
 
 ## 快速开始
 
-默认启动包含真实 GameWorld 闭环的 mini game lab，用它验证“编辑器修改 -> 保存 -> GameWorld 运行态消费”：
+默认使用 `pa_template` 作为真实 starter / integration baseline。`fps-game-editor` 根目录下应有一个 ignored 的 `pa_template` git worktree：
+
+```text
+.local/pa_template
+```
+
+首次准备本地联调环境时，先创建或确认这个 worktree，并安装 `pa_template` 依赖：
 
 ```bash
 npm install
-cd examples/mini-game-lab
-npm install
-cd ../..
-npm run dev:mini-game-lab
+pnpm --dir .local/pa_template --ignore-workspace install --frozen-lockfile
+```
+
+然后从 `fps-game-editor` 根目录启动真实项目联调：
+
+```bash
+npm run dev:pa-template
 ```
 
 默认地址：
 
 ```text
-http://localhost:5184
+http://localhost:3006
+```
+
+这条链路会设置 `FPS_GAME_EDITOR_REPO=$PWD`，让 `pa_template` 的 Vite dev server 直接 alias 到本仓库 `packages/*/src`，本地改源码后不需要 npm pack、发布 beta 或先 build dist。
+
+`mini-game-lab` 先降级保留为历史 fixture / 回归参考，不再作为默认真实项目集成环境。只有在用户明确要求对照旧闭环、排查它自己的 adapter，或验证兼容性时才启动：
+
+```bash
+npm run dev:mini-game-lab
 ```
 
 只有在用户明确要求轻量 playground、纯编辑器框架调试，或需要隔离 EditorWorld/Harness 行为时，才启动 editor lab：
@@ -34,7 +51,7 @@ http://localhost:5184
 npm run dev:editor-lab
 ```
 
-如果是首次 clone 且 mini-game-lab 资产缺失，请先确认 Git LFS 已启用：
+如果是首次 clone 且历史 fixture 资产缺失，请先确认 Git LFS 已启用：
 
 ```bash
 git lfs install
@@ -45,7 +62,7 @@ git lfs pull
 
 ```bash
 npm run check
-npm run typecheck:mini-game-lab
+pnpm --dir .local/pa_template --ignore-workspace run typecheck
 npm run build:editor-lab
 npm run pack:dry-run
 ```
@@ -145,20 +162,21 @@ resolve: {
 快速开发时不建议反复走“改 `fps-game-editor` -> 发布 npm -> 游戏项目升级版本”的链路。推荐游戏项目保留正式包名 import，只在本地开发服务里通过环境变量切到源码：
 
 ```bash
-cd ../lumber_order
-pnpm run dev:editor-local
+cd /path/to/fps-game-editor
+npm run dev:pa-template
 ```
 
-`lumber_order` 的 `dev:editor-local` 会设置：
+`dev:pa-template` 会设置：
 
 ```text
-FPS_GAME_EDITOR_ROOT=../fps-game-editor
+FPS_GAME_EDITOR_REPO=/path/to/fps-game-editor
 ```
 
-Vite 检测到该变量后，会把以下包临时 alias 到 `fps-game-editor/packages/*/src/index.ts`：
+并启动 `.local/pa_template` 的 `dev:editor-local`。`pa_template` 的 Vite 配置检测到该变量后，会把以下包临时 alias 到 `fps-game-editor/packages/*/src/index.ts`：
 
 - `@fps-games/editor`
 - `@fps-games/editor-babylon`
+- `@fps-games/editor-babylon/legacy-runtime`
 - `@fps-games/editor-browser`
 - `@fps-games/editor-core`
 - `@fps-games/editor-forge-play`
@@ -167,8 +185,8 @@ Vite 检测到该变量后，会把以下包临时 alias 到 `fps-game-editor/pa
 如果仓库不在相邻目录，可以手动指定绝对路径：
 
 ```bash
-cd /path/to/lumber_order
-FPS_GAME_EDITOR_ROOT=/path/to/fps-game-editor pnpm dev
+cd /path/to/pa_template
+FPS_GAME_EDITOR_REPO=/path/to/fps-game-editor pnpm run dev:editor-local
 ```
 
 这条路径只用于本地联调。正式验证、平台沙盒和 CI 仍应使用 npm 精确版本与 lockfile。
@@ -323,7 +341,7 @@ Forge Play 平台资产库不要直接修改项目场景，也不要继续依赖
 
 ## 当前参考接入
 
-当前 `lumber_order` 已经改为从 npm 安装：
+当前真实 starter / integration baseline 是 `pa_template`。新项目从 `pa_template` 出发，所以编辑器 contract、transform、hierarchy、asset、save 和 compiler 行为应优先在 `pa_template` 中验证。`pa_template` 正式接入时仍从 npm 安装公共包：
 
 ```json
 {
@@ -339,13 +357,41 @@ Forge Play 平台资产库不要直接修改项目场景，也不要继续依赖
 
 ### 开发环境分层
 
-本仓库现在有三层测试环境。默认服务启动和手动体验验证使用 `mini-game-lab`，因为它包含真实 GameWorld、项目 adapter、保存和运行态消费闭环；只有明确需要轻量隔离调试时才使用 `editor-lab`：
+本仓库现在有三层测试环境。默认服务启动和手动体验验证使用 `pa_template`，因为它是新项目实际使用的 starter / integration baseline。`mini-game-lab` 先保留为历史 fixture 和回归参考，不再作为完整真实项目集成环境；只有明确需要轻量隔离调试时才使用 `editor-lab`：
 
 | 环境 | 命令 | 用途 |
 | --- | --- | --- |
-| mini-game-lab | `npm run dev:mini-game-lab` | 默认启动环境；包仓库内的真实 GameWorld 闭环，基于 `lumber_order` 基线复制，适合验证保存后运行态消费 |
+| pa_template worktree | `npm run dev:pa-template` | 默认启动环境；真实 starter / integration baseline，通过 `.local/pa_template` worktree 直接消费 `fps-game-editor/packages/*/src` |
+| mini-game-lab | `npm run dev:mini-game-lab` | 历史 fixture / 回归参考；保留旧 GameWorld 闭环，适合对照旧 adapter 行为，但不再作为默认真实集成环境 |
 | editor-lab | `npm run dev:editor-lab` | 仅在明确需要轻量隔离时使用的编辑器框架 playground，适合快速验证 EditorWorld、Hierarchy、Transform、Save、Undo/Redo |
-| lumber_order + forge-play | 在对应项目启动 | 最终平台沙盒验收环境，验证 Forge Play 按钮、iframe、proxy、文件保存链路 |
+| pa_template + forge-play | 在对应项目启动 | 最终平台沙盒验收环境，验证 Forge Play 按钮、iframe、proxy、文件保存链路 |
+
+### pa_template worktree
+
+`pa_template` 是本仓库默认真实联调环境。推荐目录结构：
+
+```text
+/path/to/fps-game-editor
+  packages/
+  .local/
+    pa_template/
+```
+
+`.local/pa_template` 是 `pa_template` 仓库的 git worktree，被本仓库 `.gitignore` 忽略。它隔离保存测试产生的 `src/config/editor-scene.json`、`src/config/scene.json` 等场景数据改动，也避免影响正常 `pa_template` 功能开发目录。
+
+启动：
+
+```bash
+npm run dev:pa-template
+```
+
+等价于：
+
+```bash
+FPS_GAME_EDITOR_REPO=$PWD npm --prefix .local/pa_template run dev:editor-local --
+```
+
+`pa_template` 的 Vite 配置在检测到 `FPS_GAME_EDITOR_REPO` 后，应把 `@fps-games/editor`、`@fps-games/editor-core`、`@fps-games/editor-browser`、`@fps-games/editor-babylon`、`@fps-games/editor-babylon/legacy-runtime`、`@fps-games/editor-forge-play` 和 `@fps-games/editor-protocol` alias 到本仓库 `packages/*/src`。这样本地改源码后可以立即由 `pa_template` dev server 消费，不需要 npm pack、发布 beta 或 build dist。
 
 ### editor-lab
 
@@ -355,7 +401,7 @@ Forge Play 平台资产库不要直接修改项目场景，也不要继续依赖
 npm run dev:editor-lab
 ```
 
-`examples/editor-lab` 是编辑器框架自己的轻量假项目。它不依赖 `lumber_order`，但会走真实主链路：
+`examples/editor-lab` 是编辑器框架自己的轻量假项目。它不依赖任何真实 starter 项目，但会走真实主链路：
 
 ```text
 createLocalEditorHarness
@@ -389,7 +435,7 @@ harness.setTheme('dark');
 
 ### mini-game-lab
 
-默认启动从 `lumber_order` 基线复制来的 mini game lab，用它验证“编辑器保存后回到真实 GameWorld”的完整体验：
+`mini-game-lab` 先降级保留为历史 fixture / 回归参考。它不再是默认真实项目集成环境；新项目相关的 editor contract、transform、hierarchy、asset、save 和 compiler 行为应优先在 `pa_template` 中验证。只有需要对照旧闭环、排查它自己的 adapter，或验证兼容性时才启动：
 
 ```bash
 cd examples/mini-game-lab
@@ -404,7 +450,7 @@ npm run dev:mini-game-lab
 http://localhost:5184
 ```
 
-`examples/mini-game-lab` 保留了 lumber_order 的真实资产、GameWorld、SceneBuilder、项目 adapter 和本地 authoring API，但默认关闭 Forge Play bridge。它用于在包仓库内快速模拟真实游戏闭环；`lumber_order + forge-play` 仍然是最终平台沙盒验收环境。
+`examples/mini-game-lab` 保留了历史真实资产、GameWorld、SceneBuilder、项目 adapter 和本地 authoring API，但默认关闭 Forge Play bridge。它可用于在包仓库内对照旧游戏闭环；`pa_template + forge-play` 才是后续平台沙盒验收环境。
 
 保存链路分为两种语义：本地 `Save Scene` 使用 `local-commit-save`，同时写 `editor-scene.json` 和编译后的 `scene.json`；Forge Play `Save & Exit` 使用 `prepare-platform-save`，先保存 `editor-scene.json` 并导出 `sceneJsonText`，再交给平台现有保存 API 写 `scene.json`。平台随后发送的 `document.commit` 作为提交确认，尾部 `mode.change(play, save: true)` 不再重复保存同一次 authoring source。
 
@@ -419,7 +465,8 @@ http://localhost:5184
 | 命令 | 说明 |
 | --- | --- |
 | `npm run check` | 包边界检查、TypeScript 检查、Vitest 单元测试 |
-| `npm run typecheck:mini-game-lab` | 检查 mini-game-lab 类型 |
+| `pnpm --dir .local/pa_template --ignore-workspace run typecheck` | 检查真实 integration baseline 类型 |
+| `npm run typecheck:mini-game-lab` | 检查历史 fixture 类型，只有涉及 mini-game-lab 时需要 |
 | `npm run build` | 构建所有内部包 |
 | `npm run build:editor-lab` | 构建 editor-lab |
 | `npm run test:browser` | Playwright 浏览器 smoke |
@@ -459,7 +506,13 @@ npm run build
 npm run build:editor-lab
 ```
 
-检查 mini-game-lab 类型：
+检查 `pa_template` worktree 类型：
+
+```bash
+pnpm --dir .local/pa_template --ignore-workspace run typecheck
+```
+
+检查历史 fixture 类型：
 
 ```bash
 npm run typecheck:mini-game-lab
