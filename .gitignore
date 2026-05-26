@@ -2,6 +2,7 @@ node_modules/
 dist/
 packages/*/dist/
 examples/*/dist/
+.local/
 examples/mini-game-lab/package-lock.json
 examples/mini-game-lab/pnpm-lock.yaml
 playwright-report/
