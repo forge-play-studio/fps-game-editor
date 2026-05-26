@@ -18,6 +18,8 @@
 .local/pa_template
 ```
 
+创建新的 `fps-game-editor` issue worktree 时，也应在新 worktree 下自动 clone 对应的 `.local/pa_template` 仓库。该模板仓库直接使用 `pa_template` 的 `integration/fps-game-editor-lab` 联调分支，不为每个 issue 派生新模板分支，不复制旧 `.local` 目录，也不共享同一个模板工作区。给自动化工具读取的具体规则见 [.codex/issue-worktree-setup.md](.codex/issue-worktree-setup.md)。
+
 首次准备本地联调环境时，先创建或确认这个 worktree，并安装 `pa_template` 依赖：
 
 ```bash
@@ -378,6 +380,8 @@ Forge Play 平台资产库不要直接修改项目场景，也不要继续依赖
 ```
 
 `.local/pa_template` 是 `pa_template` 仓库的 git worktree，被本仓库 `.gitignore` 忽略。它隔离保存测试产生的 `src/config/editor-scene.json`、`src/config/scene.json` 等场景数据改动，也避免影响正常 `pa_template` 功能开发目录。
+
+每个 `fps-game-editor` issue worktree 都应拥有自己的 `.local/pa_template` companion 仓库。创建新 issue worktree 时，如果当前仓库已有 `.local/pa_template`，默认 clone 一个新的模板仓库到新 editor worktree 的 `.local/pa_template`，并直接 checkout `integration/fps-game-editor-lab`，跟踪 `origin/integration/fps-game-editor-lab`。不要为 `pa_template` 创建 issue-specific 分支，不要复制 `.local/pa_template` 目录，也不要用 symlink 共享旧工作区；保存测试会修改模板项目文件，共享目录会让不同 issue 相互污染。自动化流程以 [.codex/issue-worktree-setup.md](.codex/issue-worktree-setup.md) 为准。
 
 启动：
 

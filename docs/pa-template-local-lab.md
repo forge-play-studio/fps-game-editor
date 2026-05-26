@@ -15,7 +15,35 @@
     pa_template/
 ```
 
-`.local/pa_template` 应该是 `pa_template` 仓库的 git worktree，不是普通复制目录。`.local/` 被 `fps-game-editor` 忽略，所以保存测试不会污染本仓库状态。
+`.local/pa_template` 应该是 `pa_template` 仓库的本地 clone，不是普通复制目录，也不是 symlink。`.local/` 被 `fps-game-editor` 忽略，所以保存测试不会污染本仓库状态。
+
+每个 `fps-game-editor` issue worktree 都应该有自己的 companion `pa_template` clone：
+
+```text
+/Users/admin/work/UGIT/fps-game-editor-issue-262-example
+  packages/
+  .local/
+    pa_template/
+```
+
+这个 companion clone 直接使用 `pa_template` 的远程联调基准分支：
+
+```text
+integration/fps-game-editor-lab
+```
+
+创建 issue worktree 的个人流程检测到本仓库声明的 setup 约定时，应自动执行这一步；给自动化工具读取的规则见 [../.codex/issue-worktree-setup.md](../.codex/issue-worktree-setup.md)。不要为 `pa_template` 派生 issue-specific 分支，不要复制旧 `.local/pa_template`，也不要 symlink 到旧工作区；模板项目的保存测试会修改自己的 `src/config/editor-scene.json` 和 `src/config/scene.json`，每个 editor issue 需要隔离这些本地测试数据。
+
+手动创建时，可以在新 `fps-game-editor` worktree 根目录执行类似命令：
+
+```bash
+mkdir -p .local
+git clone \
+  --branch integration/fps-game-editor-lab \
+  --single-branch \
+  "$(git -C /path/to/current/fps-game-editor/.local/pa_template remote get-url origin)" \
+  "$PWD/.local/pa_template"
+```
 
 这个 worktree 适合隔离本地保存测试，因为测试经常会改：
 
