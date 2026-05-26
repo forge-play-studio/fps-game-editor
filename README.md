@@ -393,6 +393,8 @@ FPS_GAME_EDITOR_REPO=$PWD npm --prefix .local/pa_template run dev:editor-local -
 
 `pa_template` 的 Vite 配置在检测到 `FPS_GAME_EDITOR_REPO` 后，应把 `@fps-games/editor`、`@fps-games/editor-core`、`@fps-games/editor-browser`、`@fps-games/editor-babylon`、`@fps-games/editor-babylon/legacy-runtime`、`@fps-games/editor-forge-play` 和 `@fps-games/editor-protocol` alias 到本仓库 `packages/*/src`。这样本地改源码后可以立即由 `pa_template` dev server 消费，不需要 npm pack、发布 beta 或 build dist。
 
+完整 setup、端口冲突处理和 alias 验证步骤见 [docs/pa-template-local-lab.md](docs/pa-template-local-lab.md)。
+
 ### editor-lab
 
 `examples/editor-lab` 是包内最小 playground。不要把它作为默认服务启动目标；只有在用户明确要求 editor-only、轻量 playground，或需要隔离公共编辑器框架问题时使用：
