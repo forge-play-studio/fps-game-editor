@@ -194,11 +194,46 @@ export type {
   LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
 
-function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): number | string | boolean | Record<string, unknown> | null {
+export type LocalEditorBrowserInspectorNumberParseMode = 'live' | 'final';
+const INSPECTOR_INPUT_PENDING = Symbol('inspector-input-pending');
+
+type InspectorInputReadValue =
+  | number
+  | string
+  | boolean
+  | Record<string, unknown>
+  | null
+  | typeof INSPECTOR_INPUT_PENDING;
+
+export function parseLocalEditorBrowserInspectorNumberValue(
+  value: string,
+  mode: LocalEditorBrowserInspectorNumberParseMode = 'final',
+): number | null {
+  const normalized = value.trim();
+  if (normalized === '') return mode === 'final' ? 0 : null;
+  if (
+    normalized === '-'
+    || normalized === '+'
+    || normalized === '.'
+    || normalized === '-.'
+    || normalized === '+.'
+  ) {
+    return null;
+  }
+  if (mode === 'live' && (/[.]$/.test(normalized) || /e[+-]?$/i.test(normalized))) return null;
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) return null;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function readInspectorInputValue(
+  input: HTMLInputElement | HTMLSelectElement,
+  mode: LocalEditorBrowserInspectorNumberParseMode = 'final',
+): InspectorInputReadValue {
   const control = input.dataset.serializedControl;
   const valueType = input.dataset.serializedValueType;
   if ((control === 'vec2' || control === 'vec3') && input instanceof HTMLInputElement) {
-    return readInspectorVectorInputValue(input);
+    return readInspectorVectorInputValue(input, mode);
   }
   if (control === 'enum' && input instanceof HTMLSelectElement) {
     const option = input.selectedOptions.item(0);
@@ -213,7 +248,9 @@ function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): n
   }
   if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
   if (control === 'boolean' || valueType === 'boolean') return input.value === 'true';
-  if (control === 'number' || valueType === 'number') return Number(input.value);
+  if (control === 'number' || valueType === 'number') {
+    return parseLocalEditorBrowserInspectorNumberValue(input.value, mode) ?? INSPECTOR_INPUT_PENDING;
+  }
   if (control === 'color' && input instanceof HTMLInputElement && input.type === 'color') {
     const value = input.value.replace('#', '');
     const numeric = Number.parseInt(value, 16);
@@ -347,7 +384,10 @@ function setToolbarButtonIcon(
   else button.prepend(nextIcon);
 }
 
-function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, number> {
+function readInspectorVectorInputValue(
+  input: HTMLInputElement,
+  mode: LocalEditorBrowserInspectorNumberParseMode,
+): Record<string, number> | typeof INSPECTOR_INPUT_PENDING {
   const wrapper = input.closest<HTMLElement>('[data-inspector-vector-control]');
   const values: Record<string, number> = {};
   const fields = wrapper
@@ -356,8 +396,9 @@ function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, 
   for (const field of fields) {
     const axis = field.dataset.serializedVectorAxis;
     if (!axis) continue;
-    const numeric = Number(field.value);
-    values[axis] = Number.isFinite(numeric) ? numeric : 0;
+    const numeric = parseLocalEditorBrowserInspectorNumberValue(field.value, mode);
+    if (numeric == null) return INSPECTOR_INPUT_PENDING;
+    values[axis] = numeric;
   }
   return values;
 }
@@ -365,22 +406,35 @@ function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, 
 function createInspectorPropertyInput(
   input: HTMLInputElement | HTMLSelectElement,
   source: LocalEditorBrowserInspectorEditSource,
+  numberParseMode: LocalEditorBrowserInspectorNumberParseMode = 'final',
 ): LocalEditorBrowserUiPropertyInput | null {
   if (!input.dataset.serializedPath || !input.dataset.serializedTargetId) return null;
   const targetIds = input.dataset.serializedTargetIds
     ? input.dataset.serializedTargetIds.split(',').filter(Boolean)
     : undefined;
+  const value = readInspectorInputValue(input, numberParseMode);
+  if (value === INSPECTOR_INPUT_PENDING) return null;
   return {
     targetId: input.dataset.serializedTargetId,
     targetIds,
     path: input.dataset.serializedPath,
-    value: readInspectorInputValue(input),
+    value,
     control: input.dataset.serializedControl as LocalEditorBrowserInspectorControlKind | undefined,
     valueType: input.dataset.serializedValueType as LocalEditorBrowserInspectorProperty['valueType'] | undefined,
     commitMode: input.dataset.serializedCommitMode as LocalEditorBrowserInspectorCommitMode | undefined,
     persistence: input.dataset.serializedPersistence as LocalEditorBrowserInspectorPersistenceMode | undefined,
     source: (input.dataset.serializedEditSource as LocalEditorBrowserInspectorEditSource | undefined) ?? source,
   };
+}
+
+function hasPendingInspectorNumberValue(
+  input: HTMLInputElement,
+  mode: LocalEditorBrowserInspectorNumberParseMode = 'live',
+): boolean {
+  const control = input.dataset.serializedControl;
+  const valueType = input.dataset.serializedValueType;
+  if (control !== 'number' && valueType !== 'number' && control !== 'vec2' && control !== 'vec3') return false;
+  return readInspectorInputValue(input, mode) === INSPECTOR_INPUT_PENDING;
 }
 
 function readInspectorCommitMode(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorCommitMode {
@@ -2110,7 +2164,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (input?.type === 'checkbox' || input?.type === 'color') return;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
     if (readInspectorCommitMode(input) !== 'live') return;
-    const propertyInput = createInspectorPropertyInput(input, 'input');
+    const propertyInput = createInspectorPropertyInput(input, 'input', 'live');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
@@ -2122,16 +2176,28 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (input instanceof HTMLInputElement && (input.type === 'text' || input.type === 'number')) {
       if (readInspectorCommitMode(input) !== 'change') return;
     }
-    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input));
+    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input), 'final');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
   inspectorPanel.addEventListener('focusout', (event) => {
     const input = event.target instanceof HTMLInputElement ? event.target : null;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
-    if (readInspectorCommitMode(input) !== 'blur') return;
-    const propertyInput = createInspectorPropertyInput(input, 'input');
+    if (hasPendingInspectorNumberValue(input, 'final')) {
+      if (currentState) render(currentState);
+      return;
+    }
+    const commitMode = readInspectorCommitMode(input);
+    if (commitMode === 'live' && hasPendingInspectorNumberValue(input, 'live')) {
+      const propertyInput = createInspectorPropertyInput(input, 'input', 'final');
+      if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
+      else if (currentState) render(currentState);
+      return;
+    }
+    if (commitMode !== 'blur') return;
+    const propertyInput = createInspectorPropertyInput(input, 'input', 'final');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
+    else if (currentState) render(currentState);
   });
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -2208,7 +2274,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   };
   doc.addEventListener('keydown', onKeyDown);
 
-  function captureEditableFocus(doc: Document): { selector: string; value: string | null } | null {
+  function captureEditableFocus(doc: Document): { selector: string; value: string | null; preserveValue?: boolean } | null {
     const active = doc.activeElement instanceof HTMLInputElement ? doc.activeElement : null;
     if (!active) return null;
     if (active.dataset.editorHierarchyRenameInput) {
@@ -2224,6 +2290,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
           `[data-serialized-target-id="${cssEscape(active.dataset.serializedTargetId)}"]`,
         ].join(''),
         value: active.value,
+        preserveValue: hasPendingInspectorNumberValue(active),
       };
     }
     if (active.dataset.editorInspectorSearch != null) {
@@ -2235,11 +2302,15 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     return null;
   }
 
-  function restoreEditableFocus(doc: Document, snapshot: { selector: string; value: string | null } | null): void {
+  function restoreEditableFocus(
+    doc: Document,
+    snapshot: { selector: string; value: string | null; preserveValue?: boolean } | null,
+  ): void {
     if (!snapshot) return;
     const input = doc.querySelector<HTMLInputElement>(snapshot.selector);
     if (!input) return;
     input.focus({ preventScroll: true });
+    if (snapshot.value != null && snapshot.preserveValue) input.value = snapshot.value;
     if (snapshot.value != null && input.value === snapshot.value) {
       const position = input.value.length;
       try {

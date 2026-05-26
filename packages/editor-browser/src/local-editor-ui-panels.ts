@@ -1125,10 +1125,11 @@ function createInspectorNumberControl<TDocument>(
   property: LocalEditorBrowserInspectorProperty<TDocument>,
 ): HTMLInputElement {
   const input = createInspectorInputBase(doc, target, property);
-  input.type = 'number';
-  input.step = String(property.step ?? 0.1);
-  if (property.min != null) input.min = String(property.min);
-  if (property.max != null) input.max = String(property.max);
+  input.type = 'text';
+  input.inputMode = 'decimal';
+  input.dataset.serializedNumberStep = String(property.step ?? 0.1);
+  if (property.min != null) input.dataset.serializedNumberMin = String(property.min);
+  if (property.max != null) input.dataset.serializedNumberMax = String(property.max);
   return input;
 }
 
@@ -1201,8 +1202,11 @@ function createInspectorVectorControl<TDocument>(
   const value = isRecord(property.value) ? property.value : {};
   for (const axis of axes) {
     const input = createInspectorInputBase(doc, target, property);
-    input.type = 'number';
-    input.step = String(property.step ?? 0.1);
+    input.type = 'text';
+    input.inputMode = 'decimal';
+    input.dataset.serializedNumberStep = String(property.step ?? 0.1);
+    if (property.min != null) input.dataset.serializedNumberMin = String(property.min);
+    if (property.max != null) input.dataset.serializedNumberMax = String(property.max);
     input.dataset.serializedVectorAxis = axis;
     input.value = property.mixed ? '' : String(value[axis] ?? 0);
     input.title = `${property.label}.${axis}`;
