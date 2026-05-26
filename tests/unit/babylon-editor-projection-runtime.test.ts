@@ -4,7 +4,7 @@ import { createBabylonEditorProjection } from '../../packages/editor-babylon/src
 import { createBabylonSceneCameraPreviewController } from '../../packages/editor-babylon/src/scene-camera-preview';
 
 describe('Babylon editor projection runtime helpers', () => {
-  it('renders the MVP root helper as a sphere with a Root label', () => {
+  it('renders the MVP root helper as a sphere with a World Origin label', () => {
     const { babylon, scene } = createFakeRootProjectionRuntime();
     const projection = createBabylonEditorProjection({
       babylon: babylon as any,
@@ -31,7 +31,7 @@ describe('Babylon editor projection runtime helpers', () => {
       nodeId: 'mvp_root',
       helperKind: 'root',
       helper: 'label',
-      text: 'Root',
+      text: 'World Origin',
     });
 
     projection.projectNode({
@@ -168,6 +168,44 @@ describe('Babylon editor projection runtime helpers', () => {
 
     projection.removeNode('sun_light');
     expect(scene.lights.filter(light => light.name === 'sun_light.directionalLight')).toHaveLength(0);
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('notifies when an async model projection becomes renderable', async () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const readyNodeIds: string[] = [];
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      importModel: async () => ({
+        meshes: [BABYLON.MeshBuilder.CreateBox('asset_node.mesh', { size: 1 }, scene)],
+        transformNodes: [],
+        animationGroups: [],
+      }),
+      onProjectionReady(event) {
+        readyNodeIds.push(event.nodeId);
+      },
+    });
+
+    const projected = projection.projectNode({
+      id: 'asset_node',
+      name: 'Asset Node',
+      asset: { id: 'asset_box', sourceId: 'box' },
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+    });
+
+    await projected?.loadPromise;
+
+    expect(readyNodeIds).toEqual(['asset_node']);
+    expect(scene.meshes.find(mesh => mesh.name === 'asset_node.mesh')?.parent?.name).toBe('asset_node.modelRoot');
 
     projection.dispose();
     scene.dispose();

@@ -317,6 +317,25 @@ describe('Babylon transform gizmo handle constraints', () => {
     expect(resolveBabylonTransformHandleConstraint('scale', 'xPlaneGizmo')).toBeNull();
   });
 
+  it('does not create a Babylon GizmoManager while idle in select mode', () => {
+    const runtime = createFakeRuntime();
+    const scene = createFakeScene();
+    const projection = createFakeProjection({
+      a: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
+    });
+    const controller = createBabylonTransformGizmoController({
+      babylon: runtime.babylon,
+      scene,
+      projection: projection as any,
+    });
+
+    controller.setSelection({ selectedIds: ['a'], activeId: 'a' });
+    expect(runtime.managers).toHaveLength(0);
+
+    controller.setTool('move');
+    expect(runtime.managers).toHaveLength(1);
+  });
+
   it('keeps native move plane drags in the batch lifecycle with a plane constraint', () => {
     const runtime = createFakeRuntime();
     const scene = createFakeScene();

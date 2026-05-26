@@ -76,6 +76,7 @@ import type {
   LocalEditorBrowserInspectorPersistenceMode,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserTransformAction,
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformSnapStepKind,
@@ -157,6 +158,7 @@ export type {
   LocalEditorBrowserInspectorSection,
   LocalEditorBrowserPlacementMode,
   LocalEditorBrowserPrimitiveShape,
+  LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
   LocalEditorBrowserSceneGraphCreatePrimitiveIntent,
   LocalEditorBrowserSceneGraphDeleteIntent,
@@ -401,6 +403,109 @@ interface CoordinateAxesOverlayElements {
   axisLabels: Map<string, SVGTextElement>;
   axisDiscs: Map<string, SVGCircleElement>;
   centerDot: SVGCircleElement;
+}
+
+interface SceneFrameRateOverlayElements {
+  root: HTMLDivElement;
+  fpsValue: HTMLSpanElement;
+  modeLabel: HTMLSpanElement;
+}
+
+function createSceneFrameRateOverlay(doc: Document): SceneFrameRateOverlayElements {
+  const root = doc.createElement('div');
+  root.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  root.dataset.editorSceneFrameRateOverlay = 'true';
+  root.style.cssText = [
+    'position:absolute',
+    'right:14px',
+    'bottom:134px',
+    'z-index:3',
+    'display:none',
+    'align-items:center',
+    'gap:6px',
+    'width:112px',
+    'height:30px',
+    'padding:0 8px',
+    'box-sizing:border-box',
+    'border:1px solid color-mix(in srgb, var(--fps-editor-border) 78%, transparent)',
+    'border-radius:6px',
+    'background:color-mix(in srgb, var(--fps-editor-chrome) 76%, transparent)',
+    'box-shadow:var(--fps-editor-shadow-panel)',
+    'font-family:var(--fps-editor-font)',
+    'font-size:11px',
+    'font-weight:900',
+    'letter-spacing:0',
+    'color:var(--fps-editor-text-strong)',
+    'pointer-events:none',
+    'backdrop-filter:blur(5px)',
+    'overflow:hidden',
+  ].join(';');
+
+  const label = doc.createElement('span');
+  label.textContent = 'FPS';
+  label.style.cssText = [
+    'color:var(--fps-editor-muted-strong)',
+    'font-size:10px',
+    'line-height:1',
+  ].join(';');
+  const fpsValue = doc.createElement('span');
+  fpsValue.textContent = '--';
+  fpsValue.style.cssText = [
+    'width:26px',
+    'flex:0 0 26px',
+    'font-variant-numeric:tabular-nums',
+    'font-size:13px',
+    'line-height:1',
+  ].join(';');
+  const modeLabel = doc.createElement('span');
+  modeLabel.textContent = 'IDLE';
+  modeLabel.style.cssText = [
+    'margin-left:auto',
+    'padding:2px 4px',
+    'flex:0 0 auto',
+    'border:1px solid var(--fps-editor-border-soft)',
+    'border-radius:4px',
+    'background:color-mix(in srgb, var(--fps-editor-field) 72%, transparent)',
+    'color:var(--fps-editor-muted)',
+    'font-size:9px',
+    'line-height:1',
+  ].join(';');
+
+  root.appendChild(label);
+  root.appendChild(fpsValue);
+  root.appendChild(modeLabel);
+  return { root, fpsValue, modeLabel };
+}
+
+function renderSceneFrameRateOverlay(
+  overlay: SceneFrameRateOverlayElements,
+  stats: LocalEditorBrowserSceneFrameStats | null,
+): void {
+  if (!stats) {
+    overlay.root.style.display = 'none';
+    return;
+  }
+  overlay.root.style.display = 'flex';
+  const fps = Number.isFinite(stats.fps) ? Math.round(stats.fps as number) : null;
+  const displayFps = stats.mode === 'idle' ? 0 : fps;
+  overlay.fpsValue.textContent = displayFps == null ? '--' : String(displayFps);
+  overlay.modeLabel.textContent = stats.mode === 'continuous' ? 'LIVE' : 'IDLE';
+  overlay.modeLabel.style.color = stats.mode === 'continuous'
+    ? 'var(--fps-editor-success)'
+    : 'var(--fps-editor-muted)';
+  overlay.fpsValue.style.color = displayFps == null || stats.mode === 'idle'
+    ? 'var(--fps-editor-muted)'
+    : displayFps >= 50
+      ? 'var(--fps-editor-success)'
+      : displayFps >= 30
+        ? 'var(--fps-editor-warn)'
+        : 'var(--fps-editor-danger-strong)';
+  overlay.root.title = [
+    `Scene FPS: ${displayFps == null ? '--' : displayFps}`,
+    `mode: ${stats.mode}`,
+    stats.lastFrameMs == null ? '' : `frame: ${stats.lastFrameMs.toFixed(1)}ms`,
+    stats.activeReasons.length ? `active: ${stats.activeReasons.join(', ')}` : '',
+  ].filter(Boolean).join(' | ');
 }
 
 function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElements {
@@ -1332,6 +1437,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'pointer-events:auto',
   ].join(';');
   const coordinateAxesOverlay = createCoordinateAxesOverlay(doc);
+  const sceneFrameRateOverlay = createSceneFrameRateOverlay(doc);
   const spatialOverlay = createSpatialOverlay(doc);
   const measurementOverlay = createMeasurementOverlay(doc);
   sceneToolOverlay.appendChild(sceneTitle);
@@ -1349,6 +1455,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   workbench.sceneHeader.appendChild(sceneToolOverlay);
   workbench.sceneFrame.appendChild(spatialOverlay.root);
   workbench.sceneFrame.appendChild(measurementOverlay.root);
+  workbench.sceneFrame.appendChild(sceneFrameRateOverlay.root);
   workbench.sceneFrame.appendChild(coordinateAxesOverlay.root);
   root.appendChild(localTestMenu);
   root.appendChild(toolbarOverflowMenu);
@@ -1387,6 +1494,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     applyLocalEditorTheme(workbench.root, activeTheme);
     applyLocalEditorTheme(spatialOverlay.root, activeTheme);
     applyLocalEditorTheme(measurementOverlay.root, activeTheme);
+    applyLocalEditorTheme(sceneFrameRateOverlay.root, activeTheme);
     applyLocalEditorTheme(shortcutHelpPanel, activeTheme);
     applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
     applyLocalEditorTheme(localTestMenu, activeTheme);
@@ -2340,6 +2448,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       ? 'var(--fps-editor-border)'
       : statusToneColor;
     renderCoordinateAxesOverlay(coordinateAxesOverlay, inEditor ? state.coordinateAxes ?? null : null);
+    renderSceneFrameRateOverlay(sceneFrameRateOverlay, inEditor ? state.sceneFrameStats ?? null : null);
     renderSpatialOverlay(spatialOverlay, inEditor ? state.viewportSpatialOverlay ?? null : null);
     renderMeasurementOverlay(measurementOverlay, inEditor ? state.viewportMeasurement ?? null : null);
     const boxSelection = state.boxSelection;
@@ -2368,6 +2477,12 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   return {
     update(state) {
       render(state);
+    },
+    updateSceneFrameStats(stats) {
+      renderSceneFrameRateOverlay(
+        sceneFrameRateOverlay,
+        currentState?.mode === 'editor' ? stats : null,
+      );
     },
     setTheme(theme) {
       setActiveTheme(theme);

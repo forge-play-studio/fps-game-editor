@@ -27,10 +27,21 @@ export interface BabylonEditorGridController {
   dispose(): void;
 }
 
+type GridLineDirection = 'x' | 'z';
+type GridLineGroupKey = 'regular' | 'major' | 'axis-x' | 'axis-z';
+
 interface GridLine {
-  mesh: any;
-  direction: 'x' | 'z';
+  direction: GridLineDirection;
   offsetIndex: number;
+  points: any[];
+}
+
+interface GridLineGroup {
+  key: GridLineGroupKey;
+  mesh: any;
+  capacity: number;
+  hiddenLines: any[][];
+  hasLines: boolean;
 }
 
 interface GridCenter {
@@ -70,7 +81,7 @@ export function createBabylonEditorInfiniteGrid(
   const Vector3 = options.babylon.Vector3 as any;
   const Color3 = options.babylon.Color3 as any;
   const scene = options.scene;
-  if (!scene || !MeshBuilder?.CreateLines || !Vector3 || !Color3) return createNoopGridController();
+  if (!scene || !MeshBuilder?.CreateLineSystem || !Vector3 || !Color3) return createNoopGridController();
 
   const minStep = normalizePositive(options.step, DEFAULT_STEP);
   const adaptiveSteps = normalizeAdaptiveSteps(options.adaptiveSteps, minStep);
@@ -85,6 +96,7 @@ export function createBabylonEditorInfiniteGrid(
   const axisXColor = createColor(Color3, options.axisXColor ?? { r: 0.8, g: 0.22, b: 0.22 });
   const axisZColor = createColor(Color3, options.axisZColor ?? { r: 0.22, g: 0.55, b: 0.85 });
   const lines: GridLine[] = [];
+  let lineGroups: GridLineGroup[] = [];
   let visible = true;
   let disposed = false;
   let currentStep = minStep;
@@ -95,24 +107,41 @@ export function createBabylonEditorInfiniteGrid(
     lines.push(createGridLine('x', offsetIndex));
     lines.push(createGridLine('z', offsetIndex));
   }
+  lineGroups = [
+    createLineGroup('regular', lines.length, gridColor),
+    createLineGroup('major', lines.length, majorGridColor),
+    createLineGroup('axis-x', 1, axisXColor),
+    createLineGroup('axis-z', 1, axisZColor),
+  ];
 
   updateGrid(true);
   renderObserver = scene.onBeforeRenderObservable?.add?.(() => updateGrid(false)) ?? null;
 
-  function createGridLine(direction: 'x' | 'z', offsetIndex: number): GridLine {
-    const mesh = MeshBuilder.CreateLines(`${name}-${direction}-${offsetIndex}`, {
+  function createGridLine(direction: GridLineDirection, offsetIndex: number): GridLine {
+    return {
+      direction,
+      offsetIndex,
       points: [new Vector3(0, 0, 0), new Vector3(0, 0, 0)],
+    };
+  }
+
+  function createLineGroup(key: GridLineGroupKey, capacity: number, color: any): GridLineGroup {
+    const hiddenLines = createHiddenLines(capacity);
+    const mesh = MeshBuilder.CreateLineSystem(`${name}-${key}`, {
+      lines: hiddenLines,
       updatable: true,
     }, scene);
     mesh.isPickable = false;
     mesh.alwaysSelectAsActiveMesh = true;
     mesh.renderingGroupId = 0;
+    mesh.color = color;
     mesh.metadata = {
       ...(mesh.metadata ?? {}),
       editorProjectionHelper: true,
       editorGrid: true,
     };
-    return { mesh, direction, offsetIndex };
+    mesh.setEnabled?.(false);
+    return { key, mesh, capacity, hiddenLines, hasLines: false };
   }
 
   function updateGrid(force: boolean): void {
@@ -121,8 +150,33 @@ export function createBabylonEditorInfiniteGrid(
     if (!force && lastFrameState && isSameGridFrameState(lastFrameState, frameState)) return;
     lastFrameState = frameState;
     currentStep = frameState.step;
+    const nextGroups = createGroupedLines(frameState);
+    updateLineGroups(nextGroups);
+  }
+
+  function createGroupedLines(frameState: GridFrameState): Record<GridLineGroupKey, any[][]> {
+    const grouped: Record<GridLineGroupKey, any[][]> = {
+      regular: [],
+      major: [],
+      'axis-x': [],
+      'axis-z': [],
+    };
     for (const line of lines) {
-      updateGridLine(line, frameState);
+      const resolvedLine = createGridLinePoints(line, frameState);
+      grouped[resolvedLine.group].push(resolvedLine.points);
+    }
+    return grouped;
+  }
+
+  function updateLineGroups(nextGroups: Record<GridLineGroupKey, any[][]>): void {
+    for (const group of lineGroups) {
+      const groupLines = nextGroups[group.key] ?? [];
+      group.hasLines = groupLines.length > 0;
+      MeshBuilder.CreateLineSystem(group.mesh.name, {
+        lines: padLines(groupLines, group),
+        instance: group.mesh,
+      }, scene);
+      group.mesh.setEnabled?.(visible && group.hasLines);
     }
   }
 
@@ -137,36 +191,80 @@ export function createBabylonEditorInfiniteGrid(
     };
   }
 
-  function updateGridLine(line: GridLine, frameState: GridFrameState): void {
+  function createGridLinePoints(
+    line: GridLine,
+    frameState: GridFrameState,
+  ): { group: GridLineGroupKey; points: any[] } {
     const offset = line.offsetIndex * frameState.step;
     const xMin = frameState.center.x - frameState.lineSpan;
     const xMax = frameState.center.x + frameState.lineSpan;
     const zMin = frameState.center.z - frameState.lineSpan;
     const zMax = frameState.center.z + frameState.lineSpan;
     const coordinate = line.direction === 'x' ? frameState.center.z + offset : frameState.center.x + offset;
-    const points = line.direction === 'x'
-      ? [new Vector3(xMin, 0, coordinate), new Vector3(xMax, 0, coordinate)]
-      : [new Vector3(coordinate, 0, zMin), new Vector3(coordinate, 0, zMax)];
-    MeshBuilder.CreateLines(line.mesh.name, {
+    const points = line.points;
+    if (line.direction === 'x') {
+      setVector3(points[0], xMin, 0, coordinate);
+      setVector3(points[1], xMax, 0, coordinate);
+    } else {
+      setVector3(points[0], coordinate, 0, zMin);
+      setVector3(points[1], coordinate, 0, zMax);
+    }
+    return {
+      group: resolveLineGroup(line.direction, coordinate, frameState.step, frameState.majorStep),
       points,
-      instance: line.mesh,
-    }, scene);
-    line.mesh.color = resolveLineColor(line.direction, coordinate, frameState.step, frameState.majorStep);
+    };
   }
 
-  function resolveLineColor(direction: 'x' | 'z', coordinate: number, step: number, majorStep: number): any {
+  function resolveLineGroup(
+    direction: GridLineDirection,
+    coordinate: number,
+    step: number,
+    majorStep: number,
+  ): GridLineGroupKey {
     const axisThreshold = step * 0.25;
-    if (Math.abs(coordinate) <= axisThreshold) return direction === 'x' ? axisXColor : axisZColor;
+    if (Math.abs(coordinate) <= axisThreshold) return direction === 'x' ? 'axis-x' : 'axis-z';
     const majorIndex = Math.round(coordinate / majorStep);
-    if (Math.abs(coordinate - majorIndex * majorStep) <= step * 0.1) return majorGridColor;
-    return gridColor;
+    if (Math.abs(coordinate - majorIndex * majorStep) <= step * 0.1) return 'major';
+    return 'regular';
+  }
+
+  function disposeLineGroups(): void {
+    for (const group of lineGroups) {
+      try { group.mesh.dispose?.(); } catch {}
+    }
+    lineGroups = [];
+  }
+
+  function padLines(groupLines: any[][], group: GridLineGroup): any[][] {
+    return [
+      ...groupLines.slice(0, group.capacity),
+      ...group.hiddenLines.slice(0, Math.max(0, group.capacity - groupLines.length)),
+    ];
+  }
+
+  function createHiddenLines(count: number): any[][] {
+    const lines: any[][] = [];
+    for (let index = 0; index < count; index += 1) {
+      lines.push([new Vector3(0, 0, 0), new Vector3(0, 0, 0)]);
+    }
+    return lines;
+  }
+
+  function setVector3(target: any, x: number, y: number, z: number): void {
+    if (target?.set) {
+      target.set(x, y, z);
+      return;
+    }
+    target.x = x;
+    target.y = y;
+    target.z = z;
   }
 
   return {
     setVisible(nextVisible) {
       visible = nextVisible;
-      for (const line of lines) {
-        line.mesh.setEnabled?.(nextVisible);
+      for (const group of lineGroups) {
+        group.mesh.setEnabled?.(nextVisible && group.hasLines);
       }
       if (nextVisible) updateGrid(true);
     },
@@ -183,9 +281,7 @@ export function createBabylonEditorInfiniteGrid(
         scene.onBeforeRenderObservable.remove(renderObserver);
       }
       renderObserver = null;
-      for (const line of lines) {
-        try { line.mesh.dispose?.(); } catch {}
-      }
+      disposeLineGroups();
       lines.length = 0;
       lastFrameState = null;
     },

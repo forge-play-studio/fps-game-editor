@@ -281,6 +281,7 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   viewportTools?: LocalEditorBrowserViewportToolState | null;
   viewportMeasurement?: LocalEditorBrowserViewportMeasurementState | null;
   viewportSpatialOverlay?: LocalEditorBrowserViewportSpatialOverlayState | null;
+  sceneFrameStats?: LocalEditorBrowserSceneFrameStats | null;
   sceneCameraPreview?: {
     enabled: boolean;
     available: boolean;
@@ -312,6 +313,14 @@ export interface LocalEditorBrowserCoordinateAxis {
 
 export interface LocalEditorBrowserCoordinateAxesState {
   axes: LocalEditorBrowserCoordinateAxis[];
+}
+
+export interface LocalEditorBrowserSceneFrameStats {
+  fps: number | null;
+  frameCount: number;
+  mode: 'idle' | 'continuous';
+  lastFrameMs: number | null;
+  activeReasons: string[];
 }
 
 export interface LocalEditorBrowserUiPropertyInput {
@@ -530,6 +539,7 @@ export interface LocalEditorBrowserUiOptions<TDocument = unknown> {
 
 export interface LocalEditorBrowserUi<TDocument = unknown> {
   update(state: LocalEditorBrowserUiState<TDocument>): void;
+  updateSceneFrameStats?(stats: LocalEditorBrowserSceneFrameStats | null): void;
   setTheme?(theme: LocalEditorThemeName): void;
   getTheme?(): LocalEditorThemeName;
   dispose(): void;

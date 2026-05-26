@@ -141,13 +141,8 @@ type ObserverDisposer = () => void;
 export function createBabylonTransformGizmoController(
   options: BabylonTransformGizmoControllerOptions,
 ): BabylonTransformGizmoController {
-  const GizmoManager = options.babylon.GizmoManager;
-  if (!GizmoManager) throw new Error('Babylon runtime missing GizmoManager');
-
-  const manager = new GizmoManager(options.scene);
-  manager.usePointerToAttachGizmos = false;
-  manager.clearGizmoOnEmptyPointerEvent = false;
-  manager.boundingBoxGizmoEnabled = false;
+  const GizmoManagerCtor = options.babylon.GizmoManager!;
+  if (!GizmoManagerCtor) throw new Error('Babylon runtime missing GizmoManager');
 
   let tool: EditorTransformTool = options.initialTool ?? 'select';
   let space: EditorTransformSpace = options.initialSpace ?? 'world';
@@ -164,7 +159,17 @@ export function createBabylonTransformGizmoController(
   let freeMoveHandleMaterial: any | null = null;
   let placementMarker: any | null = null;
   let placementMarkerMaterial: any | null = null;
+  let manager: any | null = null;
   const canvas = options.scene.getEngine?.().getRenderingCanvas?.() as HTMLCanvasElement | null | undefined;
+
+  function ensureGizmoManager(): any | null {
+    if (manager) return manager;
+    manager = new GizmoManagerCtor(options.scene);
+    manager.usePointerToAttachGizmos = false;
+    manager.clearGizmoOnEmptyPointerEvent = false;
+    manager.boundingBoxGizmoEnabled = false;
+    return manager;
+  }
 
   function activeTransformTool(): Exclude<EditorTransformTool, 'select'> | null {
     return tool === 'select' ? null : tool;
@@ -256,17 +261,21 @@ export function createBabylonTransformGizmoController(
 
   function registerDragObservers(): void {
     clearDragObservers();
-    registerDragObserversFor('move', manager.gizmos?.positionGizmo);
-    registerDragObserversFor('rotate', manager.gizmos?.rotationGizmo);
-    registerDragObserversFor('scale', manager.gizmos?.scaleGizmo);
+    const activeManager = manager;
+    if (!activeManager) return;
+    registerDragObserversFor('move', activeManager.gizmos?.positionGizmo);
+    registerDragObserversFor('rotate', activeManager.gizmos?.rotationGizmo);
+    registerDragObserversFor('scale', activeManager.gizmos?.scaleGizmo);
   }
 
   function applySpacePreference(): void {
+    const activeManager = manager;
+    if (!activeManager) return;
     const matchAttachedMesh = space === 'local';
     const gizmos = [
-      manager.gizmos?.positionGizmo,
-      manager.gizmos?.rotationGizmo,
-      manager.gizmos?.scaleGizmo,
+      activeManager.gizmos?.positionGizmo,
+      activeManager.gizmos?.rotationGizmo,
+      activeManager.gizmos?.scaleGizmo,
     ];
     for (const gizmo of gizmos) {
       try {
@@ -293,26 +302,40 @@ export function createBabylonTransformGizmoController(
   }
 
   function applyHandlePreference(): void {
-    const positionGizmo = manager.gizmos?.positionGizmo;
+    const positionGizmo = manager?.gizmos?.positionGizmo;
     if (positionGizmo) {
       try { positionGizmo.planarGizmoEnabled = tool === 'move'; } catch {}
     }
   }
 
   function attachCurrentSelection(): void {
+    clearDragObservers();
     const activeTool = activeTransformTool();
-    manager.positionGizmoEnabled = activeTool === 'move';
-    manager.rotationGizmoEnabled = activeTool === 'rotate';
-    manager.scaleGizmoEnabled = activeTool === 'scale';
+    if (!activeTool) {
+      if (manager) {
+        manager.positionGizmoEnabled = false;
+        manager.rotationGizmoEnabled = false;
+        manager.scaleGizmoEnabled = false;
+        try { manager.attachToNode?.(null); } catch {}
+      }
+      updateFreeMoveHandle();
+      return;
+    }
+    const activeManager = ensureGizmoManager();
+    if (!activeManager) {
+      updateFreeMoveHandle();
+      return;
+    }
+    activeManager.positionGizmoEnabled = activeTool === 'move';
+    activeManager.rotationGizmoEnabled = activeTool === 'rotate';
+    activeManager.scaleGizmoEnabled = activeTool === 'scale';
     applyHandlePreference();
     applySpacePreference();
     registerDragObservers();
 
     let target: any | null = null;
-    if (activeTool) {
-      target = attachNativeTransformProxy(getCurrentTransformTargetIds());
-    }
-    try { manager.attachToNode?.(target ?? null); } catch (error) {
+    target = attachNativeTransformProxy(getCurrentTransformTargetIds());
+    try { activeManager.attachToNode?.(target ?? null); } catch (error) {
       options.logger?.warn?.('[BabylonTransformGizmoController] failed to attach gizmo', error);
     }
     updateFreeMoveHandle();
@@ -361,8 +384,10 @@ export function createBabylonTransformGizmoController(
   function attachDragTargetIds(targetIds: string[]): boolean {
     const target = attachNativeTransformProxy(targetIds);
     if (!target) return false;
+    const activeManager = ensureGizmoManager();
+    if (!activeManager) return false;
     try {
-      manager.attachToNode?.(target);
+      activeManager.attachToNode?.(target);
       updateFreeMoveHandle();
       return true;
     } catch (error) {
@@ -878,7 +903,8 @@ export function createBabylonTransformGizmoController(
     const MeshBuilder = (options.babylon as any).MeshBuilder;
     const StandardMaterial = (options.babylon as any).StandardMaterial;
     const Color3 = options.babylon.Color3 as any;
-    const utilityScene = manager.utilityLayer?.utilityLayerScene;
+    const activeManager = ensureGizmoManager();
+    const utilityScene = activeManager?.utilityLayer?.utilityLayerScene;
     if (!MeshBuilder?.CreateSphere || !utilityScene) return null;
     placementMarker = MeshBuilder.CreateSphere(
       'editor.placement.marker',
@@ -925,7 +951,7 @@ export function createBabylonTransformGizmoController(
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
-    const utilityScene = manager.utilityLayer?.utilityLayerScene;
+    const utilityScene = manager?.utilityLayer?.utilityLayerScene;
     const utilityPick = typeof utilityScene?.pick === 'function' ? utilityScene.pick(x, y) : null;
     if (utilityPick?.hit && utilityPick.pickedMesh) return utilityPick.pickedMesh;
     const scenePick = typeof options.scene.pick === 'function' ? options.scene.pick(x, y) : null;
@@ -937,7 +963,7 @@ export function createBabylonTransformGizmoController(
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
-    const utilityScene = manager.utilityLayer?.utilityLayerScene;
+    const utilityScene = manager?.utilityLayer?.utilityLayerScene;
     const pick = typeof utilityScene?.pick === 'function'
       ? utilityScene.pick(x, y, (mesh: any) => isFreeMoveHandleNode(mesh))
       : null;
@@ -949,7 +975,8 @@ export function createBabylonTransformGizmoController(
     const MeshBuilder = (options.babylon as any).MeshBuilder;
     const StandardMaterial = (options.babylon as any).StandardMaterial;
     const Color3 = options.babylon.Color3 as any;
-    const utilityScene = manager.utilityLayer?.utilityLayerScene;
+    const activeManager = ensureGizmoManager();
+    const utilityScene = activeManager?.utilityLayer?.utilityLayerScene;
     if (!MeshBuilder?.CreateSphere || !utilityScene) return null;
     freeMoveHandle = MeshBuilder.CreateSphere(
       'editor.transform.freeMoveHandle',
@@ -1035,13 +1062,15 @@ export function createBabylonTransformGizmoController(
 
   function collectCurrentGizmoRoots(): Set<any> {
     const roots = new Set<any>();
+    const activeManager = manager;
+    if (!activeManager) return roots;
     const activeTool = activeTransformTool();
     const gizmo = activeTool === 'move'
-      ? manager.gizmos?.positionGizmo
+      ? activeManager.gizmos?.positionGizmo
       : activeTool === 'rotate'
-        ? manager.gizmos?.rotationGizmo
+        ? activeManager.gizmos?.rotationGizmo
         : activeTool === 'scale'
-          ? manager.gizmos?.scaleGizmo
+          ? activeManager.gizmos?.scaleGizmo
           : null;
     collectGizmoRoots(gizmo, roots);
     return roots;
@@ -1152,8 +1181,8 @@ export function createBabylonTransformGizmoController(
       if (disposed) return;
       controller.cancelDrag();
       clearDragObservers();
-      try { manager.attachToNode?.(null); } catch {}
-      try { manager.dispose?.(); } catch {}
+      try { manager?.attachToNode?.(null); } catch {}
+      try { manager?.dispose?.(); } catch {}
       try { pivotProxy?.dispose?.(); } catch {}
       try { freeMoveHandle?.dispose?.(); } catch {}
       try { freeMoveHandleMaterial?.dispose?.(); } catch {}
@@ -1164,6 +1193,7 @@ export function createBabylonTransformGizmoController(
       freeMoveHandleMaterial = null;
       placementMarker = null;
       placementMarkerMaterial = null;
+      manager = null;
       disposed = true;
     },
   };
