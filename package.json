@@ -13,6 +13,7 @@
     "clean": "tsc -b --clean",
     "dev:editor-lab": "vite --config examples/editor-lab/vite.config.ts --host 0.0.0.0",
     "dev:mini-game-lab": "npm --prefix examples/mini-game-lab run dev:editor-local --",
+    "dev:pa-template": "FPS_GAME_EDITOR_REPO=$PWD npm --prefix .local/pa_template run dev:editor-local --",
     "dev:editor-world": "vite --config examples/babylon-editor-world/vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -b --emitDeclarationOnly && tsc -p examples/editor-lab/tsconfig.json --noEmit && tsc -p examples/babylon-editor-world/tsconfig.json --noEmit",
     "typecheck:mini-game-lab": "npm --prefix examples/mini-game-lab run typecheck",
