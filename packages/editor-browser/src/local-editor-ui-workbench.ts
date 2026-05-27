@@ -17,6 +17,7 @@ export interface LocalEditorWorkbenchLayoutState {
 
 export interface LocalEditorWorkbenchLayoutController {
   getLayout(): LocalEditorWorkbenchLayoutState;
+  refresh(): void;
   reset(): void;
   dispose(): void;
 }
@@ -563,6 +564,9 @@ export function createLocalEditorWorkbenchLayoutController(
   return {
     getLayout() {
       return { ...layout };
+    },
+    refresh() {
+      apply();
     },
     reset() {
       layout = { ...DEFAULT_WORKBENCH_LAYOUT };

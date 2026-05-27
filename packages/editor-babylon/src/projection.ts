@@ -118,6 +118,14 @@ export interface BabylonEditorProjectionOptions {
   scene: RuntimeScene;
   importModel?: BabylonEditorProjectionImporter;
   logger?: Pick<Console, 'warn'>;
+  onProjectionReady?: (event: BabylonEditorProjectionReadyEvent) => void;
+}
+
+const ROOT_HELPER_LABEL = 'World Origin';
+
+export interface BabylonEditorProjectionReadyEvent {
+  nodeId: string;
+  async: boolean;
 }
 
 export interface ProjectedBabylonEditorNode {
@@ -463,6 +471,10 @@ async function loadModelProjection(
     if (!projection.root.isDisposed?.()) {
       attachFallbackProjection(options.babylon, options.scene, node, projection, true);
     }
+  } finally {
+    if (!projection.root.isDisposed?.()) {
+      options.onProjectionReady?.({ nodeId: node.id, async: true });
+    }
   }
 }
 
@@ -680,7 +692,7 @@ function createRootLabelProjection(
   let texture: any;
   try {
     texture = new DynamicTexture(`${node.id}.rootLabel.texture`, {
-      width: 256,
+      width: 384,
       height: 96,
     }, scene, false);
   } catch {
@@ -699,7 +711,7 @@ function createRootLabelProjection(
   material.backFaceCulling = false;
 
   const label = MeshBuilder.CreatePlane(`${node.id}.rootLabel`, {
-    width: 0.9,
+    width: 1.35,
     height: 0.34,
   }, scene);
   label.material = material;
@@ -708,7 +720,7 @@ function createRootLabelProjection(
     ...createProjectionMetadata(node.id, {
       helperKind: 'root',
       helper: 'label',
-      text: 'Root',
+      text: ROOT_HELPER_LABEL,
     }),
     editorProjectionRuntimeObjects: [texture, material],
   };
@@ -719,22 +731,22 @@ function createRootLabelProjection(
 function drawRootLabelTexture(texture: any): void {
   const context = texture.getContext?.();
   if (!context) {
-    texture.drawText?.('Root', null, 58, 'bold 44px sans-serif', '#f8fbff', 'transparent', true, true);
+    texture.drawText?.(ROOT_HELPER_LABEL, null, 58, 'bold 34px sans-serif', '#f8fbff', 'transparent', true, true);
     return;
   }
-  context.clearRect?.(0, 0, 256, 96);
+  context.clearRect?.(0, 0, 384, 96);
   context.fillStyle = 'rgba(10, 18, 28, 0.76)';
-  roundRectPath(context, 14, 18, 228, 56, 18);
+  roundRectPath(context, 16, 18, 352, 56, 18);
   context.fill?.();
   context.strokeStyle = 'rgba(100, 190, 255, 0.9)';
   context.lineWidth = 3;
-  roundRectPath(context, 14, 18, 228, 56, 18);
+  roundRectPath(context, 16, 18, 352, 56, 18);
   context.stroke?.();
   context.fillStyle = '#f8fbff';
-  context.font = 'bold 42px sans-serif';
+  context.font = 'bold 34px sans-serif';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText?.('Root', 128, 47);
+  context.fillText?.(ROOT_HELPER_LABEL, 192, 47);
   texture.update?.();
 }
 

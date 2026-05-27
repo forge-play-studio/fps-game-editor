@@ -17,6 +17,7 @@ import {
   createEditorSceneReadonlyInspectorProperty,
   createEditorSceneReadonlyInspectorSection,
   createEditorSceneReadonlyVector3Properties,
+  createEditorSceneCreatePrimitivePatch,
   createEditorSceneDeleteSubtreePatch,
   createEditorSceneDuplicateSelectionPatch,
   createEditorSceneInspectorPropertyPatch,
@@ -929,6 +930,89 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     expect(transform).toMatchObject({ scale: { x: 1.75, y: 1, z: 1 } });
   });
 
+  it('allows local scale axes to be cleared to zero from inspector numeric inputs', () => {
+    const document = createMiniEditorSceneDocument();
+    const patch = createEditorSceneInspectorPropertyPatch({
+      document,
+      targetId: 'tree',
+      path: 'transform.scale.x',
+      value: 0,
+    });
+
+    expect(patch).toMatchObject({
+      patch: {
+        kind: 'game-object.field',
+        targetId: 'tree',
+        path: 'transform.scale.x',
+        value: 0,
+      },
+    });
+
+    const next = reduceEditorSceneDocument(document, { type: 'document.patch', patch: patch!.patch });
+    const transform = next.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
+    expect(transform).toMatchObject({ scale: { x: 0, y: 1, z: 1 } });
+  });
+
+  it('creates default primitives under the scene root with clean local transforms', () => {
+    const document = createMiniEditorSceneDocument();
+    const patch = createEditorSceneCreatePrimitivePatch(document, {
+      parentId: null,
+      activeId: 'tree',
+      shape: 'cube',
+      name: 'Cube',
+    });
+
+    expect(patch?.patch).toMatchObject({
+      kind: 'game-object.create-primitive',
+      gameObject: {
+        parentId: 'root',
+        primitive: { shape: 'cube' },
+        components: [
+          {
+            type: 'Transform',
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+          },
+        ],
+      },
+    });
+  });
+
+  it('keeps primitive child creation in default local space under transformed parents', () => {
+    const document = createMiniEditorSceneDocument();
+    const tree = document.scene.gameObjects.find(gameObject => gameObject.id === 'tree');
+    const transform = tree?.components.find(component => component.type === 'Transform');
+    if (transform?.type === 'Transform') {
+      transform.position = { x: 3, y: 4, z: 5 };
+      transform.rotation = { x: 0.25, y: 0.5, z: 0.75 };
+      transform.scale = { x: 2, y: 3, z: 4 };
+    }
+
+    const patch = createEditorSceneCreatePrimitivePatch(document, {
+      parentId: 'tree',
+      activeId: 'tree',
+      shape: 'plane',
+      name: 'Plane',
+    });
+
+    expect(patch?.patch).toMatchObject({
+      kind: 'game-object.create-primitive',
+      gameObject: {
+        parentId: 'tree',
+        primitive: { shape: 'plane' },
+        components: [
+          {
+            type: 'Transform',
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+          },
+        ],
+      },
+    });
+  });
+
   it('creates schema-backed patches for local scale vectors', () => {
     const document = createMiniEditorSceneDocument();
     const patch = createEditorSceneInspectorPropertyPatch({
@@ -1028,9 +1112,9 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     expect(transform).toMatchObject({ scale: { x: 2, y: 1, z: 1 } });
   });
 
-  it('keeps serialized transform patches aligned with scale axis validation', () => {
+  it('keeps serialized transform patches aligned with non-negative scale axis validation', () => {
     const document = createMiniEditorSceneDocument();
-    const rejected = reduceEditorSceneDocument(document, {
+    const zero = reduceEditorSceneDocument(document, {
       type: 'document.patch',
       patch: {
         kind: 'serialized-property',
@@ -1049,13 +1133,13 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
       },
     });
 
-    const rejectedTransform = rejected.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
+    const zeroTransform = zero.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
     const acceptedTransform = accepted.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
-    expect(rejectedTransform).toMatchObject({ scale: { x: 1, y: 1, z: 1 } });
+    expect(zeroTransform).toMatchObject({ scale: { x: 0, y: 1, z: 1 } });
     expect(acceptedTransform).toMatchObject({ scale: { x: 1.25, y: 1, z: 1 } });
   });
 
-  it('keeps serialized multi-transform patches aligned with scale axis validation', () => {
+  it('keeps serialized multi-transform patches aligned with non-negative scale axis validation', () => {
     const document = createMiniEditorSceneDocument();
     const accepted = createEditorSceneSerializedMultiPropertyPatch({
       document,
@@ -1064,7 +1148,7 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
       path: 'transform.scale.x',
       value: 2,
     });
-    const rejected = createEditorSceneSerializedMultiPropertyPatch({
+    const zero = createEditorSceneSerializedMultiPropertyPatch({
       document,
       targetIds: ['root'],
       activeId: 'root',
@@ -1082,7 +1166,16 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
         }],
       },
     });
-    expect(rejected).toBeNull();
+    expect(zero).toMatchObject({
+      changedIds: ['root', 'tree', 'decal'],
+      patch: {
+        kind: 'game-object.transform-batch',
+        targets: [{
+          targetId: 'root',
+          transform: { scale: { x: 0 } },
+        }],
+      },
+    });
   });
 
   it('rejects invalid schema-backed field values before patch creation', () => {
@@ -1117,12 +1210,6 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
       targetId: 'tree',
       path: 'overrides.material.albedoTexture.url',
       value: {},
-    })).toBeNull();
-    expect(createEditorSceneInspectorPropertyPatch({
-      document,
-      targetId: 'tree',
-      path: 'transform.scale.x',
-      value: 0,
     })).toBeNull();
     expect(createEditorSceneInspectorPropertyPatch({
       document,

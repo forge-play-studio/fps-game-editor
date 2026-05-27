@@ -76,6 +76,7 @@ import type {
   LocalEditorBrowserInspectorPersistenceMode,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserTransformAction,
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformSnapStepKind,
@@ -96,6 +97,7 @@ import type {
 export {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
+  formatLocalEditorBrowserInspectorNumberValue,
   formatLocalEditorBrowserInspectorValue,
   resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
@@ -157,6 +159,7 @@ export type {
   LocalEditorBrowserInspectorSection,
   LocalEditorBrowserPlacementMode,
   LocalEditorBrowserPrimitiveShape,
+  LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
   LocalEditorBrowserSceneGraphCreatePrimitiveIntent,
   LocalEditorBrowserSceneGraphDeleteIntent,
@@ -192,11 +195,46 @@ export type {
   LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
 
-function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): number | string | boolean | Record<string, unknown> | null {
+export type LocalEditorBrowserInspectorNumberParseMode = 'live' | 'final';
+const INSPECTOR_INPUT_PENDING = Symbol('inspector-input-pending');
+
+type InspectorInputReadValue =
+  | number
+  | string
+  | boolean
+  | Record<string, unknown>
+  | null
+  | typeof INSPECTOR_INPUT_PENDING;
+
+export function parseLocalEditorBrowserInspectorNumberValue(
+  value: string,
+  mode: LocalEditorBrowserInspectorNumberParseMode = 'final',
+): number | null {
+  const normalized = value.trim();
+  if (normalized === '') return mode === 'final' ? 0 : null;
+  if (
+    normalized === '-'
+    || normalized === '+'
+    || normalized === '.'
+    || normalized === '-.'
+    || normalized === '+.'
+  ) {
+    return null;
+  }
+  if (mode === 'live' && (/[.]$/.test(normalized) || /e[+-]?$/i.test(normalized))) return null;
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) return null;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function readInspectorInputValue(
+  input: HTMLInputElement | HTMLSelectElement,
+  mode: LocalEditorBrowserInspectorNumberParseMode = 'final',
+): InspectorInputReadValue {
   const control = input.dataset.serializedControl;
   const valueType = input.dataset.serializedValueType;
   if ((control === 'vec2' || control === 'vec3') && input instanceof HTMLInputElement) {
-    return readInspectorVectorInputValue(input);
+    return readInspectorVectorInputValue(input, mode);
   }
   if (control === 'enum' && input instanceof HTMLSelectElement) {
     const option = input.selectedOptions.item(0);
@@ -211,7 +249,9 @@ function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): n
   }
   if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
   if (control === 'boolean' || valueType === 'boolean') return input.value === 'true';
-  if (control === 'number' || valueType === 'number') return Number(input.value);
+  if (control === 'number' || valueType === 'number') {
+    return parseLocalEditorBrowserInspectorNumberValue(input.value, mode) ?? INSPECTOR_INPUT_PENDING;
+  }
   if (control === 'color' && input instanceof HTMLInputElement && input.type === 'color') {
     const value = input.value.replace('#', '');
     const numeric = Number.parseInt(value, 16);
@@ -345,7 +385,10 @@ function setToolbarButtonIcon(
   else button.prepend(nextIcon);
 }
 
-function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, number> {
+function readInspectorVectorInputValue(
+  input: HTMLInputElement,
+  mode: LocalEditorBrowserInspectorNumberParseMode,
+): Record<string, number> | typeof INSPECTOR_INPUT_PENDING {
   const wrapper = input.closest<HTMLElement>('[data-inspector-vector-control]');
   const values: Record<string, number> = {};
   const fields = wrapper
@@ -354,8 +397,9 @@ function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, 
   for (const field of fields) {
     const axis = field.dataset.serializedVectorAxis;
     if (!axis) continue;
-    const numeric = Number(field.value);
-    values[axis] = Number.isFinite(numeric) ? numeric : 0;
+    const numeric = parseLocalEditorBrowserInspectorNumberValue(field.value, mode);
+    if (numeric == null) return INSPECTOR_INPUT_PENDING;
+    values[axis] = numeric;
   }
   return values;
 }
@@ -363,22 +407,35 @@ function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, 
 function createInspectorPropertyInput(
   input: HTMLInputElement | HTMLSelectElement,
   source: LocalEditorBrowserInspectorEditSource,
+  numberParseMode: LocalEditorBrowserInspectorNumberParseMode = 'final',
 ): LocalEditorBrowserUiPropertyInput | null {
   if (!input.dataset.serializedPath || !input.dataset.serializedTargetId) return null;
   const targetIds = input.dataset.serializedTargetIds
     ? input.dataset.serializedTargetIds.split(',').filter(Boolean)
     : undefined;
+  const value = readInspectorInputValue(input, numberParseMode);
+  if (value === INSPECTOR_INPUT_PENDING) return null;
   return {
     targetId: input.dataset.serializedTargetId,
     targetIds,
     path: input.dataset.serializedPath,
-    value: readInspectorInputValue(input),
+    value,
     control: input.dataset.serializedControl as LocalEditorBrowserInspectorControlKind | undefined,
     valueType: input.dataset.serializedValueType as LocalEditorBrowserInspectorProperty['valueType'] | undefined,
     commitMode: input.dataset.serializedCommitMode as LocalEditorBrowserInspectorCommitMode | undefined,
     persistence: input.dataset.serializedPersistence as LocalEditorBrowserInspectorPersistenceMode | undefined,
     source: (input.dataset.serializedEditSource as LocalEditorBrowserInspectorEditSource | undefined) ?? source,
   };
+}
+
+function hasPendingInspectorNumberValue(
+  input: HTMLInputElement,
+  mode: LocalEditorBrowserInspectorNumberParseMode = 'live',
+): boolean {
+  const control = input.dataset.serializedControl;
+  const valueType = input.dataset.serializedValueType;
+  if (control !== 'number' && valueType !== 'number' && control !== 'vec2' && control !== 'vec3') return false;
+  return readInspectorInputValue(input, mode) === INSPECTOR_INPUT_PENDING;
 }
 
 function readInspectorCommitMode(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorCommitMode {
@@ -403,6 +460,109 @@ interface CoordinateAxesOverlayElements {
   centerDot: SVGCircleElement;
   projectionIcon: SVGGElement;
   projectionIconShape: SVGPathElement;
+}
+
+interface SceneFrameRateOverlayElements {
+  root: HTMLDivElement;
+  fpsValue: HTMLSpanElement;
+  modeLabel: HTMLSpanElement;
+}
+
+function createSceneFrameRateOverlay(doc: Document): SceneFrameRateOverlayElements {
+  const root = doc.createElement('div');
+  root.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  root.dataset.editorSceneFrameRateOverlay = 'true';
+  root.style.cssText = [
+    'position:absolute',
+    'right:14px',
+    'bottom:134px',
+    'z-index:3',
+    'display:none',
+    'align-items:center',
+    'gap:6px',
+    'width:112px',
+    'height:30px',
+    'padding:0 8px',
+    'box-sizing:border-box',
+    'border:1px solid color-mix(in srgb, var(--fps-editor-border) 78%, transparent)',
+    'border-radius:6px',
+    'background:color-mix(in srgb, var(--fps-editor-chrome) 76%, transparent)',
+    'box-shadow:var(--fps-editor-shadow-panel)',
+    'font-family:var(--fps-editor-font)',
+    'font-size:11px',
+    'font-weight:900',
+    'letter-spacing:0',
+    'color:var(--fps-editor-text-strong)',
+    'pointer-events:none',
+    'backdrop-filter:blur(5px)',
+    'overflow:hidden',
+  ].join(';');
+
+  const label = doc.createElement('span');
+  label.textContent = 'FPS';
+  label.style.cssText = [
+    'color:var(--fps-editor-muted-strong)',
+    'font-size:10px',
+    'line-height:1',
+  ].join(';');
+  const fpsValue = doc.createElement('span');
+  fpsValue.textContent = '--';
+  fpsValue.style.cssText = [
+    'width:26px',
+    'flex:0 0 26px',
+    'font-variant-numeric:tabular-nums',
+    'font-size:13px',
+    'line-height:1',
+  ].join(';');
+  const modeLabel = doc.createElement('span');
+  modeLabel.textContent = 'IDLE';
+  modeLabel.style.cssText = [
+    'margin-left:auto',
+    'padding:2px 4px',
+    'flex:0 0 auto',
+    'border:1px solid var(--fps-editor-border-soft)',
+    'border-radius:4px',
+    'background:color-mix(in srgb, var(--fps-editor-field) 72%, transparent)',
+    'color:var(--fps-editor-muted)',
+    'font-size:9px',
+    'line-height:1',
+  ].join(';');
+
+  root.appendChild(label);
+  root.appendChild(fpsValue);
+  root.appendChild(modeLabel);
+  return { root, fpsValue, modeLabel };
+}
+
+function renderSceneFrameRateOverlay(
+  overlay: SceneFrameRateOverlayElements,
+  stats: LocalEditorBrowserSceneFrameStats | null,
+): void {
+  if (!stats) {
+    overlay.root.style.display = 'none';
+    return;
+  }
+  overlay.root.style.display = 'flex';
+  const fps = Number.isFinite(stats.fps) ? Math.round(stats.fps as number) : null;
+  const displayFps = stats.mode === 'idle' ? 0 : fps;
+  overlay.fpsValue.textContent = displayFps == null ? '--' : String(displayFps);
+  overlay.modeLabel.textContent = stats.mode === 'continuous' ? 'LIVE' : 'IDLE';
+  overlay.modeLabel.style.color = stats.mode === 'continuous'
+    ? 'var(--fps-editor-success)'
+    : 'var(--fps-editor-muted)';
+  overlay.fpsValue.style.color = displayFps == null || stats.mode === 'idle'
+    ? 'var(--fps-editor-muted)'
+    : displayFps >= 50
+      ? 'var(--fps-editor-success)'
+      : displayFps >= 30
+        ? 'var(--fps-editor-warn)'
+        : 'var(--fps-editor-danger-strong)';
+  overlay.root.title = [
+    `Scene FPS: ${displayFps == null ? '--' : displayFps}`,
+    `mode: ${stats.mode}`,
+    stats.lastFrameMs == null ? '' : `frame: ${stats.lastFrameMs.toFixed(1)}ms`,
+    stats.activeReasons.length ? `active: ${stats.activeReasons.join(', ')}` : '',
+  ].filter(Boolean).join(' | ');
 }
 
 function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElements {
@@ -1385,6 +1545,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'pointer-events:auto',
   ].join(';');
   const coordinateAxesOverlay = createCoordinateAxesOverlay(doc);
+  const sceneFrameRateOverlay = createSceneFrameRateOverlay(doc);
   const spatialOverlay = createSpatialOverlay(doc);
   const measurementOverlay = createMeasurementOverlay(doc);
   sceneToolOverlay.appendChild(sceneTitle);
@@ -1402,6 +1563,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   workbench.sceneHeader.appendChild(sceneToolOverlay);
   workbench.sceneFrame.appendChild(spatialOverlay.root);
   workbench.sceneFrame.appendChild(measurementOverlay.root);
+  workbench.sceneFrame.appendChild(sceneFrameRateOverlay.root);
   workbench.sceneFrame.appendChild(coordinateAxesOverlay.root);
   root.appendChild(localTestMenu);
   root.appendChild(toolbarOverflowMenu);
@@ -1440,6 +1602,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     applyLocalEditorTheme(workbench.root, activeTheme);
     applyLocalEditorTheme(spatialOverlay.root, activeTheme);
     applyLocalEditorTheme(measurementOverlay.root, activeTheme);
+    applyLocalEditorTheme(sceneFrameRateOverlay.root, activeTheme);
     applyLocalEditorTheme(shortcutHelpPanel, activeTheme);
     applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
     applyLocalEditorTheme(localTestMenu, activeTheme);
@@ -2018,10 +2181,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!input || !key) return;
     const currentOverlay = currentState?.viewportTools?.overlay;
     callbacks.onViewportOverlaySettingsChange?.({
-      bounds: currentOverlay?.bounds ?? true,
-      dimensions: currentOverlay?.dimensions ?? true,
+      bounds: currentOverlay?.bounds ?? false,
+      dimensions: currentOverlay?.dimensions ?? false,
       edgeLengths: currentOverlay?.edgeLengths ?? false,
-      anchor: currentOverlay?.anchor ?? true,
+      anchor: currentOverlay?.anchor ?? false,
       [key]: input.checked,
     });
   });
@@ -2073,7 +2236,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (input?.type === 'checkbox' || input?.type === 'color') return;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
     if (readInspectorCommitMode(input) !== 'live') return;
-    const propertyInput = createInspectorPropertyInput(input, 'input');
+    const propertyInput = createInspectorPropertyInput(input, 'input', 'live');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
@@ -2085,16 +2248,28 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (input instanceof HTMLInputElement && (input.type === 'text' || input.type === 'number')) {
       if (readInspectorCommitMode(input) !== 'change') return;
     }
-    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input));
+    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input), 'final');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
   inspectorPanel.addEventListener('focusout', (event) => {
     const input = event.target instanceof HTMLInputElement ? event.target : null;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
-    if (readInspectorCommitMode(input) !== 'blur') return;
-    const propertyInput = createInspectorPropertyInput(input, 'input');
+    if (hasPendingInspectorNumberValue(input, 'final')) {
+      if (currentState) render(currentState);
+      return;
+    }
+    const commitMode = readInspectorCommitMode(input);
+    if (commitMode === 'live' && hasPendingInspectorNumberValue(input, 'live')) {
+      const propertyInput = createInspectorPropertyInput(input, 'input', 'final');
+      if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
+      else if (currentState) render(currentState);
+      return;
+    }
+    if (commitMode !== 'blur') return;
+    const propertyInput = createInspectorPropertyInput(input, 'input', 'final');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
+    else if (currentState) render(currentState);
   });
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -2171,7 +2346,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   };
   doc.addEventListener('keydown', onKeyDown);
 
-  function captureEditableFocus(doc: Document): { selector: string; value: string | null } | null {
+  function captureEditableFocus(doc: Document): { selector: string; value: string | null; preserveValue?: boolean } | null {
     const active = doc.activeElement instanceof HTMLInputElement ? doc.activeElement : null;
     if (!active) return null;
     if (active.dataset.editorHierarchyRenameInput) {
@@ -2187,6 +2362,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
           `[data-serialized-target-id="${cssEscape(active.dataset.serializedTargetId)}"]`,
         ].join(''),
         value: active.value,
+        preserveValue: hasPendingInspectorNumberValue(active),
       };
     }
     if (active.dataset.editorInspectorSearch != null) {
@@ -2198,11 +2374,15 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     return null;
   }
 
-  function restoreEditableFocus(doc: Document, snapshot: { selector: string; value: string | null } | null): void {
+  function restoreEditableFocus(
+    doc: Document,
+    snapshot: { selector: string; value: string | null; preserveValue?: boolean } | null,
+  ): void {
     if (!snapshot) return;
     const input = doc.querySelector<HTMLInputElement>(snapshot.selector);
     if (!input) return;
     input.focus({ preventScroll: true });
+    if (snapshot.value != null && snapshot.preserveValue) input.value = snapshot.value;
     if (snapshot.value != null && input.value === snapshot.value) {
       const position = input.value.length;
       try {
@@ -2259,6 +2439,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     inputRouter.setModalOpen(inEditor && helpOpen);
     const transformTool = state.transformTool ?? null;
     workbench.root.style.display = inEditor ? '' : 'none';
+    if (inEditor) workbenchLayoutController.refresh();
     sceneToolOverlay.style.display = inEditor ? 'flex' : 'none';
     if (!inEditor) closeSnapSettingsPopover();
     if (!inEditor) closePlacementSettingsPopover();
@@ -2414,6 +2595,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       ? 'var(--fps-editor-border)'
       : statusToneColor;
     renderCoordinateAxesOverlay(coordinateAxesOverlay, inEditor ? state.coordinateAxes ?? null : null);
+    renderSceneFrameRateOverlay(sceneFrameRateOverlay, inEditor ? state.sceneFrameStats ?? null : null);
     renderSpatialOverlay(spatialOverlay, inEditor ? state.viewportSpatialOverlay ?? null : null);
     renderMeasurementOverlay(measurementOverlay, inEditor ? state.viewportMeasurement ?? null : null);
     const boxSelection = state.boxSelection;
@@ -2442,6 +2624,12 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   return {
     update(state) {
       render(state);
+    },
+    updateSceneFrameStats(stats) {
+      renderSceneFrameRateOverlay(
+        sceneFrameRateOverlay,
+        currentState?.mode === 'editor' ? stats : null,
+      );
     },
     setTheme(theme) {
       setActiveTheme(theme);

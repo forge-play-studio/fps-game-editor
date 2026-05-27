@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
+  formatLocalEditorBrowserInspectorNumberValue,
   formatLocalEditorBrowserInspectorValue,
+  parseLocalEditorBrowserInspectorNumberValue,
   resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
   type LocalEditorBrowserInspectorControlRegistration,
@@ -181,5 +183,23 @@ describe('browser inspector control extensions', () => {
       '  "z": 3',
       '}',
     ].join('\n'));
+  });
+
+  it('formats inspector numbers with at most three fractional digits', () => {
+    expect(formatLocalEditorBrowserInspectorNumberValue(1.23456)).toBe('1.235');
+    expect(formatLocalEditorBrowserInspectorNumberValue(-0.0001)).toBe('0');
+    expect(formatLocalEditorBrowserInspectorValue(12.3)).toBe('12.3');
+  });
+
+  it('keeps live numeric edits pending but commits empty final edits as zero', () => {
+    expect(parseLocalEditorBrowserInspectorNumberValue('', 'live')).toBeNull();
+    expect(parseLocalEditorBrowserInspectorNumberValue('', 'final')).toBe(0);
+    expect(parseLocalEditorBrowserInspectorNumberValue('-', 'live')).toBeNull();
+    expect(parseLocalEditorBrowserInspectorNumberValue('.', 'live')).toBeNull();
+    expect(parseLocalEditorBrowserInspectorNumberValue('1.', 'live')).toBeNull();
+    expect(parseLocalEditorBrowserInspectorNumberValue('1e', 'live')).toBeNull();
+    expect(parseLocalEditorBrowserInspectorNumberValue('1.5', 'live')).toBe(1.5);
+    expect(parseLocalEditorBrowserInspectorNumberValue('1.', 'final')).toBe(1);
+    expect(parseLocalEditorBrowserInspectorNumberValue('0', 'live')).toBe(0);
   });
 });
