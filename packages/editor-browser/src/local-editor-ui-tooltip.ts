@@ -4,7 +4,7 @@ import {
   type LocalEditorThemeName,
 } from './local-editor-ui-theme';
 
-const TOOLTIP_DELAY_MS = 450;
+const TOOLTIP_DELAY_MS = 160;
 const TOOLTIP_OFFSET_PX = 7;
 const TOOLTIP_VIEWPORT_MARGIN_PX = 6;
 
