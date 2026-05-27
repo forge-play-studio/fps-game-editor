@@ -1044,7 +1044,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const localTestActionsEnabled = options.localTestActions === true;
   ensureLocalEditorTheme(doc);
   let activeTheme: LocalEditorThemeName = normalizeLocalEditorThemeName(options.theme);
-  const inputRouter = createLocalEditorWorkbenchInputRouter(doc);
+  const inputRouter = createLocalEditorWorkbenchInputRouter(doc, {
+    isShortcutReserved: options.input?.isShortcutReserved,
+  });
   const contextMenu = createLocalEditorContextMenuController(doc, (open) => {
     inputRouter.setContextMenuOpen(open);
   }, activeTheme);

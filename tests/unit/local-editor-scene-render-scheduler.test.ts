@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createLocalEditorSceneRenderScheduler,
+  type LocalEditorSceneRenderFrame,
   type LocalEditorSceneRenderFrameHost,
   type LocalEditorSceneRenderStats,
 } from '../../packages/editor/src/local-editor-scene-render-scheduler';
@@ -8,7 +9,7 @@ import {
 function createManualFrameHost(): {
   host: LocalEditorSceneRenderFrameHost;
   pendingCount(): number;
-  flushNextFrame(): void;
+  flushNextFrame(deltaMs?: number): void;
 } {
   let nextFrameId = 1;
   let nextTimestamp = 0;
@@ -28,12 +29,12 @@ function createManualFrameHost(): {
     pendingCount() {
       return callbacks.size;
     },
-    flushNextFrame() {
+    flushNextFrame(deltaMs = 16.67) {
       const entry = callbacks.entries().next().value as [number, FrameRequestCallback] | undefined;
       if (!entry) return;
       const [frameId, callback] = entry;
       callbacks.delete(frameId);
-      nextTimestamp += 16.67;
+      nextTimestamp += deltaMs;
       callback(nextTimestamp);
     },
   };
@@ -43,8 +44,10 @@ describe('local editor scene render scheduler', () => {
   it('coalesces one-shot frame requests', () => {
     const frameHost = createManualFrameHost();
     let renders = 0;
-    const scheduler = createLocalEditorSceneRenderScheduler(() => {
+    const frames: LocalEditorSceneRenderFrame[] = [];
+    const scheduler = createLocalEditorSceneRenderScheduler((frame) => {
       renders += 1;
+      frames.push(frame);
     }, { frameHost: frameHost.host });
 
     scheduler.requestFrame('selection');
@@ -54,6 +57,13 @@ describe('local editor scene render scheduler', () => {
     expect(frameHost.pendingCount()).toBe(1);
     frameHost.flushNextFrame();
     expect(renders).toBe(1);
+    expect(frames).toEqual([{
+      timestampMs: 16.67,
+      deltaSeconds: 0,
+      mode: 'idle',
+      frameCount: 1,
+      activeReasons: [],
+    }]);
     expect(frameHost.pendingCount()).toBe(0);
   });
 
@@ -101,8 +111,10 @@ describe('local editor scene render scheduler', () => {
   it('renders continuously only while a reason is active', () => {
     const frameHost = createManualFrameHost();
     let renders = 0;
-    const scheduler = createLocalEditorSceneRenderScheduler(() => {
+    const frames: LocalEditorSceneRenderFrame[] = [];
+    const scheduler = createLocalEditorSceneRenderScheduler((frame) => {
       renders += 1;
+      frames.push(frame);
     }, { frameHost: frameHost.host });
 
     scheduler.beginContinuous('orbit');
@@ -111,11 +123,49 @@ describe('local editor scene render scheduler', () => {
     frameHost.flushNextFrame();
     expect(renders).toBe(1);
     expect(frameHost.pendingCount()).toBe(1);
+    expect(frames[0]).toMatchObject({
+      timestampMs: 16.67,
+      deltaSeconds: 1 / 60,
+      mode: 'continuous',
+      frameCount: 1,
+      activeReasons: ['orbit'],
+    });
 
     scheduler.endContinuous('orbit');
     frameHost.flushNextFrame();
     expect(renders).toBe(2);
     expect(frameHost.pendingCount()).toBe(0);
+    expect(frames[1]).toMatchObject({
+      deltaSeconds: 0,
+      mode: 'idle',
+      frameCount: 2,
+      activeReasons: [],
+    });
+  });
+
+  it('clamps continuous frame delta from the editor frame clock', () => {
+    const frameHost = createManualFrameHost();
+    const frames: LocalEditorSceneRenderFrame[] = [];
+    const stats: LocalEditorSceneRenderStats[] = [];
+    const scheduler = createLocalEditorSceneRenderScheduler(frame => {
+      frames.push(frame);
+    }, {
+      frameHost: frameHost.host,
+      onStatsChange: nextStats => stats.push(nextStats),
+      statsUpdateIntervalMs: 0,
+    });
+
+    scheduler.beginContinuous('flythrough');
+    frameHost.flushNextFrame();
+    frameHost.flushNextFrame(250);
+
+    expect(frames.map(frame => frame.deltaSeconds)).toEqual([1 / 60, 0.1]);
+    expect(frames.map(frame => frame.activeReasons)).toEqual([['flythrough'], ['flythrough']]);
+    expect(stats[stats.length - 1]).toMatchObject({
+      frameCount: 2,
+      lastFrameMs: 250,
+      mode: 'continuous',
+    });
   });
 
   it('keeps continuous rendering until every reason ends', () => {

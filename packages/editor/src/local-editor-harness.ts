@@ -27,7 +27,6 @@ import {
   type EditorViewportGroundMeasurement,
   type EditorViewportOverlaySettings,
   type EditorViewportProjectionMode,
-  type SceneViewPointerIntent,
   type EditorViewportSpatialOverlayState,
   type EditorViewportToolState,
   type EditorViewportUtilityTool,
@@ -127,6 +126,10 @@ import {
   createLocalEditorViewportRenderCoordinator,
   type LocalEditorViewportRenderCoordinator,
 } from './local-editor-viewport-render-coordinator';
+import {
+  createLocalEditorSceneViewInteractionRuntime,
+  type LocalEditorSceneViewInteractionRuntime,
+} from './local-editor-scene-view-interaction-runtime';
 
 export type LocalEditorHarnessMode = 'game' | 'editor';
 type LocalEditorMaybePromise<T> = T | Promise<T>;
@@ -505,6 +508,7 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   mainCameraPreviewEnabled: boolean;
   sceneViewInput: BabylonSceneViewInputController | null;
   sceneViewCamera: BabylonSceneViewCameraController | null;
+  sceneViewInteraction: LocalEditorSceneViewInteractionRuntime | null;
   sceneViewMeasurement: BabylonSceneViewMeasurementController | null;
   sceneViewSpatialOverlay: BabylonSceneViewSpatialOverlayController | null;
   selectionController: BabylonProjectionSelectionController | null;
@@ -558,6 +562,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     mainCameraPreviewEnabled: false,
     sceneViewInput: null,
     sceneViewCamera: null,
+    sceneViewInteraction: null,
     sceneViewMeasurement: null,
     sceneViewSpatialOverlay: null,
     selectionController: null,
@@ -587,6 +592,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     root,
     theme: options.theme,
     localTestActions: options.localTestActions,
+    input: {
+      isShortcutReserved: (event) => state.sceneViewInput?.ownsKeyboardEvent(event) ?? false,
+    },
     inspector: options.inspector,
     hierarchy: {
       contextActions: createBrowserHierarchyContextActions(state, options),
@@ -1296,7 +1304,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     useRightHandedSystem: options.world?.useRightHandedSystem,
     enableDefaultCameraControls: false,
   });
-  const sceneRenderScheduler = createLocalEditorSceneRenderScheduler(() => world.render(), {
+  const sceneRenderScheduler = createLocalEditorSceneRenderScheduler((frame) => {
+    state.sceneViewInteraction?.updateFrame(frame);
+    world.render();
+  }, {
     onStatsChange(stats) {
       state.sceneFrameStats = stats;
       updateSceneFrameStats(stats);
@@ -1307,6 +1318,11 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     getEngine: () => engine,
     getScene: () => world.scene,
   });
+  const sceneViewInteraction = createLocalEditorSceneViewInteractionRuntime({
+    coordinator: viewportRenderCoordinator,
+    getCamera: () => state.sceneViewCamera,
+  });
+  state.sceneViewInteraction = sceneViewInteraction;
   const grid = options.createGrid?.(babylon, world.scene, world.camera) ?? null;
   grid?.setVisible(state.gridVisible);
   const projection = createBabylonEditorProjection({
@@ -1326,7 +1342,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     initialSpace: state.transformSpace,
     logger: console,
     onDragStart(event) {
-      beginEditorSceneContinuousRender(state, 'gizmo-drag');
+      sceneViewInteraction.beginGizmoDrag();
       state.status = event.targetIds.length > 1
         ? `Dragging ${event.duplicate ? 'duplicate ' : ''}${event.tool} ${event.targetIds.length} objects`
         : `Dragging ${event.duplicate ? 'duplicate ' : ''}${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
@@ -1336,13 +1352,13 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       renderUi();
     },
     onDragEnd(event) {
-      endEditorSceneContinuousRender(state, 'gizmo-drag');
+      sceneViewInteraction.endGizmoDrag();
       const changed = commitGizmoTransform(state, options, event);
       if (!changed) requestEditorSceneFrame(state, 'gizmo-drag-end');
       renderUi();
     },
     onDragCancel(event) {
-      endEditorSceneContinuousRender(state, 'gizmo-drag');
+      sceneViewInteraction.endGizmoDrag();
       if (event.duplicate && cancelDuplicateDrag(state, options)) {
         renderUi();
         return;
@@ -1392,7 +1408,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     isPlacementCandidate: () => isPlacementArmed(state),
     isMeasurementCandidate: () => state.viewportTools.activeUtilityTool === 'measure-distance',
     onPointerIntentStart(event) {
-      beginContinuousRenderForPointerIntent(state, event.state.intent);
+      sceneViewInteraction.beginPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
         if (handleViewportMeasurementStart(state, event.originalEvent)) renderUi();
         return;
@@ -1437,7 +1453,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       requestEditorSceneFrame(state, `pointer-${event.state.intent}`);
     },
     onPointerIntentEnd(event) {
-      endContinuousRenderForPointerIntent(state, event.state.intent);
+      sceneViewInteraction.endPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
         if (handleViewportMeasurementEnd(state)) renderUi();
         return;
@@ -1459,7 +1475,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       requestEditorSceneFrame(state, `pointer-${event.state.intent}-end`);
     },
     onPointerIntentCancel(event) {
-      endContinuousRenderForPointerIntent(state, event.state.intent);
+      sceneViewInteraction.cancelPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
         renderUi();
         return;
@@ -1492,11 +1508,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onMovementKeysChange(event) {
-      if (event.pressedMovementKeys.length > 0) {
-        beginEditorSceneContinuousRender(state, 'camera-flythrough-keys');
-      } else {
-        endEditorSceneContinuousRender(state, 'camera-flythrough-keys');
-      }
+      sceneViewInteraction.updateMovementKeys(event.pressedMovementKeys);
       renderUi();
     },
   });
@@ -1549,6 +1561,8 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
 function disposeEditorWorld<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
 ): void {
+  state.sceneViewInteraction?.dispose();
+  state.sceneViewInteraction = null;
   state.viewportRenderCoordinator?.dispose();
   state.viewportRenderCoordinator = null;
   state.sceneRenderScheduler?.dispose();
@@ -1596,54 +1610,6 @@ function requestEditorSceneFrame<TDocument, TPatch, TAsset>(
   reason: string,
 ): void {
   state.viewportRenderCoordinator?.requestFrame(reason);
-}
-
-function beginEditorSceneContinuousRender<TDocument, TPatch, TAsset>(
-  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
-  reason: string,
-): void {
-  state.viewportRenderCoordinator?.beginContinuous(reason);
-}
-
-function endEditorSceneContinuousRender<TDocument, TPatch, TAsset>(
-  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
-  reason: string,
-): void {
-  state.viewportRenderCoordinator?.endContinuous(reason);
-}
-
-function beginContinuousRenderForPointerIntent<TDocument, TPatch, TAsset>(
-  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
-  intent: SceneViewPointerIntent,
-): void {
-  const reason = continuousRenderReasonForPointerIntent(intent);
-  if (reason) beginEditorSceneContinuousRender(state, reason);
-}
-
-function endContinuousRenderForPointerIntent<TDocument, TPatch, TAsset>(
-  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
-  intent: SceneViewPointerIntent,
-): void {
-  const reason = continuousRenderReasonForPointerIntent(intent);
-  if (reason) endEditorSceneContinuousRender(state, reason);
-  if (intent === 'gizmo-drag') endEditorSceneContinuousRender(state, 'gizmo-drag');
-  if (intent === 'flythrough') endEditorSceneContinuousRender(state, 'camera-flythrough-keys');
-}
-
-function continuousRenderReasonForPointerIntent(intent: SceneViewPointerIntent): string | null {
-  switch (intent) {
-    case 'gizmo-drag':
-    case 'view-plane-move':
-    case 'placement':
-    case 'measurement':
-    case 'orbit':
-    case 'pan':
-    case 'dolly':
-    case 'flythrough':
-      return `pointer-${intent}`;
-    default:
-      return null;
-  }
 }
 
 async function runExclusive<TDocument, TPatch, TAsset>(

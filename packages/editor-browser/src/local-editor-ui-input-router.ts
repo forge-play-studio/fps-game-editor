@@ -21,7 +21,14 @@ export interface LocalEditorWorkbenchInputRouter {
   dispose(): void;
 }
 
-export function createLocalEditorWorkbenchInputRouter(doc: Document): LocalEditorWorkbenchInputRouter {
+export interface LocalEditorWorkbenchInputRouterOptions {
+  isShortcutReserved?: (event: KeyboardEvent) => boolean;
+}
+
+export function createLocalEditorWorkbenchInputRouter(
+  doc: Document,
+  options: LocalEditorWorkbenchInputRouterOptions = {},
+): LocalEditorWorkbenchInputRouter {
   let modalOpen = false;
   let contextMenuOpen = false;
   const stopPanelWheel = (event: WheelEvent): void => {
@@ -53,9 +60,11 @@ export function createLocalEditorWorkbenchInputRouter(doc: Document): LocalEdito
     },
     shouldPreventBrowserContextMenu,
     shouldHandleDocumentShortcut(event) {
+      if (options.isShortcutReserved?.(event)) return false;
       return !modalOpen && !contextMenuOpen && getRegion(event.target) !== 'modal';
     },
     shouldHandleGlobalShortcut(event) {
+      if (options.isShortcutReserved?.(event)) return false;
       return !modalOpen
         && !contextMenuOpen
         && !isEditableTarget(event.target)
@@ -71,7 +80,7 @@ export function createLocalEditorWorkbenchInputRouter(doc: Document): LocalEdito
 }
 
 function getRegion(target: EventTarget | null): LocalEditorWorkbenchInputRegion {
-  const element = target instanceof HTMLElement ? target : null;
+  const element = toHTMLElement(target);
   if (!element) return 'unknown';
   if (element.closest('[data-editor-shortcut-help]')) return 'modal';
   if (element.closest('[data-editor-context-menu]')) return 'modal';
@@ -114,11 +123,16 @@ function shouldPreventBrowserContextMenu(event: MouseEvent): boolean {
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
-  const element = target instanceof HTMLElement ? target : null;
+  const element = toHTMLElement(target);
   if (!element) return false;
   const tagName = element.tagName.toLowerCase();
   return tagName === 'input'
     || tagName === 'textarea'
     || tagName === 'select'
     || element.isContentEditable;
+}
+
+function toHTMLElement(target: EventTarget | null): HTMLElement | null {
+  if (typeof HTMLElement === 'undefined') return null;
+  return target instanceof HTMLElement ? target : null;
 }

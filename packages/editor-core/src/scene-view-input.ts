@@ -38,10 +38,18 @@ export interface SceneViewPointerState {
   modifiers: SceneViewInputModifiers;
 }
 
+export interface SceneViewKeyboardCaptureState {
+  owner: 'scene-view';
+  intent: SceneViewPointerIntent;
+  keys: string[];
+  pressedKeys: string[];
+}
+
 export interface SceneViewInputState {
   activeIntent: SceneViewPointerIntent | null;
   navigationMode: SceneViewNavigationMode;
   activePointer: SceneViewPointerState | null;
+  keyboardCapture: SceneViewKeyboardCaptureState | null;
   pressedMovementKeys: string[];
   flySpeed: number;
 }

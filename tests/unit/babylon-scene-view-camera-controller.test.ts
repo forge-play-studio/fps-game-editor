@@ -16,6 +16,20 @@ function createInputStub() {
   } as any;
 }
 
+function createMutableInputStub(state: {
+  activeIntent: string | null;
+  navigationMode: string;
+  activePointer: unknown | null;
+  pressedMovementKeys: string[];
+  flySpeed: number;
+}) {
+  return {
+    getState: () => state,
+    cancelActiveIntent: () => {},
+    dispose: () => {},
+  } as any;
+}
+
 describe('Babylon scene view camera controller', () => {
   it('switches view presets to orthographic camera directions and restores perspective', () => {
     const engine = new BABYLON.NullEngine();
@@ -128,6 +142,48 @@ describe('Babylon scene view camera controller', () => {
       viewPreset: 'perspective',
       projectionMode: 'perspective',
     });
+
+    controller.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('moves flythrough camera from the editor frame tick instead of engine delta time', () => {
+    const engine = new BABYLON.NullEngine();
+    engine.getDeltaTime = () => 0;
+    const scene = new BABYLON.Scene(engine);
+    const camera = new BABYLON.ArcRotateCamera(
+      'editor',
+      Math.PI / 4,
+      Math.PI / 3,
+      12,
+      new BABYLON.Vector3(0, 0.6, 0),
+      scene,
+    );
+    scene.activeCamera = camera;
+    const inputState = {
+      activeIntent: 'flythrough',
+      navigationMode: 'flythrough',
+      activePointer: null,
+      pressedMovementKeys: ['w'],
+      flySpeed: 1,
+    };
+    const controller = createBabylonSceneViewCameraController({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      camera: camera as any,
+      input: createMutableInputStub(inputState),
+    });
+    const before = camera.target.clone();
+
+    scene.render();
+    expect(camera.target.equals(before)).toBe(true);
+
+    expect(controller.updateFrame({
+      deltaSeconds: 1 / 60,
+    })).toBe(true);
+
+    expect(camera.target.equals(before)).toBe(false);
 
     controller.dispose();
     scene.dispose();

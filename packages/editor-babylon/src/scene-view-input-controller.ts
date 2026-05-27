@@ -43,11 +43,13 @@ export interface BabylonSceneViewInputControllerOptions {
 
 export interface BabylonSceneViewInputController {
   getState(): SceneViewInputState;
+  ownsKeyboardEvent(event: KeyboardEvent): boolean;
   cancelActiveIntent(): void;
   dispose(): void;
 }
 
 const MOVEMENT_KEYS = new Set(['w', 'a', 's', 'd', 'q', 'e']);
+const MOVEMENT_KEY_LIST = [...MOVEMENT_KEYS].sort();
 const DEFAULT_FLY_SPEED = 1;
 const MIN_FLY_SPEED = 0.1;
 const MAX_FLY_SPEED = 20;
@@ -61,13 +63,16 @@ export function createBabylonSceneViewInputController(
   options: BabylonSceneViewInputControllerOptions,
 ): BabylonSceneViewInputController {
   const canvas = options.canvas;
-  const win = canvas.ownerDocument.defaultView ?? (typeof window !== 'undefined' ? window : null);
+  const doc = canvas.ownerDocument;
+  const win = doc.defaultView ?? (typeof window !== 'undefined' ? window : null);
   let activePointer: ActivePointerState | null = null;
   let disposed = false;
   let flySpeed = DEFAULT_FLY_SPEED;
   let globalPointerListenersAttached = false;
+  let flythroughKeyboardListenersAttached = false;
   const movementKeys = new Set<string>();
   const handledPointerEvents = new WeakSet<PointerEvent>();
+  const handledKeyboardEvents = new WeakSet<KeyboardEvent>();
   const boxSelectDragThresholdPx = options.boxSelectDragThresholdPx ?? DEFAULT_BOX_SELECT_DRAG_THRESHOLD_PX;
 
   if (!canvas.hasAttribute('tabindex')) {
@@ -83,9 +88,26 @@ export function createBabylonSceneViewInputController(
       activeIntent: activePointer?.intent ?? null,
       navigationMode: activePointer ? toNavigationMode(activePointer.intent) : 'none',
       activePointer: activePointer ? clonePointerState(activePointer) : null,
+      keyboardCapture: makeKeyboardCaptureState(),
       pressedMovementKeys: [...movementKeys].sort(),
       flySpeed,
     };
+  }
+
+  function makeKeyboardCaptureState(): SceneViewInputState['keyboardCapture'] {
+    if (activePointer?.intent !== 'flythrough') return null;
+    return {
+      owner: 'scene-view',
+      intent: 'flythrough',
+      keys: [...MOVEMENT_KEY_LIST],
+      pressedKeys: [...movementKeys].sort(),
+    };
+  }
+
+  function ownsKeyboardEvent(event: KeyboardEvent): boolean {
+    if (!enabled() || activePointer?.intent !== 'flythrough') return false;
+    if (event.metaKey || event.ctrlKey || event.altKey) return false;
+    return MOVEMENT_KEYS.has(normalizeMovementKey(event));
   }
 
   function onPointerDown(event: PointerEvent): void {
@@ -106,7 +128,10 @@ export function createBabylonSceneViewInputController(
     };
     try { canvas.setPointerCapture(event.pointerId); } catch {}
     attachGlobalPointerListeners();
-    if (intent === 'flythrough') canvas.focus?.({ preventScroll: true });
+    if (intent === 'flythrough') {
+      attachFlythroughKeyboardListeners();
+      canvas.focus?.({ preventScroll: true });
+    }
     consumePointerEvent(event, intent);
     options.onPointerIntentStart?.({ state: clonePointerState(activePointer), originalEvent: event });
   }
@@ -139,6 +164,10 @@ export function createBabylonSceneViewInputController(
     const ended = clonePointerState(activePointer);
     releasePointer(event.pointerId);
     detachGlobalPointerListeners();
+    if (ended.intent === 'flythrough') {
+      detachFlythroughKeyboardListeners();
+      clearMovementKeys(event);
+    }
     activePointer = null;
     consumePointerEvent(event, ended.intent);
     options.onPointerIntentEnd?.({ state: ended, originalEvent: event });
@@ -151,6 +180,10 @@ export function createBabylonSceneViewInputController(
     const canceled = clonePointerState(activePointer);
     releasePointer(event.pointerId);
     detachGlobalPointerListeners();
+    if (canceled.intent === 'flythrough') {
+      detachFlythroughKeyboardListeners();
+      clearMovementKeys(event);
+    }
     activePointer = null;
     options.onPointerIntentCancel?.({ state: canceled, originalEvent: event });
   }
@@ -176,21 +209,29 @@ export function createBabylonSceneViewInputController(
   }
 
   function onKeyDown(event: KeyboardEvent): void {
-    if (!enabled() || activePointer?.intent !== 'flythrough') return;
-    const key = event.key.toLowerCase();
-    if (!MOVEMENT_KEYS.has(key)) return;
+    if (handledKeyboardEvents.has(event)) return;
+    if (!ownsKeyboardEvent(event)) return;
+    const key = normalizeMovementKey(event);
+    handledKeyboardEvents.add(event);
     if (!movementKeys.has(key)) {
       movementKeys.add(key);
       options.onMovementKeysChange?.({ pressedMovementKeys: [...movementKeys].sort(), originalEvent: event });
     }
-    event.preventDefault();
+    consumeMovementKeyEvent(event);
   }
 
   function onKeyUp(event: KeyboardEvent): void {
-    const key = event.key.toLowerCase();
+    if (handledKeyboardEvents.has(event)) return;
+    const key = normalizeMovementKey(event);
     if (!movementKeys.has(key)) return;
+    handledKeyboardEvents.add(event);
     movementKeys.delete(key);
     options.onMovementKeysChange?.({ pressedMovementKeys: [...movementKeys].sort(), originalEvent: event });
+    consumeMovementKeyEvent(event);
+  }
+
+  function onWindowBlur(event: Event): void {
+    clearMovementKeys(event);
   }
 
   function releasePointer(pointerId: number): void {
@@ -215,6 +256,35 @@ export function createBabylonSceneViewInputController(
     globalPointerListenersAttached = false;
   }
 
+  function attachFlythroughKeyboardListeners(): void {
+    if (flythroughKeyboardListenersAttached) return;
+    doc.addEventListener('keydown', onKeyDown, true);
+    doc.addEventListener('keyup', onKeyUp, true);
+    win?.addEventListener('keydown', onKeyDown, true);
+    win?.addEventListener('keyup', onKeyUp, true);
+    win?.addEventListener('blur', onWindowBlur, true);
+    flythroughKeyboardListenersAttached = true;
+  }
+
+  function detachFlythroughKeyboardListeners(): void {
+    if (!flythroughKeyboardListenersAttached) return;
+    doc.removeEventListener('keydown', onKeyDown, true);
+    doc.removeEventListener('keyup', onKeyUp, true);
+    win?.removeEventListener('keydown', onKeyDown, true);
+    win?.removeEventListener('keyup', onKeyUp, true);
+    win?.removeEventListener('blur', onWindowBlur, true);
+    flythroughKeyboardListenersAttached = false;
+  }
+
+  function clearMovementKeys(originalEvent: Event): void {
+    if (movementKeys.size === 0) return;
+    movementKeys.clear();
+    options.onMovementKeysChange?.({
+      pressedMovementKeys: [],
+      originalEvent: originalEvent as KeyboardEvent,
+    });
+  }
+
   canvas.addEventListener('pointerdown', onPointerDown, { capture: true });
   canvas.addEventListener('pointermove', onPointerMove, { capture: true });
   canvas.addEventListener('pointerup', onPointerUp, { capture: true });
@@ -227,11 +297,16 @@ export function createBabylonSceneViewInputController(
 
   return {
     getState: makeState,
+    ownsKeyboardEvent,
     cancelActiveIntent() {
       const current = activePointer;
       if (!current) return;
       releasePointer(current.pointerId);
       detachGlobalPointerListeners();
+      if (current.intent === 'flythrough') {
+        detachFlythroughKeyboardListeners();
+        clearMovementKeys(new Event('blur'));
+      }
       activePointer = null;
       options.onPointerIntentCancel?.({
         state: clonePointerState(current),
@@ -242,8 +317,9 @@ export function createBabylonSceneViewInputController(
       if (disposed) return;
       disposed = true;
       detachGlobalPointerListeners();
+      detachFlythroughKeyboardListeners();
       activePointer = null;
-      movementKeys.clear();
+      clearMovementKeys(new Event('blur'));
       canvas.removeEventListener('pointerdown', onPointerDown, { capture: true });
       canvas.removeEventListener('pointermove', onPointerMove, { capture: true });
       canvas.removeEventListener('pointerup', onPointerUp, { capture: true });
@@ -315,8 +391,25 @@ function pointerDistance(startX: number, startY: number, currentX: number, curre
   return Math.hypot(currentX - startX, currentY - startY);
 }
 
+function normalizeMovementKey(event: KeyboardEvent): string {
+  const key = event.key?.toLowerCase() ?? '';
+  if (MOVEMENT_KEYS.has(key)) return key;
+  const code = event.code?.toLowerCase() ?? '';
+  if (code.length === 4 && code.startsWith('key')) {
+    const keyFromCode = code.slice(3);
+    if (MOVEMENT_KEYS.has(keyFromCode)) return keyFromCode;
+  }
+  return key;
+}
+
 function consumePointerEvent(event: PointerEvent, intent: SceneViewPointerIntent): void {
   if (intent === 'selection-click' || intent === 'gizmo-drag') return;
   event.preventDefault();
   event.stopPropagation();
+}
+
+function consumeMovementKeyEvent(event: KeyboardEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
 }
