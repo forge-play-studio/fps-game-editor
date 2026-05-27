@@ -7,6 +7,14 @@ export interface LocalEditorSceneRenderScheduler {
   dispose(): void;
 }
 
+export interface LocalEditorSceneRenderFrame {
+  timestampMs: number;
+  deltaSeconds: number;
+  mode: 'idle' | 'continuous';
+  frameCount: number;
+  activeReasons: string[];
+}
+
 export interface LocalEditorSceneRenderFrameHost {
   requestAnimationFrame(callback: FrameRequestCallback): number;
   cancelAnimationFrame(frameId: number): void;
@@ -32,7 +40,7 @@ interface LocalEditorSceneRenderFrameWaiter {
 }
 
 export function createLocalEditorSceneRenderScheduler(
-  renderScene: () => void,
+  renderScene: (frame: LocalEditorSceneRenderFrame) => void,
   options: LocalEditorSceneRenderSchedulerOptions = {},
 ): LocalEditorSceneRenderScheduler {
   const host = options.frameHost ?? window;
@@ -90,12 +98,23 @@ export function createLocalEditorSceneRenderScheduler(
       scheduledFrameWasContinuous = false;
       if (!shouldRenderOneShot && !shouldRenderContinuousFrame) return;
       const isContinuousFrame = continuousReasons.size > 0;
+      const frameDeltaSeconds = isContinuousFrame
+        ? resolveFrameDeltaSeconds(timestamp, lastFrameTimestamp)
+        : 0;
       const frameMs = isContinuousFrame && lastFrameTimestamp != null
         ? Math.max(0, timestamp - lastFrameTimestamp)
         : null;
+      const nextFrameCount = frameCount + 1;
+      const frame: LocalEditorSceneRenderFrame = {
+        timestampMs: timestamp,
+        deltaSeconds: frameDeltaSeconds,
+        mode: isContinuousFrame ? 'continuous' : 'idle',
+        frameCount: nextFrameCount,
+        activeReasons: [...continuousReasons].sort(),
+      };
       lastFrameTimestamp = isContinuousFrame ? timestamp : null;
-      renderScene();
-      frameCount += 1;
+      renderScene(frame);
+      frameCount = nextFrameCount;
       lastFrameMs = frameMs;
       if (isContinuousFrame && frameMs != null && frameMs > 0) {
         const instantFps = 1000 / frameMs;
@@ -169,4 +188,14 @@ export function createLocalEditorSceneRenderScheduler(
       for (const waiter of waiters) waiter.reject(error);
     },
   };
+}
+
+const DEFAULT_CONTINUOUS_DELTA_SECONDS = 1 / 60;
+const MAX_CONTINUOUS_DELTA_SECONDS = 0.1;
+
+function resolveFrameDeltaSeconds(timestamp: number, previousTimestamp: number | null): number {
+  if (previousTimestamp == null) return DEFAULT_CONTINUOUS_DELTA_SECONDS;
+  const elapsedMs = timestamp - previousTimestamp;
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return DEFAULT_CONTINUOUS_DELTA_SECONDS;
+  return Math.min(MAX_CONTINUOUS_DELTA_SECONDS, elapsedMs / 1000);
 }
