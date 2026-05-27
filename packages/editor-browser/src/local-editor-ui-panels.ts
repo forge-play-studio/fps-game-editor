@@ -549,7 +549,7 @@ function createInspectorSectionBlock<TDocument>(
   const content = doc.createElement('div');
   content.dataset.editorInspectorSectionContent = section.id;
   for (const group of groupInspectorProperties(section.properties)) {
-    if (group.kind === 'vector') appendInspectorVectorInputs(doc, content, inspectorObject, group.label, group.properties);
+    if (group.kind === 'vector') appendInspectorVectorInputs(doc, content, inspectorObject, group.label, group.properties, group.layout);
     else appendInspectorPropertyRow(doc, content, inspectorObject, group.property, controlRegistry);
   }
   block.appendChild(content);
@@ -706,7 +706,7 @@ function inspectorSummaryLooksDefault(summary: string | undefined): boolean {
 
 type InspectorPropertyGroup<TDocument> =
   | { kind: 'property'; property: LocalEditorBrowserInspectorProperty<TDocument> }
-  | { kind: 'vector'; label: string; properties: LocalEditorBrowserInspectorProperty<TDocument>[] };
+  | { kind: 'vector'; label: string; properties: LocalEditorBrowserInspectorProperty<TDocument>[]; layout?: 'block' | 'inline' };
 
 function groupInspectorProperties<TDocument>(
   properties: LocalEditorBrowserInspectorProperty<TDocument>[],
@@ -766,7 +766,8 @@ function createExplicitInspectorPropertyGroup<TDocument>(
   if (groupProperties.length <= 1) return null;
   for (const entry of groupProperties) consumed.add(entry.path);
   const label = readInspectorControlOptionString(property, 'groupLabel') || property.label;
-  return { kind: 'vector', label, properties: groupProperties };
+  const layout = readInspectorControlOptionString(property, 'groupLayout') === 'inline' ? 'inline' : 'block';
+  return { kind: 'vector', label, properties: groupProperties, layout };
 }
 
 function readInspectorControlOptionString<TDocument>(
@@ -968,6 +969,7 @@ function appendInspectorVectorInputs<TDocument>(
   inspectorObject: LocalEditorBrowserInspectorObject<TDocument>,
   label: string,
   properties: LocalEditorBrowserInspectorProperty<TDocument>[],
+  layout: 'block' | 'inline' = 'block',
 ): void {
   const wrapper = doc.createElement('div');
   wrapper.style.cssText = 'margin:8px 0';
@@ -997,15 +999,25 @@ function appendInspectorVectorInputs<TDocument>(
     effectBadge.style.flex = '0 0 auto';
     labelElement.appendChild(effectBadge);
   }
-  wrapper.appendChild(labelElement);
-
   const fields = doc.createElement('div');
-  fields.style.cssText = `display:grid;grid-template-columns:repeat(${Math.max(1, properties.length)},minmax(0,1fr));gap:6px`;
+  fields.style.cssText = `display:grid;grid-template-columns:repeat(${Math.max(1, properties.length)},minmax(0,1fr));gap:6px;width:100%`;
   for (const property of properties) {
     fields.appendChild(isInspectorPropertyEditable(property)
       ? createInspectorNumberControl(doc, inspectorObject, property)
       : createInspectorReadonlyControl(doc, inspectorObject, property));
   }
+  if (layout === 'inline') {
+    const row = createPropertyRow(doc, label, fields);
+    row.dataset.editorInspectorAccess = access;
+    row.dataset.editorInspectorEffect = effect;
+    row.title = wrapper.title;
+    row.dataset.editorTooltip = wrapper.dataset.editorTooltip ?? wrapper.title;
+    const rowLabel = row.firstElementChild as HTMLElement | null;
+    if (rowLabel) rowLabel.style.cssText = createInspectorPropertyLabelStyle(access, effect);
+    parent.appendChild(row);
+    return;
+  }
+  wrapper.appendChild(labelElement);
   wrapper.appendChild(fields);
   parent.appendChild(wrapper);
 }
