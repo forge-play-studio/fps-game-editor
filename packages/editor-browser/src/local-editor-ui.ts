@@ -458,6 +458,8 @@ interface CoordinateAxesOverlayElements {
   axisLabels: Map<string, SVGTextElement>;
   axisDiscs: Map<string, SVGCircleElement>;
   centerDot: SVGCircleElement;
+  projectionIcon: SVGGElement;
+  projectionIconShape: SVGPathElement;
 }
 
 interface SceneFrameRateOverlayElements {
@@ -635,6 +637,31 @@ function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElemen
   centerDot.setAttribute('fill', 'color-mix(in srgb, var(--fps-editor-text) 82%, transparent)');
   labelLayer.appendChild(centerDot);
 
+  const projectionIcon = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  projectionIcon.setAttribute('transform', 'translate(8 8)');
+  projectionIcon.setAttribute('role', 'button');
+  projectionIcon.setAttribute('tabindex', '0');
+  projectionIcon.dataset.coordinateAxesProjectionToggle = 'true';
+  projectionIcon.style.cssText = 'opacity:0.92;pointer-events:auto;cursor:pointer;outline:none';
+  const projectionIconFrame = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  projectionIconFrame.setAttribute('x', '0');
+  projectionIconFrame.setAttribute('y', '0');
+  projectionIconFrame.setAttribute('width', '18');
+  projectionIconFrame.setAttribute('height', '18');
+  projectionIconFrame.setAttribute('rx', '4');
+  projectionIconFrame.setAttribute('fill', 'color-mix(in srgb, var(--fps-editor-chrome) 78%, transparent)');
+  projectionIconFrame.setAttribute('stroke', 'color-mix(in srgb, var(--fps-editor-border) 82%, transparent)');
+  projectionIconFrame.setAttribute('stroke-width', '1');
+  const projectionIconShape = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+  projectionIconShape.setAttribute('fill', 'none');
+  projectionIconShape.setAttribute('stroke', 'color-mix(in srgb, var(--fps-editor-accent) 82%, #ffffff)');
+  projectionIconShape.setAttribute('stroke-width', '1.6');
+  projectionIconShape.setAttribute('stroke-linejoin', 'round');
+  projectionIconShape.setAttribute('stroke-linecap', 'round');
+  projectionIcon.appendChild(projectionIconFrame);
+  projectionIcon.appendChild(projectionIconShape);
+  svg.appendChild(projectionIcon);
+
   return {
     root,
     lineLayer,
@@ -644,6 +671,8 @@ function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElemen
     axisLabels,
     axisDiscs,
     centerDot,
+    projectionIcon,
+    projectionIconShape,
   };
 }
 
@@ -656,6 +685,7 @@ function renderCoordinateAxesOverlay(
     return;
   }
   overlay.root.style.display = '';
+  renderCoordinateAxesProjectionIcon(overlay, state.projectionMode, state.projectionToggleDisabled === true);
   const center = 56;
   const lineLength = 38;
   const sortedAxes = [...state.axes].sort((left, right) => right.depth - left.depth);
@@ -682,6 +712,29 @@ function renderCoordinateAxesOverlay(
     overlay.labelLayer.appendChild(group);
   }
   overlay.labelLayer.appendChild(overlay.centerDot);
+}
+
+function renderCoordinateAxesProjectionIcon(
+  overlay: CoordinateAxesOverlayElements,
+  mode: LocalEditorBrowserViewportProjectionMode,
+  disabled: boolean,
+): void {
+  overlay.projectionIcon.dataset.viewportProjectionMode = mode;
+  overlay.projectionIcon.setAttribute(
+    'aria-label',
+    disabled
+      ? `编辑视口投影：${VIEWPORT_PROJECTION_LABELS[mode]}，Main Camera 预览中不可切换`
+      : `编辑视口投影：${VIEWPORT_PROJECTION_LABELS[mode]}，点击切换`,
+  );
+  overlay.projectionIcon.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+  overlay.projectionIcon.style.opacity = disabled ? '0.46' : '0.92';
+  overlay.projectionIcon.style.cursor = disabled ? 'not-allowed' : 'pointer';
+  overlay.projectionIconShape.setAttribute(
+    'd',
+    mode === 'orthographic'
+      ? 'M5 6.5H12.5V14H5ZM7.5 4H15V11.5'
+      : 'M4.5 14H13.5L10.5 4H7.5ZM7 10.5H11',
+  );
 }
 
 interface SpatialOverlayElements {
@@ -1389,17 +1442,17 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneUtilityActions.appendChild(gridToggleButton);
   sceneUtilityActions.appendChild(themeToggleButton);
   sceneUtilityActions.appendChild(sceneHelpButton);
-  const cameraPreviewGroup = doc.createElement('div');
-  cameraPreviewGroup.style.cssText = [
+  const mainCameraPreviewGroup = doc.createElement('div');
+  mainCameraPreviewGroup.style.cssText = [
     'display:flex',
     'align-items:center',
     'gap:4px',
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const sceneCameraButton = createToolbarIconButton(doc, '从 Main Camera 查看场景', 'camera');
-  sceneCameraButton.dataset.sceneCameraPreviewToggle = 'true';
-  cameraPreviewGroup.appendChild(sceneCameraButton);
+  const mainCameraPreviewButton = createToolbarIconButton(doc, '从 Main Camera 查看场景', 'camera');
+  mainCameraPreviewButton.dataset.mainCameraPreviewToggle = 'true';
+  mainCameraPreviewGroup.appendChild(mainCameraPreviewButton);
   const viewportToolsGroup = doc.createElement('div');
   viewportToolsGroup.style.cssText = [
     'display:flex',
@@ -1504,7 +1557,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneToolOverlay.appendChild(actionGroup);
   sceneToolOverlay.appendChild(viewportToolsGroup);
   sceneToolOverlay.appendChild(sceneUtilityActions);
-  sceneToolOverlay.appendChild(cameraPreviewGroup);
+  sceneToolOverlay.appendChild(mainCameraPreviewGroup);
   sceneToolOverlay.appendChild(editorStatusButton);
   sceneToolOverlay.appendChild(toolbarOverflowButton);
   workbench.sceneHeader.appendChild(sceneToolOverlay);
@@ -1788,14 +1841,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     actionGroup,
     viewportToolsGroup,
     sceneUtilityActions,
-    cameraPreviewGroup,
+    mainCameraPreviewGroup,
     editorStatusButton,
     toolbarOverflowButton,
   ];
   const toolbarOverflowItems: ToolbarOverflowItem[] = [
     { id: 'editor-status', element: editorStatusButton, kind: 'group' },
     { id: 'scene-utilities', element: sceneUtilityActions, kind: 'group' },
-    { id: 'camera-preview', element: cameraPreviewGroup, kind: 'group' },
+    { id: 'main-camera-preview', element: mainCameraPreviewGroup, kind: 'group' },
     { id: 'viewport-tools', element: viewportToolsGroup, kind: 'group' },
     { id: 'transform-actions', element: actionGroup, kind: 'group' },
     { id: 'placement', element: placementGroup, kind: 'group' },
@@ -1990,9 +2043,27 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const visible = currentState?.grid?.visible ?? true;
     callbacks.onGridVisibleChange?.(!visible);
   });
-  sceneCameraButton.addEventListener('click', () => {
-    const enabled = currentState?.sceneCameraPreview?.enabled ?? false;
-    callbacks.onSceneCameraPreviewToggle?.(!enabled);
+  mainCameraPreviewButton.addEventListener('click', () => {
+    const enabled = currentState?.mainCameraPreview?.enabled ?? false;
+    callbacks.onMainCameraPreviewToggle?.(!enabled);
+  });
+  const toggleCoordinateAxesProjection = (event: Event): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    const axesState = currentState?.coordinateAxes ?? null;
+    if (!axesState || axesState.projectionToggleDisabled || currentState?.busy) return;
+    const currentMode = axesState.projectionMode;
+    const nextMode: LocalEditorBrowserViewportProjectionMode = currentMode === 'orthographic' ? 'perspective' : 'orthographic';
+    callbacks.onViewportProjectionModeChange?.(nextMode);
+    if (event.type === 'click') coordinateAxesOverlay.projectionIcon.blur();
+  };
+  coordinateAxesOverlay.projectionIcon.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+  });
+  coordinateAxesOverlay.projectionIcon.addEventListener('click', toggleCoordinateAxesProjection);
+  coordinateAxesOverlay.projectionIcon.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    toggleCoordinateAxesProjection(event);
   });
   viewportToolsGroup.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -2357,7 +2428,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!inEditor || disabled) contextMenu.close();
     hostChrome.style.display = !inEditor && localTestActionsEnabled ? 'flex' : 'none';
     enterEditorButton.disabled = disabled;
-    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton, gridToggleButton]) {
+    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, mainCameraPreviewButton, gridToggleButton]) {
       button.style.display = 'inline-flex';
       button.disabled = disabled;
     }
@@ -2374,18 +2445,21 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!inEditor) closePlacementSettingsPopover();
     if (!inEditor) closeTransformActionPopover();
     if (!inEditor) closeOverlaySettingsPopover();
-    const sceneCameraPreview = state.sceneCameraPreview ?? { enabled: false, available: false };
-    cameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
-    sceneCameraButton.disabled = disabled || !sceneCameraPreview.available;
-    const sceneCameraTooltip = sceneCameraPreview.available
+    const mainCameraPreview = state.mainCameraPreview ?? { enabled: false, available: false };
+    mainCameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
+    mainCameraPreviewButton.disabled = disabled || !mainCameraPreview.available;
+    const mainCameraPreviewTooltip = mainCameraPreview.available
       ? '从 Main Camera 查看当前场景'
       : '当前场景没有可预览的 Main Camera';
-    setToolbarButtonTooltip(sceneCameraButton, sceneCameraTooltip);
-    LocalEditorShared.applyButtonActiveState(sceneCameraButton, sceneCameraPreview.enabled);
+    setToolbarButtonTooltip(mainCameraPreviewButton, mainCameraPreviewTooltip);
+    LocalEditorShared.applyButtonActiveState(mainCameraPreviewButton, mainCameraPreview.enabled);
     const viewportTools = state.viewportTools ?? null;
-    const viewportControlsDisabled = disabled || sceneCameraPreview.enabled;
-    const viewportControlsTooltip = sceneCameraPreview.enabled
-      ? '请先关闭 Scene Camera 预览，再使用视口工具'
+    const viewportControlsDisabled = disabled || mainCameraPreview.enabled;
+    const viewportControlsTooltip = mainCameraPreview.enabled
+      ? '当前为 Main Camera 预览，请关闭后再使用视口工具'
+      : '';
+    const viewportProjectionTooltip = mainCameraPreview.enabled
+      ? '当前为 Main Camera 预览，投影由 Main Camera 决定；关闭预览后可切换编辑视口投影'
       : '';
     viewportToolsGroup.style.display = inEditor ? 'flex' : 'none';
     for (const [preset, button] of viewportPresetButtons) {
@@ -2399,7 +2473,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     setToolbarButtonIcon(doc, projectionToggleButton, projectionMode === 'orthographic' ? 'projection-ortho' : 'projection-perspective');
     setToolbarButtonTooltip(
       projectionToggleButton,
-      viewportControlsTooltip || `投影模式：${VIEWPORT_PROJECTION_LABELS[projectionMode]}。切换为${VIEWPORT_PROJECTION_LABELS[nextProjectionMode]}`,
+      viewportProjectionTooltip || `投影模式：${VIEWPORT_PROJECTION_LABELS[projectionMode]}。切换为${VIEWPORT_PROJECTION_LABELS[nextProjectionMode]}`,
     );
     LocalEditorShared.applyButtonActiveState(projectionToggleButton, projectionMode === 'orthographic');
     overlaySettingsButton.disabled = disabled;
