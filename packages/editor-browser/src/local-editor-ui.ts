@@ -2204,7 +2204,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const viewportTools = state.viewportTools ?? null;
     const viewportControlsDisabled = disabled || sceneCameraPreview.enabled;
     const viewportControlsTooltip = sceneCameraPreview.enabled
-      ? '请先关闭 Scene Camera 预览，再使用视口工具'
+      ? '当前为 Main Camera 预览，请关闭后再使用视口工具'
+      : '';
+    const viewportProjectionTooltip = sceneCameraPreview.enabled
+      ? '当前为 Main Camera 预览，投影由 Main Camera 决定；关闭预览后可切换编辑视口投影'
       : '';
     viewportToolsGroup.style.display = inEditor ? 'flex' : 'none';
     for (const [preset, button] of viewportPresetButtons) {
@@ -2218,7 +2221,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     setToolbarButtonIcon(doc, projectionToggleButton, projectionMode === 'orthographic' ? 'projection-ortho' : 'projection-perspective');
     setToolbarButtonTooltip(
       projectionToggleButton,
-      viewportControlsTooltip || `投影模式：${VIEWPORT_PROJECTION_LABELS[projectionMode]}。切换为${VIEWPORT_PROJECTION_LABELS[nextProjectionMode]}`,
+      viewportProjectionTooltip || `投影模式：${VIEWPORT_PROJECTION_LABELS[projectionMode]}。切换为${VIEWPORT_PROJECTION_LABELS[nextProjectionMode]}`,
     );
     LocalEditorShared.applyButtonActiveState(projectionToggleButton, projectionMode === 'orthographic');
     overlaySettingsButton.disabled = disabled;

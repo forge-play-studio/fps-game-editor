@@ -6,6 +6,7 @@ import type {
 } from '@fps-games/editor-core';
 import type {
   BabylonRuntimeGlobal,
+  RuntimeCamera,
   RuntimeScene,
 } from './types';
 
@@ -37,11 +38,20 @@ export interface BabylonEditorProjectionPrimitive {
   shape: BabylonEditorProjectionPrimitiveShape;
 }
 
+export type BabylonEditorProjectionCameraMode = 'orthographic' | 'perspective';
+
 export interface BabylonEditorProjectionCameraSettings {
+  projection?: BabylonEditorProjectionCameraMode;
   alpha: number;
   beta: number;
   radius: number;
   orthoSize: number;
+  fov?: number;
+}
+
+export interface BabylonEditorProjectionCameraRigApplyOptions {
+  target?: BabylonEditorProjectionVec3 | null;
+  lockOrbit?: boolean;
 }
 
 export interface BabylonEditorProjectionColorRGB {
@@ -533,7 +543,7 @@ function attachCameraProjection(
   const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
   if (!MeshBuilder || !StandardMaterial) return;
 
-  const settings = readProjectionCameraSettings(node.camera);
+  const settings = normalizeBabylonEditorProjectionCameraSettings(node.camera);
   const body = MeshBuilder.CreateBox(`${node.id}.cameraHelper`, {
     width: 0.38,
     height: 0.28,
@@ -838,27 +848,56 @@ function createCameraFrustumLines(
   const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
   if (!MeshBuilder?.CreateLineSystem) return null;
   const distance = Math.max(0.4, settings.radius * 0.12);
-  const halfHeight = Math.max(0.12, settings.orthoSize * 0.08);
-  const halfWidth = halfHeight * (16 / 9);
-  const near = new Vector3(0, 0, 0.18);
-  const topLeft = new Vector3(-halfWidth, halfHeight, -distance);
-  const topRight = new Vector3(halfWidth, halfHeight, -distance);
-  const bottomRight = new Vector3(halfWidth, -halfHeight, -distance);
-  const bottomLeft = new Vector3(-halfWidth, -halfHeight, -distance);
-  const frustum = MeshBuilder.CreateLineSystem(`${node.id}.cameraFrustum`, {
-    lines: [
+  const aspect = 16 / 9;
+  const nearDistance = 0.18;
+  let lines: any[];
+
+  if (settings.projection === 'perspective') {
+    const halfHeight = Math.max(0.12, Math.tan((settings.fov ?? 0.85) / 2) * distance);
+    const halfWidth = halfHeight * aspect;
+    const origin = new Vector3(0, 0, nearDistance);
+    const topLeft = new Vector3(-halfWidth, halfHeight, -distance);
+    const topRight = new Vector3(halfWidth, halfHeight, -distance);
+    const bottomRight = new Vector3(halfWidth, -halfHeight, -distance);
+    const bottomLeft = new Vector3(-halfWidth, -halfHeight, -distance);
+    lines = [
       [topLeft, topRight, bottomRight, bottomLeft, topLeft],
-      [near, topLeft],
-      [near, topRight],
-      [near, bottomRight],
-      [near, bottomLeft],
-    ],
+      [origin, topLeft],
+      [origin, topRight],
+      [origin, bottomRight],
+      [origin, bottomLeft],
+    ];
+  } else {
+    const halfHeight = Math.max(0.12, settings.orthoSize * 0.08);
+    const halfWidth = halfHeight * aspect;
+    const nearTopLeft = new Vector3(-halfWidth, halfHeight, -nearDistance);
+    const nearTopRight = new Vector3(halfWidth, halfHeight, -nearDistance);
+    const nearBottomRight = new Vector3(halfWidth, -halfHeight, -nearDistance);
+    const nearBottomLeft = new Vector3(-halfWidth, -halfHeight, -nearDistance);
+    const farTopLeft = new Vector3(-halfWidth, halfHeight, -distance);
+    const farTopRight = new Vector3(halfWidth, halfHeight, -distance);
+    const farBottomRight = new Vector3(halfWidth, -halfHeight, -distance);
+    const farBottomLeft = new Vector3(-halfWidth, -halfHeight, -distance);
+    lines = [
+      [nearTopLeft, nearTopRight, nearBottomRight, nearBottomLeft, nearTopLeft],
+      [farTopLeft, farTopRight, farBottomRight, farBottomLeft, farTopLeft],
+      [nearTopLeft, farTopLeft],
+      [nearTopRight, farTopRight],
+      [nearBottomRight, farBottomRight],
+      [nearBottomLeft, farBottomLeft],
+    ];
+  }
+
+  const frustum = MeshBuilder.CreateLineSystem(`${node.id}.cameraFrustum`, {
+    lines,
   }, scene);
   frustum.color = new Color3(0.45, 0.68, 1);
   frustum.metadata = createProjectionMetadata(node.id, {
     runtimeKind: 'camera',
     helper: 'frustum',
+    projection: settings.projection,
     orthoSize: settings.orthoSize,
+    fov: settings.fov,
   });
   return frustum;
 }
@@ -900,15 +939,86 @@ function createLightDirectionLines(
   return arrow;
 }
 
-function readProjectionCameraSettings(
+export function normalizeBabylonEditorProjectionCameraSettings(
   settings: BabylonEditorProjectionCameraSettings | undefined,
 ): BabylonEditorProjectionCameraSettings {
   return {
+    projection: readProjectionCameraMode(settings?.projection),
     alpha: readFiniteNumber(settings?.alpha, 3.9269908169872414),
     beta: readFiniteNumber(settings?.beta, 0.8),
     radius: Math.max(0.001, readFiniteNumber(settings?.radius, 14)),
     orthoSize: Math.max(0.001, readFiniteNumber(settings?.orthoSize, 6)),
+    fov: Math.max(0.001, readFiniteNumber(settings?.fov, 0.85)),
   };
+}
+
+export function applyBabylonEditorProjectionCameraRig(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  camera: RuntimeCamera,
+  settings: BabylonEditorProjectionCameraSettings | undefined,
+  options: BabylonEditorProjectionCameraRigApplyOptions = {},
+): BabylonEditorProjectionCameraSettings {
+  const normalized = normalizeBabylonEditorProjectionCameraSettings(settings);
+  const Vector3 = babylon.Vector3;
+  const target = options.target && Vector3
+    ? new Vector3(options.target.x, options.target.y, options.target.z)
+    : null;
+
+  if (typeof camera.alpha === 'number') {
+    clearBabylonArcRotateCameraOrbitLimits(camera);
+    if (target) camera.target = target;
+    camera.alpha = normalized.alpha;
+    camera.beta = normalized.beta;
+    camera.radius = normalized.radius;
+    if (options.lockOrbit !== false) {
+      camera.lowerAlphaLimit = normalized.alpha;
+      camera.upperAlphaLimit = normalized.alpha;
+      camera.lowerBetaLimit = normalized.beta;
+      camera.upperBetaLimit = normalized.beta;
+      camera.lowerRadiusLimit = normalized.radius;
+      camera.upperRadiusLimit = normalized.radius;
+    }
+  } else if (target) {
+    camera.setTarget?.(target);
+  }
+
+  if (normalized.projection === 'perspective') {
+    camera.mode = babylon.Camera?.PERSPECTIVE_CAMERA ?? camera.mode ?? 0;
+    camera.fov = normalized.fov ?? 0.85;
+    return normalized;
+  }
+
+  camera.mode = babylon.Camera?.ORTHOGRAPHIC_CAMERA ?? camera.mode ?? 1;
+  const aspect = readProjectionSceneAspect(scene);
+  const halfHeight = normalized.orthoSize;
+  const halfWidth = halfHeight * aspect;
+  camera.orthoLeft = -halfWidth;
+  camera.orthoRight = halfWidth;
+  camera.orthoTop = halfHeight;
+  camera.orthoBottom = -halfHeight;
+  return normalized;
+}
+
+function clearBabylonArcRotateCameraOrbitLimits(camera: RuntimeCamera): void {
+  camera.lowerAlphaLimit = null;
+  camera.upperAlphaLimit = null;
+  camera.lowerBetaLimit = null;
+  camera.upperBetaLimit = null;
+  camera.lowerRadiusLimit = null;
+  camera.upperRadiusLimit = null;
+}
+
+function readProjectionCameraMode(value: unknown): BabylonEditorProjectionCameraMode {
+  return value === 'perspective' ? 'perspective' : 'orthographic';
+}
+
+function readProjectionSceneAspect(scene: RuntimeScene): number {
+  const engine = scene.getEngine?.();
+  const width = Number(engine?.getRenderWidth?.() ?? engine?.getRenderingCanvas?.()?.width ?? 1);
+  const height = Number(engine?.getRenderHeight?.() ?? engine?.getRenderingCanvas?.()?.height ?? 1);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) return 16 / 9;
+  return Math.max(0.01, width / height);
 }
 
 function readProjectionDirectionalLightSettings(

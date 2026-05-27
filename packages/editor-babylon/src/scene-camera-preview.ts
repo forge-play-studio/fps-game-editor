@@ -3,6 +3,7 @@ import type {
   BabylonEditorProjectionNode,
   BabylonEditorProjectionTransform,
 } from './projection';
+import { applyBabylonEditorProjectionCameraRig } from './projection';
 import type {
   BabylonRuntimeGlobal,
   RuntimeCamera,
@@ -29,10 +30,12 @@ export interface BabylonSceneCameraPreviewController {
 }
 
 const DEFAULT_SCENE_CAMERA_SETTINGS: BabylonEditorProjectionCameraSettings = {
+  projection: 'orthographic',
   alpha: 3.9269908169872414,
   beta: 0.8,
   radius: 14,
   orthoSize: 6,
+  fov: 0.85,
 };
 
 export function createBabylonSceneCameraPreviewController(
@@ -81,7 +84,6 @@ export function createBabylonSceneCameraPreviewController(
       return null;
     }
     previewCameraKind = kind;
-    previewCamera.mode = options.babylon.Camera?.ORTHOGRAPHIC_CAMERA ?? previewCamera.mode ?? 1;
     previewCamera.inertia = 0;
     return previewCamera;
   }
@@ -115,32 +117,15 @@ export function createBabylonSceneCameraPreviewController(
       camera.position = new Vector3(transform.position.x, transform.position.y, transform.position.z);
       if (camera.rotationQuaternion) camera.rotationQuaternion = null;
       camera.rotation = new Vector3(transform.rotation.x, transform.rotation.y, transform.rotation.z);
+      applyBabylonEditorProjectionCameraRig(options.babylon, options.scene, camera, settings, { lockOrbit: false });
     } else {
-      const targetVector = new Vector3(target.x, target.y, target.z);
       if (typeof camera.alpha === 'number') {
-        camera.target = targetVector;
-        camera.alpha = settings.alpha;
-        camera.beta = settings.beta;
-        camera.radius = settings.radius;
-        camera.lowerAlphaLimit = settings.alpha;
-        camera.upperAlphaLimit = settings.alpha;
-        camera.lowerBetaLimit = settings.beta;
-        camera.upperBetaLimit = settings.beta;
-        camera.lowerRadiusLimit = settings.radius;
-        camera.upperRadiusLimit = settings.radius;
+        applyBabylonEditorProjectionCameraRig(options.babylon, options.scene, camera, settings, { target });
       } else {
         camera.position = createOrbitPosition(Vector3, target, settings);
-        camera.setTarget?.(targetVector);
+        applyBabylonEditorProjectionCameraRig(options.babylon, options.scene, camera, settings, { target });
       }
     }
-    camera.mode = options.babylon.Camera?.ORTHOGRAPHIC_CAMERA ?? camera.mode ?? 1;
-    const aspect = readSceneAspect(options.scene);
-    const halfHeight = settings.orthoSize;
-    const halfWidth = halfHeight * aspect;
-    camera.orthoLeft = -halfWidth;
-    camera.orthoRight = halfWidth;
-    camera.orthoTop = halfHeight;
-    camera.orthoBottom = -halfHeight;
   }
 
   return {
@@ -202,14 +187,6 @@ export function createBabylonSceneCameraPreviewRigFromProjectionNode(
       : {}),
     ...(node.camera ? { settings: { ...node.camera } } : {}),
   };
-}
-
-function readSceneAspect(scene: RuntimeScene): number {
-  const engine = scene.getEngine?.();
-  const width = Number(engine?.getRenderWidth?.() ?? engine?.getRenderingCanvas?.()?.width ?? 1);
-  const height = Number(engine?.getRenderHeight?.() ?? engine?.getRenderingCanvas?.()?.height ?? 1);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) return 16 / 9;
-  return Math.max(0.01, width / height);
 }
 
 function createOrbitPosition(
