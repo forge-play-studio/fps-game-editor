@@ -984,12 +984,12 @@ export function applyBabylonEditorProjectionCameraRig(
   }
 
   if (normalized.projection === 'perspective') {
-    camera.mode = babylon.Camera?.PERSPECTIVE_CAMERA ?? camera.mode ?? 0;
+    camera.mode = babylon.Camera?.PERSPECTIVE_CAMERA ?? 0;
     camera.fov = normalized.fov ?? 0.85;
     return normalized;
   }
 
-  camera.mode = babylon.Camera?.ORTHOGRAPHIC_CAMERA ?? camera.mode ?? 1;
+  camera.mode = babylon.Camera?.ORTHOGRAPHIC_CAMERA ?? 1;
   const aspect = readProjectionSceneAspect(scene);
   const halfHeight = normalized.orthoSize;
   const halfWidth = halfHeight * aspect;
