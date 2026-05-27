@@ -134,7 +134,9 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
     const id = hierarchyButton?.dataset.editorHierarchyId;
     if (!id) return;
     event.preventDefault();
-    beginHierarchyRename(id);
+    event.stopPropagation();
+    callbacks.onSelectHierarchyItem?.({ id, additive: false, toggle: false });
+    callbacks.onFocusSelection?.();
   };
 
   const onInput = (event: Event): void => {
