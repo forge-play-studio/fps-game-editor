@@ -33,7 +33,7 @@ describe('Babylon scene camera preview controller', () => {
     });
 
     expect(controller.isActive()).toBe(true);
-    expect(scene.activeCamera?.name).toBe('editor-scene-camera-preview');
+    expect(scene.activeCamera?.name).toBe('editor-main-camera-preview');
     expect(scene.activeCamera?.position).toMatchObject({ x: 1, y: 2, z: 3 });
     expect(scene.activeCamera?.rotation).toMatchObject({ x: 0.3, y: 0.4, z: 0.5 });
     expect(scene.activeCamera?.mode).toBe(BABYLON.Camera.ORTHOGRAPHIC_CAMERA);
