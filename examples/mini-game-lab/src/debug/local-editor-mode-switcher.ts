@@ -213,11 +213,17 @@ export function mountLocalEditorModeSwitcher(options: LocalEditorModeSwitcherOpt
   };
 }
 
-function createEditorGrid(BABYLON: BabylonModule, scene: any, camera?: any) {
+function createEditorGrid(
+  BABYLON: BabylonModule,
+  scene: any,
+  camera?: any,
+  context?: { getCamera?: () => any },
+) {
   return createBabylonEditorInfiniteGrid({
     babylon: BABYLON,
     scene,
     camera,
+    getCamera: () => context?.getCamera?.() ?? camera ?? scene?.activeCamera ?? null,
     name: 'mini-game-editor-grid',
     halfLineCount: 96,
   });

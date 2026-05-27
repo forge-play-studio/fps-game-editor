@@ -442,6 +442,11 @@ export interface LocalEditorHarnessWorldAdapter<TAsset = LocalEditorHarnessAsset
 
 export type LocalEditorHarnessGridController = BabylonEditorGridController;
 
+export interface LocalEditorHarnessGridContext {
+  getCamera(): unknown | null;
+  getEditorCamera(): unknown | null;
+}
+
 export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   root?: HTMLElement;
   theme?: LocalEditorThemeName;
@@ -467,6 +472,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     babylon: BabylonRuntimeGlobal & Record<string, any>,
     scene: unknown,
     camera?: unknown,
+    context?: LocalEditorHarnessGridContext,
   ) => LocalEditorHarnessGridController | void;
 }
 
@@ -1323,7 +1329,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     getCamera: () => state.sceneViewCamera,
   });
   state.sceneViewInteraction = sceneViewInteraction;
-  const grid = options.createGrid?.(babylon, world.scene, world.camera) ?? null;
+  const grid = options.createGrid?.(babylon, world.scene, world.camera, {
+    getCamera: () => world.scene?.activeCamera ?? world.camera ?? null,
+    getEditorCamera: () => world.camera ?? null,
+  }) ?? null;
   grid?.setVisible(state.gridVisible);
   const projection = createBabylonEditorProjection({
     babylon,

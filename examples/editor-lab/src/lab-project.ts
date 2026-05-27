@@ -351,11 +351,17 @@ export function createLabWorldAdapter(canvasId = 'editor-lab-canvas'): LocalEdit
   };
 }
 
-export function createLabGrid(babylon: any, scene: any, camera?: any) {
+export function createLabGrid(
+  babylon: any,
+  scene: any,
+  camera?: any,
+  context?: { getCamera?: () => any },
+) {
   return createBabylonEditorInfiniteGrid({
     babylon,
     scene,
     camera,
+    getCamera: () => context?.getCamera?.() ?? camera ?? scene?.activeCamera ?? null,
     name: 'lab-editor-grid',
     halfLineCount: 64,
   });
