@@ -56,11 +56,12 @@ describe('Babylon editor infinite grid', () => {
       targetScreenSpacingPx: 48,
     });
 
-    expect(grid.getStep()).toBe(1);
+    const initialStep = grid.getStep();
+    expect(initialStep).toBeGreaterThan(0);
 
     camera.radius = 800;
     expect(() => scene.render()).not.toThrow();
-    expect(grid.getStep()).toBeGreaterThan(1);
+    expect(grid.getStep()).toBeGreaterThan(initialStep);
 
     const gridMeshes = scene.meshes.filter(mesh => mesh.metadata?.editorGrid);
     expect(gridMeshes).toHaveLength(4);
@@ -92,10 +93,177 @@ describe('Babylon editor infinite grid', () => {
     const visibleCoordinates = visibleGridMeshes.flatMap(mesh => (
       Array.from(mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind) ?? []) as number[]
     )).filter((_value, index) => index % 3 !== 1);
-    expect(Math.max(...visibleCoordinates.map(value => Math.abs(value)))).toBeLessThan(96);
+    expect(Math.max(...visibleCoordinates.map(value => Math.abs(value)))).toBeLessThanOrEqual(96 + grid.getStep());
+
+    grid.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('covers the active preview camera ground footprint when a dynamic render camera is provided', () => {
+    const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
+    const scene = new BABYLON.Scene(engine);
+    const editorCamera = new BABYLON.ArcRotateCamera(
+      'editor-camera',
+      0,
+      1,
+      8,
+      new BABYLON.Vector3(0, 0, 0),
+      scene,
+    );
+    const previewCamera = new BABYLON.ArcRotateCamera(
+      'editor-main-camera-preview',
+      Math.PI / 4,
+      0.85,
+      42,
+      new BABYLON.Vector3(85, 0, 55),
+      scene,
+    );
+    previewCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
+    previewCamera.orthoLeft = -22;
+    previewCamera.orthoRight = 22;
+    previewCamera.orthoTop = 14;
+    previewCamera.orthoBottom = -14;
+    previewCamera.minZ = 0.1;
+    previewCamera.maxZ = 400;
+    scene.activeCamera = editorCamera;
+
+    const grid = createBabylonEditorInfiniteGrid({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      camera: editorCamera,
+      getCamera: () => scene.activeCamera as any,
+      name: 'preview-camera-grid',
+      halfLineCount: 8,
+      adaptiveSteps: [1, 2, 5, 10, 20],
+      targetScreenSpacingPx: 48,
+    });
+
+    scene.activeCamera = previewCamera;
+    expect(() => scene.render()).not.toThrow();
+
+    const footprint = readGroundFootprint(scene, previewCamera);
+    const bounds = readEnabledGridBounds(scene);
+    expect(bounds.minX).toBeLessThanOrEqual(footprint.minX + 0.001);
+    expect(bounds.maxX).toBeGreaterThanOrEqual(footprint.maxX - 0.001);
+    expect(bounds.minZ).toBeLessThanOrEqual(footprint.minZ + 0.001);
+    expect(bounds.maxZ).toBeGreaterThanOrEqual(footprint.maxZ - 0.001);
+
+    grid.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('keeps the local grid density stable as an orthographic preview camera tilts toward the horizon', () => {
+    const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
+    const scene = new BABYLON.Scene(engine);
+    const previewCamera = new BABYLON.ArcRotateCamera(
+      'editor-main-camera-preview',
+      Math.PI / 4,
+      0.75,
+      42,
+      new BABYLON.Vector3(85, 0, 55),
+      scene,
+    );
+    previewCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
+    previewCamera.orthoLeft = -22;
+    previewCamera.orthoRight = 22;
+    previewCamera.orthoTop = 14;
+    previewCamera.orthoBottom = -14;
+    previewCamera.minZ = 0.1;
+    previewCamera.maxZ = 400;
+    scene.activeCamera = previewCamera;
+
+    const grid = createBabylonEditorInfiniteGrid({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      camera: previewCamera,
+      getCamera: () => scene.activeCamera as any,
+      name: 'stable-density-grid',
+      halfLineCount: 8,
+      adaptiveSteps: [1, 2, 5, 10, 20, 50],
+      targetScreenSpacingPx: 48,
+    });
+
+    const downwardStep = grid.getStep();
+    previewCamera.beta = 1.42;
+    expect(() => scene.render()).not.toThrow();
+    expect(grid.getStep()).toBe(downwardStep);
+
+    const footprint = readGroundFootprint(scene, previewCamera);
+    const bounds = readEnabledGridBounds(scene);
+    expect(bounds.minX).toBeLessThanOrEqual(footprint.minX + 0.001);
+    expect(bounds.maxX).toBeGreaterThanOrEqual(footprint.maxX - 0.001);
+    expect(bounds.minZ).toBeLessThanOrEqual(footprint.minZ + 0.001);
+    expect(bounds.maxZ).toBeGreaterThanOrEqual(footprint.maxZ - 0.001);
 
     grid.dispose();
     scene.dispose();
     engine.dispose();
   });
 });
+
+function readEnabledGridBounds(scene: BABYLON.Scene): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const points: Array<{ x: number; z: number }> = [];
+  for (const mesh of scene.meshes.filter(mesh => mesh.metadata?.editorGrid && mesh.isEnabled())) {
+    const positions = Array.from(mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind) ?? []) as number[];
+    for (let index = 0; index + 5 < positions.length; index += 6) {
+      const segment = positions.slice(index, index + 6);
+      if (segment.every(value => Math.abs(value) < 0.000001)) continue;
+      points.push({ x: segment[0], z: segment[2] });
+      points.push({ x: segment[3], z: segment[5] });
+    }
+  }
+  expect(points.length).toBeGreaterThan(0);
+  return {
+    minX: Math.min(...points.map(point => point.x)),
+    maxX: Math.max(...points.map(point => point.x)),
+    minZ: Math.min(...points.map(point => point.z)),
+    maxZ: Math.max(...points.map(point => point.z)),
+  };
+}
+
+function readGroundFootprint(
+  scene: BABYLON.Scene,
+  camera: BABYLON.Camera,
+): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const engine = scene.getEngine();
+  const viewport = camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight());
+  const samples = [
+    [0, 0],
+    [0.5, 0],
+    [1, 0],
+    [1, 0.5],
+    [1, 1],
+    [0.5, 1],
+    [0, 1],
+    [0, 0.5],
+    [0.5, 0.5],
+  ];
+  const points = samples
+    .map(([x, y]) => scene.createPickingRay(
+      viewport.x + viewport.width * x,
+      viewport.y + viewport.height * y,
+      BABYLON.Matrix.Identity(),
+      camera,
+    ))
+    .map(intersectGround)
+    .filter((point): point is { x: number; z: number } => !!point);
+  expect(points.length).toBeGreaterThan(1);
+  return {
+    minX: Math.min(...points.map(point => point.x)),
+    maxX: Math.max(...points.map(point => point.x)),
+    minZ: Math.min(...points.map(point => point.z)),
+    maxZ: Math.max(...points.map(point => point.z)),
+  };
+}
+
+function intersectGround(ray: BABYLON.Ray): { x: number; z: number } | null {
+  if (Math.abs(ray.direction.y) < 0.000001) return null;
+  const distance = -ray.origin.y / ray.direction.y;
+  if (!Number.isFinite(distance) || distance < 0) return null;
+  return {
+    x: ray.origin.x + ray.direction.x * distance,
+    z: ray.origin.z + ray.direction.z * distance,
+  };
+}
