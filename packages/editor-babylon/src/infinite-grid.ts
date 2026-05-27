@@ -53,6 +53,7 @@ interface GridFrameState {
   center: GridCenter;
   step: number;
   majorStep: number;
+  visibleHalfLineCount: number;
   lineSpan: number;
 }
 
@@ -60,6 +61,7 @@ const DEFAULT_STEP = 1;
 const DEFAULT_MAJOR_STEP_MULTIPLIER = 5;
 const DEFAULT_HALF_LINE_COUNT = 80;
 const DEFAULT_TARGET_SCREEN_SPACING_PX = 48;
+const MAX_LINES_PER_LINE_SYSTEM = 64;
 const DEFAULT_ADAPTIVE_STEPS = [
   1,
   5,
@@ -108,8 +110,8 @@ export function createBabylonEditorInfiniteGrid(
     lines.push(createGridLine('z', offsetIndex));
   }
   lineGroups = [
-    createLineGroup('regular', lines.length, gridColor),
-    createLineGroup('major', lines.length, majorGridColor),
+    ...createLineGroups('regular', lines.length, gridColor),
+    ...createLineGroups('major', lines.length, majorGridColor),
     createLineGroup('axis-x', 1, axisXColor),
     createLineGroup('axis-z', 1, axisZColor),
   ];
@@ -125,9 +127,30 @@ export function createBabylonEditorInfiniteGrid(
     };
   }
 
-  function createLineGroup(key: GridLineGroupKey, capacity: number, color: any): GridLineGroup {
+  function createLineGroups(key: GridLineGroupKey, totalCapacity: number, color: any): GridLineGroup[] {
+    const chunkCount = Math.max(1, Math.ceil(totalCapacity / MAX_LINES_PER_LINE_SYSTEM));
+    const groups: GridLineGroup[] = [];
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+      const remainingCapacity = totalCapacity - chunkIndex * MAX_LINES_PER_LINE_SYSTEM;
+      groups.push(createLineGroup(
+        key,
+        Math.min(MAX_LINES_PER_LINE_SYSTEM, remainingCapacity),
+        color,
+        chunkCount > 1 ? chunkIndex : null,
+      ));
+    }
+    return groups;
+  }
+
+  function createLineGroup(
+    key: GridLineGroupKey,
+    capacity: number,
+    color: any,
+    chunkIndex: number | null = null,
+  ): GridLineGroup {
     const hiddenLines = createHiddenLines(capacity);
-    const mesh = MeshBuilder.CreateLineSystem(`${name}-${key}`, {
+    const suffix = chunkIndex === null ? key : `${key}-${chunkIndex}`;
+    const mesh = MeshBuilder.CreateLineSystem(`${name}-${suffix}`, {
       lines: hiddenLines,
       updatable: true,
     }, scene);
@@ -139,6 +162,8 @@ export function createBabylonEditorInfiniteGrid(
       ...(mesh.metadata ?? {}),
       editorProjectionHelper: true,
       editorGrid: true,
+      editorGridGroup: key,
+      editorGridChunk: chunkIndex ?? 0,
     };
     mesh.setEnabled?.(false);
     return { key, mesh, capacity, hiddenLines, hasLines: false };
@@ -162,6 +187,7 @@ export function createBabylonEditorInfiniteGrid(
       'axis-z': [],
     };
     for (const line of lines) {
+      if (Math.abs(line.offsetIndex) > frameState.visibleHalfLineCount) continue;
       const resolvedLine = createGridLinePoints(line, frameState);
       grouped[resolvedLine.group].push(resolvedLine.points);
     }
@@ -169,12 +195,22 @@ export function createBabylonEditorInfiniteGrid(
   }
 
   function updateLineGroups(nextGroups: Record<GridLineGroupKey, any[][]>): void {
+    const cursors: Record<GridLineGroupKey, number> = {
+      regular: 0,
+      major: 0,
+      'axis-x': 0,
+      'axis-z': 0,
+    };
     for (const group of lineGroups) {
       const groupLines = nextGroups[group.key] ?? [];
-      group.hasLines = groupLines.length > 0;
+      const start = cursors[group.key] ?? 0;
+      const chunkLines = groupLines.slice(start, start + group.capacity);
+      cursors[group.key] = start + group.capacity;
+      group.hasLines = chunkLines.length > 0;
       MeshBuilder.CreateLineSystem(group.mesh.name, {
-        lines: padLines(groupLines, group),
+        lines: padLines(chunkLines, group),
         instance: group.mesh,
+        updatable: true,
       }, scene);
       group.mesh.setEnabled?.(visible && group.hasLines);
     }
@@ -183,11 +219,13 @@ export function createBabylonEditorInfiniteGrid(
   function readGridFrameState(): GridFrameState {
     const step = resolveAdaptiveStep(scene, options.camera ?? null, adaptiveSteps, targetScreenSpacingPx);
     const majorStep = normalizePositive(options.majorStep, step * DEFAULT_MAJOR_STEP_MULTIPLIER);
+    const visibleHalfLineCount = resolveVisibleHalfLineCount(scene, options.camera ?? null, step, halfLineCount);
     return {
       center: readGridCenter(scene, options.camera ?? null, step),
       step,
       majorStep,
-      lineSpan: halfLineCount * step,
+      visibleHalfLineCount,
+      lineSpan: visibleHalfLineCount * step,
     };
   }
 
@@ -291,13 +329,14 @@ export function createBabylonEditorInfiniteGrid(
 function isSameGridFrameState(left: GridFrameState, right: GridFrameState): boolean {
   return left.step === right.step
     && left.majorStep === right.majorStep
+    && left.visibleHalfLineCount === right.visibleHalfLineCount
     && left.lineSpan === right.lineSpan
     && left.center.x === right.center.x
     && left.center.z === right.center.z;
 }
 
 function readGridCenter(scene: RuntimeScene, camera: RuntimeCamera | null, step: number): GridCenter {
-  const activeCamera = scene?.activeCamera ?? camera;
+  const activeCamera = camera ?? scene?.activeCamera ?? null;
   const source = activeCamera?.target ?? activeCamera?.position ?? { x: 0, z: 0 };
   return {
     x: Math.floor((Number(source.x) || 0) / step) * step,
@@ -341,7 +380,7 @@ function resolveAdaptiveStep(
 }
 
 function estimatePixelsPerWorldUnit(scene: RuntimeScene, camera: RuntimeCamera | null): number {
-  const activeCamera = scene?.activeCamera ?? camera;
+  const activeCamera = camera ?? scene?.activeCamera ?? null;
   const engine = scene?.getEngine?.();
   const viewportHeight = readViewportHeight(engine);
   if (!activeCamera || viewportHeight <= 0) return 1;
@@ -364,6 +403,53 @@ function readViewportHeight(engine: any): number {
   const canvasHeight = Number(engine?.getRenderingCanvas?.()?.clientHeight);
   if (Number.isFinite(canvasHeight) && canvasHeight > 0) return canvasHeight;
   return 720;
+}
+
+function readViewportWidth(engine: any): number {
+  const renderWidth = Number(engine?.getRenderWidth?.());
+  if (Number.isFinite(renderWidth) && renderWidth > 0) return renderWidth;
+  const canvasWidth = Number(engine?.getRenderingCanvas?.()?.clientWidth);
+  if (Number.isFinite(canvasWidth) && canvasWidth > 0) return canvasWidth;
+  return 1280;
+}
+
+function resolveVisibleHalfLineCount(
+  scene: RuntimeScene,
+  camera: RuntimeCamera | null,
+  step: number,
+  maxHalfLineCount: number,
+): number {
+  const activeCamera = camera ?? scene?.activeCamera ?? null;
+  if (!activeCamera) return maxHalfLineCount;
+  const visibleSpan = estimateVisibleGridSpan(scene, activeCamera);
+  if (!Number.isFinite(visibleSpan) || visibleSpan <= 0) return maxHalfLineCount;
+  const desiredHalfLineCount = Math.ceil((visibleSpan * 1.15) / step);
+  return Math.max(4, Math.min(maxHalfLineCount, desiredHalfLineCount));
+}
+
+function estimateVisibleGridSpan(scene: RuntimeScene, camera: RuntimeCamera): number {
+  const engine = scene?.getEngine?.();
+  const viewportHeight = readViewportHeight(engine);
+  const viewportWidth = readViewportWidth(engine);
+  const aspect = viewportHeight > 0 ? viewportWidth / viewportHeight : 1;
+
+  const orthoTop = Number(camera.orthoTop);
+  const orthoBottom = Number(camera.orthoBottom);
+  const orthoLeft = Number(camera.orthoLeft);
+  const orthoRight = Number(camera.orthoRight);
+  if (Number.isFinite(orthoTop)
+    && Number.isFinite(orthoBottom)
+    && Number.isFinite(orthoLeft)
+    && Number.isFinite(orthoRight)
+    && orthoTop !== orthoBottom
+    && orthoLeft !== orthoRight) {
+    return Math.max(Math.abs(orthoTop - orthoBottom), Math.abs(orthoRight - orthoLeft));
+  }
+
+  const distance = estimateCameraDistanceToTarget(camera);
+  const fov = normalizePositive(Number(camera.fov), Math.PI / 4);
+  const visibleHeight = 2 * distance * Math.tan(fov / 2);
+  return Math.max(visibleHeight, visibleHeight * aspect);
 }
 
 function estimateCameraDistanceToTarget(camera: any): number {

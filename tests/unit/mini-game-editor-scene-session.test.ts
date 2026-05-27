@@ -17,6 +17,7 @@ import {
   createEditorSceneReadonlyInspectorProperty,
   createEditorSceneReadonlyInspectorSection,
   createEditorSceneReadonlyVector3Properties,
+  createEditorSceneCreatePrimitivePatch,
   createEditorSceneDeleteSubtreePatch,
   createEditorSceneDuplicateSelectionPatch,
   createEditorSceneInspectorPropertyPatch,
@@ -950,6 +951,66 @@ describe('mini-game editor scene Inspector v2 adapter', () => {
     const next = reduceEditorSceneDocument(document, { type: 'document.patch', patch: patch!.patch });
     const transform = next.scene.gameObjects.find(gameObject => gameObject.id === 'tree')?.components.find(component => component.type === 'Transform');
     expect(transform).toMatchObject({ scale: { x: 0, y: 1, z: 1 } });
+  });
+
+  it('creates default primitives under the scene root with clean local transforms', () => {
+    const document = createMiniEditorSceneDocument();
+    const patch = createEditorSceneCreatePrimitivePatch(document, {
+      parentId: null,
+      activeId: 'tree',
+      shape: 'cube',
+      name: 'Cube',
+    });
+
+    expect(patch?.patch).toMatchObject({
+      kind: 'game-object.create-primitive',
+      gameObject: {
+        parentId: 'root',
+        primitive: { shape: 'cube' },
+        components: [
+          {
+            type: 'Transform',
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+          },
+        ],
+      },
+    });
+  });
+
+  it('keeps primitive child creation in default local space under transformed parents', () => {
+    const document = createMiniEditorSceneDocument();
+    const tree = document.scene.gameObjects.find(gameObject => gameObject.id === 'tree');
+    const transform = tree?.components.find(component => component.type === 'Transform');
+    if (transform?.type === 'Transform') {
+      transform.position = { x: 3, y: 4, z: 5 };
+      transform.rotation = { x: 0.25, y: 0.5, z: 0.75 };
+      transform.scale = { x: 2, y: 3, z: 4 };
+    }
+
+    const patch = createEditorSceneCreatePrimitivePatch(document, {
+      parentId: 'tree',
+      activeId: 'tree',
+      shape: 'plane',
+      name: 'Plane',
+    });
+
+    expect(patch?.patch).toMatchObject({
+      kind: 'game-object.create-primitive',
+      gameObject: {
+        parentId: 'tree',
+        primitive: { shape: 'plane' },
+        components: [
+          {
+            type: 'Transform',
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+          },
+        ],
+      },
+    });
   });
 
   it('creates schema-backed patches for local scale vectors', () => {

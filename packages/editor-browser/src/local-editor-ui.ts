@@ -97,6 +97,7 @@ import type {
 export {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
+  formatLocalEditorBrowserInspectorNumberValue,
   formatLocalEditorBrowserInspectorValue,
   resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
@@ -2109,10 +2110,10 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!input || !key) return;
     const currentOverlay = currentState?.viewportTools?.overlay;
     callbacks.onViewportOverlaySettingsChange?.({
-      bounds: currentOverlay?.bounds ?? true,
-      dimensions: currentOverlay?.dimensions ?? true,
+      bounds: currentOverlay?.bounds ?? false,
+      dimensions: currentOverlay?.dimensions ?? false,
       edgeLengths: currentOverlay?.edgeLengths ?? false,
-      anchor: currentOverlay?.anchor ?? true,
+      anchor: currentOverlay?.anchor ?? false,
       [key]: input.checked,
     });
   });
@@ -2367,6 +2368,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     inputRouter.setModalOpen(inEditor && helpOpen);
     const transformTool = state.transformTool ?? null;
     workbench.root.style.display = inEditor ? '' : 'none';
+    if (inEditor) workbenchLayoutController.refresh();
     sceneToolOverlay.style.display = inEditor ? 'flex' : 'none';
     if (!inEditor) closeSnapSettingsPopover();
     if (!inEditor) closePlacementSettingsPopover();

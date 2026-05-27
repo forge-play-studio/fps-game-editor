@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
+  formatLocalEditorBrowserInspectorNumberValue,
   formatLocalEditorBrowserInspectorValue,
   parseLocalEditorBrowserInspectorNumberValue,
   resolveLocalEditorBrowserInspectorSectionStatus,
@@ -182,6 +183,12 @@ describe('browser inspector control extensions', () => {
       '  "z": 3',
       '}',
     ].join('\n'));
+  });
+
+  it('formats inspector numbers with at most three fractional digits', () => {
+    expect(formatLocalEditorBrowserInspectorNumberValue(1.23456)).toBe('1.235');
+    expect(formatLocalEditorBrowserInspectorNumberValue(-0.0001)).toBe('0');
+    expect(formatLocalEditorBrowserInspectorValue(12.3)).toBe('12.3');
   });
 
   it('keeps live numeric edits pending but commits empty final edits as zero', () => {

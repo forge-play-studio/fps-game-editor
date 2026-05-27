@@ -49,7 +49,7 @@ function createProjectionOptions(scale = 24, canvasRect = { left: 10, top: 20, w
 }
 
 describe('Babylon scene view spatial overlay state', () => {
-  it('projects single-selection bounds, dimensions, and anchor labels', () => {
+  it('keeps spatial overlay inactive with default editor settings', () => {
     const state = createEditorViewportSpatialOverlayState(createProjectionOptions(), {
       nodeId: 'box-1',
       bounds: {
@@ -60,6 +60,30 @@ describe('Babylon scene view spatial overlay state', () => {
       },
       anchor: { x: 1, y: 0, z: 2 },
       settings: DEFAULT_EDITOR_VIEWPORT_OVERLAY_SETTINGS,
+    });
+
+    expect(state.active).toBe(false);
+    expect(state.lines).toHaveLength(0);
+    expect(state.labels).toHaveLength(0);
+    expect(state.markers).toHaveLength(0);
+  });
+
+  it('projects single-selection bounds, dimensions, and anchor labels', () => {
+    const state = createEditorViewportSpatialOverlayState(createProjectionOptions(), {
+      nodeId: 'box-1',
+      bounds: {
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 2, y: 3, z: 4 },
+        center: { x: 1, y: 1.5, z: 2 },
+        size: { x: 2, y: 3, z: 4 },
+      },
+      anchor: { x: 1, y: 0, z: 2 },
+      settings: {
+        ...DEFAULT_EDITOR_VIEWPORT_OVERLAY_SETTINGS,
+        bounds: true,
+        dimensions: true,
+        anchor: true,
+      },
     });
 
     expect(state.active).toBe(true);
@@ -87,6 +111,7 @@ describe('Babylon scene view spatial overlay state', () => {
       anchor: null,
       settings: {
         ...DEFAULT_EDITOR_VIEWPORT_OVERLAY_SETTINGS,
+        bounds: true,
         edgeLengths: true,
         anchor: false,
       },
@@ -107,7 +132,10 @@ describe('Babylon scene view spatial overlay state', () => {
           size: { x: 2, y: 3, z: 4 },
         },
         anchor: { x: 1, y: 0, z: 2 },
-        settings: DEFAULT_EDITOR_VIEWPORT_OVERLAY_SETTINGS,
+        settings: {
+          ...DEFAULT_EDITOR_VIEWPORT_OVERLAY_SETTINGS,
+          anchor: true,
+        },
       },
     );
 

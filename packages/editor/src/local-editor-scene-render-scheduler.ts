@@ -45,6 +45,8 @@ export function createLocalEditorSceneRenderScheduler(
   let lastStatsTimestamp: number | null = null;
   let lastFrameMs: number | null = null;
   let fps: number | null = null;
+  let oneShotFrameRequested = false;
+  let scheduledFrameWasContinuous = false;
   const frameWaiters: LocalEditorSceneRenderFrameWaiter[] = [];
 
   const getStats = (): LocalEditorSceneRenderStats => ({
@@ -78,9 +80,15 @@ export function createLocalEditorSceneRenderScheduler(
 
   const schedule = (): void => {
     if (disposed || frameId != null) return;
+    scheduledFrameWasContinuous = continuousReasons.size > 0;
     frameId = host.requestAnimationFrame((timestamp) => {
       frameId = null;
       if (disposed) return;
+      const shouldRenderOneShot = oneShotFrameRequested || frameWaiters.length > 0;
+      oneShotFrameRequested = false;
+      const shouldRenderContinuousFrame = scheduledFrameWasContinuous || continuousReasons.size > 0;
+      scheduledFrameWasContinuous = false;
+      if (!shouldRenderOneShot && !shouldRenderContinuousFrame) return;
       const isContinuousFrame = continuousReasons.size > 0;
       const frameMs = isContinuousFrame && lastFrameTimestamp != null
         ? Math.max(0, timestamp - lastFrameTimestamp)
@@ -98,12 +106,16 @@ export function createLocalEditorSceneRenderScheduler(
       const stats = getStats();
       emitFrameStats(timestamp, stats);
       resolveFrameWaiters(stats);
-      if (continuousReasons.size > 0) schedule();
+      if (oneShotFrameRequested || frameWaiters.length > 0 || continuousReasons.size > 0) {
+        schedule();
+      }
     });
   };
 
   return {
     requestFrame(_reason) {
+      if (disposed) return;
+      oneShotFrameRequested = true;
       schedule();
     },
     waitForNextFrame(_reason) {
@@ -112,6 +124,7 @@ export function createLocalEditorSceneRenderScheduler(
       }
       return new Promise((resolve, reject) => {
         frameWaiters.push({ resolve, reject });
+        oneShotFrameRequested = true;
         schedule();
       });
     },
@@ -149,6 +162,8 @@ export function createLocalEditorSceneRenderScheduler(
         host.cancelAnimationFrame(frameId);
         frameId = null;
       }
+      scheduledFrameWasContinuous = false;
+      oneShotFrameRequested = false;
       const waiters = frameWaiters.splice(0);
       const error = new Error('Local editor scene render scheduler is disposed');
       for (const waiter of waiters) waiter.reject(error);

@@ -1112,7 +1112,7 @@ function createInspectorInputBase<TDocument>(
   property: LocalEditorBrowserInspectorProperty<TDocument>,
 ): HTMLInputElement {
   const input = doc.createElement('input');
-  input.value = property.mixed ? '' : String(property.value);
+  input.value = property.mixed ? '' : formatInspectorEditableValue(property.value, property);
   input.placeholder = property.mixed ? '--' : '';
   applyLocalEditorBrowserInspectorControlBinding(input, target, property);
   input.style.cssText = createInspectorInputStyle();
@@ -1208,7 +1208,7 @@ function createInspectorVectorControl<TDocument>(
     if (property.min != null) input.dataset.serializedNumberMin = String(property.min);
     if (property.max != null) input.dataset.serializedNumberMax = String(property.max);
     input.dataset.serializedVectorAxis = axis;
-    input.value = property.mixed ? '' : String(value[axis] ?? 0);
+    input.value = property.mixed ? '' : formatInspectorEditableValue(value[axis] ?? 0, property);
     input.title = `${property.label}.${axis}`;
     wrapper.appendChild(input);
   }
@@ -1427,9 +1427,30 @@ function inferLegacyInspectorCommitMode<TDocument>(
 
 export function formatLocalEditorBrowserInspectorValue(value: unknown): string {
   if (value == null) return '';
+  if (typeof value === 'number') return formatLocalEditorBrowserInspectorNumberValue(value);
   if (typeof value === 'object') return JSON.stringify(toStableInspectorJsonValue(value), null, 2);
   if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
   if (typeof value === 'symbol') return String(value);
+  return String(value);
+}
+
+export function formatLocalEditorBrowserInspectorNumberValue(value: number): string {
+  if (!Number.isFinite(value)) return String(value);
+  const rounded = Math.round(value * 1000) / 1000;
+  if (Object.is(rounded, -0)) return '0';
+  return rounded.toFixed(3).replace(/\.?0+$/, '');
+}
+
+function formatInspectorEditableValue<TDocument>(
+  value: unknown,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): string {
+  if (
+    typeof value === 'number'
+    && (property.control === 'number' || property.valueType === 'number' || property.control === 'vec2' || property.control === 'vec3')
+  ) {
+    return formatLocalEditorBrowserInspectorNumberValue(value);
+  }
   return String(value);
 }
 

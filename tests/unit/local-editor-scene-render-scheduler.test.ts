@@ -78,6 +78,26 @@ describe('local editor scene render scheduler', () => {
     expect(frameHost.pendingCount()).toBe(0);
   });
 
+  it('keeps scene invalidations requested during a frame instead of swallowing them', () => {
+    const frameHost = createManualFrameHost();
+    let renders = 0;
+    const scheduler = createLocalEditorSceneRenderScheduler(() => {
+      renders += 1;
+      if (renders === 1) scheduler.requestFrame('projection-updated-during-render');
+    }, { frameHost: frameHost.host });
+
+    scheduler.requestFrame('initial');
+
+    expect(frameHost.pendingCount()).toBe(1);
+    frameHost.flushNextFrame();
+    expect(renders).toBe(1);
+    expect(frameHost.pendingCount()).toBe(1);
+
+    frameHost.flushNextFrame();
+    expect(renders).toBe(2);
+    expect(frameHost.pendingCount()).toBe(0);
+  });
+
   it('renders continuously only while a reason is active', () => {
     const frameHost = createManualFrameHost();
     let renders = 0;

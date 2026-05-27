@@ -253,6 +253,7 @@ function createSkyVertexColorMaterial(
   if (!StandardMaterial || !Color3) return null;
   const material = new StandardMaterial('editor.world.sky.material', scene);
   material.disableLighting = true;
+  material.disableDepthWrite = true;
   material.backFaceCulling = false;
   material.useVertexColors = true;
   material.diffuseColor = new Color3(1, 1, 1);

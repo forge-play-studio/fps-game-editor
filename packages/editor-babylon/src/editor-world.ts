@@ -82,6 +82,8 @@ export function createBabylonEditorWorld(options: BabylonEditorWorldOptions): Ba
     camera.attachControl?.(options.canvas, true);
     configureEditorCameraControls(camera);
   }
+  scene.activeCamera = camera;
+  scene.cameraToUseForPointers = camera;
 
   if (options.babylon.HemisphericLight) {
     const light = new options.babylon.HemisphericLight(
