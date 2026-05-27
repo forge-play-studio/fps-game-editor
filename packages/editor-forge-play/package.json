@@ -1,6 +1,6 @@
 {
   "name": "@fps-games/editor-forge-play",
-  "version": "0.1.1-beta.11",
+  "version": "0.1.2-beta.1",
   "private": true,
   "type": "module",
   "description": "Forge Play bridge adapter for fps-game-editor.",
@@ -21,6 +21,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@fps-games/editor-protocol": "0.1.1-beta.11"
+    "@fps-games/editor-protocol": "0.1.2-beta.1"
   }
 }
