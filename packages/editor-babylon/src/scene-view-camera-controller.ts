@@ -202,8 +202,10 @@ export function createBabylonSceneViewCameraController(
 
   function lookCamera(dx: number, dy: number): void {
     if (Number.isFinite(camera.alpha) && Number.isFinite(camera.beta)) {
+      const position = readVec3(camera.position);
       camera.alpha += dx * orbitSensitivity;
       camera.beta = clamp(camera.beta - dy * orbitSensitivity, 0.01, Math.PI - 0.01);
+      keepArcRotatePosition(position);
       return;
     }
     if (camera.rotation) {
@@ -235,6 +237,25 @@ export function createBabylonSceneViewCameraController(
     const forward = getCameraForward();
     if (!forward) return;
     translateCamera(scaleVec3(forward, -deltaY * 0.01));
+  }
+
+  function keepArcRotatePosition(position: Vec3): void {
+    if (!camera.target || !Vector3) return;
+    const radius = Number(camera.radius);
+    const alpha = Number(camera.alpha);
+    const beta = Number(camera.beta);
+    if (!Number.isFinite(radius) || !Number.isFinite(alpha) || !Number.isFinite(beta)) return;
+    const sinBeta = Math.sin(beta);
+    const offset = {
+      x: radius * Math.cos(alpha) * sinBeta,
+      y: radius * Math.cos(beta),
+      z: radius * Math.sin(alpha) * sinBeta,
+    };
+    camera.target = new Vector3(
+      position.x - offset.x,
+      position.y - offset.y,
+      position.z - offset.z,
+    );
   }
 
   function translateCamera(delta: Vec3): void {

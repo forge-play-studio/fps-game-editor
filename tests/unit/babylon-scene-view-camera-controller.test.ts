@@ -148,6 +148,96 @@ describe('Babylon scene view camera controller', () => {
     engine.dispose();
   });
 
+  it('rotates flythrough look in place instead of orbiting around the target', () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const camera = new BABYLON.ArcRotateCamera(
+      'editor',
+      0.7,
+      1.1,
+      12,
+      new BABYLON.Vector3(1, 2, 3),
+      scene,
+    );
+    scene.activeCamera = camera;
+    scene.render();
+    const beforePosition = camera.position.clone();
+    const beforeTarget = camera.target.clone();
+    const beforeForward = camera.getForwardRay().direction.clone();
+    const controller = createBabylonSceneViewCameraController({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      camera: camera as any,
+      input: createInputStub(),
+    });
+
+    expect(controller.handlePointerIntentMove({
+      state: {
+        pointerId: 1,
+        button: 'right',
+        intent: 'flythrough',
+        start: { x: 0, y: 0 },
+        current: { x: 24, y: -10 },
+        delta: { x: 24, y: -10 },
+        modifiers: { alt: false, shift: false, ctrl: false, meta: false },
+      },
+      originalEvent: {} as PointerEvent,
+    })).toBe(true);
+    scene.render();
+
+    expect(BABYLON.Vector3.Distance(camera.position, beforePosition)).toBeLessThan(0.000001);
+    expect(BABYLON.Vector3.Distance(camera.target, beforeTarget)).toBeGreaterThan(0.01);
+    expect(BABYLON.Vector3.Distance(camera.getForwardRay().direction, beforeForward)).toBeGreaterThan(0.01);
+
+    controller.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('keeps orbit navigation as a target-centered rotation', () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const camera = new BABYLON.ArcRotateCamera(
+      'editor',
+      0.7,
+      1.1,
+      12,
+      new BABYLON.Vector3(1, 2, 3),
+      scene,
+    );
+    scene.activeCamera = camera;
+    scene.render();
+    const beforePosition = camera.position.clone();
+    const beforeTarget = camera.target.clone();
+    const controller = createBabylonSceneViewCameraController({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      camera: camera as any,
+      input: createInputStub(),
+    });
+
+    expect(controller.handlePointerIntentMove({
+      state: {
+        pointerId: 1,
+        button: 'middle',
+        intent: 'orbit',
+        start: { x: 0, y: 0 },
+        current: { x: 24, y: -10 },
+        delta: { x: 24, y: -10 },
+        modifiers: { alt: true, shift: false, ctrl: false, meta: false },
+      },
+      originalEvent: {} as PointerEvent,
+    })).toBe(true);
+    scene.render();
+
+    expect(BABYLON.Vector3.Distance(camera.target, beforeTarget)).toBeLessThan(0.000001);
+    expect(BABYLON.Vector3.Distance(camera.position, beforePosition)).toBeGreaterThan(0.01);
+
+    controller.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
   it('moves flythrough camera from the editor frame tick instead of engine delta time', () => {
     const engine = new BABYLON.NullEngine();
     engine.getDeltaTime = () => 0;

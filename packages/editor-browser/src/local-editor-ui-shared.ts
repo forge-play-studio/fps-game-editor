@@ -271,7 +271,7 @@ export function toTransformMouseHint(tool: LocalEditorBrowserTransformTool): str
   if (tool === 'move') return '移动手柄 · 轴向箭头 / 平面方块 / 中心自由拖拽 · Esc 取消';
   if (tool === 'rotate') return '旋转手柄 · 轴向圆环拖拽 · Esc 取消';
   if (tool === 'scale') return '缩放手柄 · 轴向方块 / 中心统一缩放 · Esc 取消';
-  return '左键选择 · 空白拖拽框选 · 中键平移 · Alt+左键环绕 · 右键飞行 · 滚轮缩放';
+  return '左键选择 · 空白拖拽框选 · 中键平移 · Alt+左键环绕 · 右键自由视角/WASD飞行 · 滚轮缩放';
 }
 
 function formatOperationNumber(value: number): string {
