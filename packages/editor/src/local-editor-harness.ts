@@ -89,7 +89,7 @@ import {
   createBabylonEditorProjection,
   createBabylonEditorWorld,
   createBabylonProjectionSelectionController,
-  createBabylonSceneCameraPreviewController,
+  createBabylonMainCameraPreviewController,
   createBabylonSceneViewCameraController,
   createBabylonSceneViewInputController,
   createBabylonSceneViewMeasurementController,
@@ -106,8 +106,8 @@ import {
   type BabylonEditorProjectionImportContext,
   type BabylonEditorProjectionImportResult,
   type BabylonEditorProjectionNode,
-  type BabylonSceneCameraPreviewController,
-  type BabylonSceneCameraPreviewRig,
+  type BabylonMainCameraPreviewController,
+  type BabylonMainCameraPreviewRig,
   type BabylonEditorGridController,
   type BabylonTransformGizmoCommit,
   type BabylonTransformGizmoController,
@@ -372,7 +372,7 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   getHierarchyItems(document: TDocument): LocalEditorBrowserUiHierarchyItem[];
   getProjectionNodes(document: TDocument): BabylonEditorProjectionNode[];
   getProjectionNode(document: TDocument, id: string): BabylonEditorProjectionNode | null;
-  getSceneCameraPreviewRig?(document: TDocument): BabylonSceneCameraPreviewRig | null;
+  getMainCameraPreviewRig?(document: TDocument): BabylonMainCameraPreviewRig | null;
   isSelectable?(document: TDocument, id: string): boolean;
   isLocked?(document: TDocument, id: string): boolean;
   createPatchFromAsset(asset: TAsset, input?: LocalEditorHarnessAssetPatchInput<TDocument, TAsset>): { patch: TPatch; label?: string };
@@ -485,8 +485,8 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   gridVisible: boolean;
   projection: BabylonEditorProjection | null;
   gizmo: BabylonTransformGizmoController | null;
-  sceneCameraPreview: BabylonSceneCameraPreviewController | null;
-  sceneCameraPreviewEnabled: boolean;
+  mainCameraPreview: BabylonMainCameraPreviewController | null;
+  mainCameraPreviewEnabled: boolean;
   sceneViewInput: BabylonSceneViewInputController | null;
   sceneViewCamera: BabylonSceneViewCameraController | null;
   sceneViewMeasurement: BabylonSceneViewMeasurementController | null;
@@ -535,8 +535,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     gridVisible: true,
     projection: null,
     gizmo: null,
-    sceneCameraPreview: null,
-    sceneCameraPreviewEnabled: false,
+    mainCameraPreview: null,
+    mainCameraPreviewEnabled: false,
     sceneViewInput: null,
     sceneViewCamera: null,
     sceneViewMeasurement: null,
@@ -707,8 +707,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       onViewportMeasurementClear: () => {
         if (clearViewportMeasurement(state)) harness.render();
       },
-      onSceneCameraPreviewToggle: (enabled) => {
-        if (setSceneCameraPreviewEnabled(state, options, enabled)) harness.render();
+      onMainCameraPreviewToggle: (enabled) => {
+        if (setMainCameraPreviewEnabled(state, options, enabled)) harness.render();
       },
       onGridVisibleChange: (visible) => {
         if (setGridVisible(state, visible)) harness.render();
@@ -728,7 +728,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
 
   harness = {
     render() {
-      syncSceneCameraPreview(state, options);
+      syncMainCameraPreview(state, options);
       syncViewportCameraState(state);
       syncViewportMeasurementState(state);
       syncViewportSpatialOverlay(state);
@@ -1001,11 +1001,11 @@ function setViewportViewPreset<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   preset: EditorViewportViewPreset,
 ): boolean {
-  if (state.sceneCameraPreviewEnabled) {
-    state.status = 'Viewport view unavailable during Scene Camera preview';
+  if (state.mainCameraPreviewEnabled) {
+    state.status = 'Viewport view unavailable during Main Camera preview';
     state.statusTone = 'warning';
     state.statusToneStatus = state.status;
-    state.statusDetails = 'Disable Scene Camera preview before switching editor viewport views.';
+    state.statusDetails = 'Disable Main Camera preview before switching editor viewport views.';
     return true;
   }
   const nextPreset = normalizeViewportViewPreset(preset);
@@ -1030,11 +1030,11 @@ function setViewportProjectionMode<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   mode: EditorViewportProjectionMode,
 ): boolean {
-  if (state.sceneCameraPreviewEnabled) {
-    state.status = 'Viewport projection unavailable during Scene Camera preview';
+  if (state.mainCameraPreviewEnabled) {
+    state.status = 'Viewport projection unavailable during Main Camera preview';
     state.statusTone = 'warning';
     state.statusToneStatus = state.status;
-    state.statusDetails = 'Disable Scene Camera preview before switching editor viewport projection.';
+    state.statusDetails = 'Disable Main Camera preview before switching editor viewport projection.';
     return true;
   }
   const nextMode = normalizeViewportProjectionMode(mode);
@@ -1366,7 +1366,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
         if (gizmo.updateViewPlaneMove(event.originalEvent)) render();
         return;
       }
-      if (!state.sceneCameraPreviewEnabled && state.sceneViewCamera?.handlePointerIntentMove(event)) {
+      if (!state.mainCameraPreviewEnabled && state.sceneViewCamera?.handlePointerIntentMove(event)) {
         render();
         return;
       }
@@ -1415,7 +1415,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       selectionController.handleDoubleClick(event);
     },
     onWheel(event) {
-      if (!state.sceneCameraPreviewEnabled && state.sceneViewCamera?.handleWheel(event)) render();
+      if (!state.mainCameraPreviewEnabled && state.sceneViewCamera?.handleWheel(event)) render();
     },
   });
   const sceneViewCamera = createBabylonSceneViewCameraController({
@@ -1424,7 +1424,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     camera: world.camera,
     input: sceneViewInput,
   });
-  const sceneCameraPreview = createBabylonSceneCameraPreviewController({
+  const mainCameraPreview = createBabylonMainCameraPreviewController({
     babylon,
     scene: world.scene,
     editorCamera: world.camera,
@@ -1449,7 +1449,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   state.grid = grid;
   state.projection = projection;
   state.gizmo = gizmo;
-  state.sceneCameraPreview = sceneCameraPreview;
+  state.mainCameraPreview = mainCameraPreview;
   state.sceneViewInput = sceneViewInput;
   state.sceneViewCamera = sceneViewCamera;
   state.sceneViewMeasurement = sceneViewMeasurement;
@@ -1465,9 +1465,9 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
     window.removeEventListener('resize', state.resizeHandler);
     state.resizeHandler = null;
   }
-  state.sceneCameraPreview?.dispose();
-  state.sceneCameraPreview = null;
-  state.sceneCameraPreviewEnabled = false;
+  state.mainCameraPreview?.dispose();
+  state.mainCameraPreview = null;
+  state.mainCameraPreviewEnabled = false;
   state.sceneViewCamera?.dispose();
   state.sceneViewCamera = null;
   state.sceneViewMeasurement?.dispose();
@@ -2863,27 +2863,27 @@ function reprojectProjectionForChangedIds<TDocument, TPatch, TAsset>(
   state.gizmo?.refreshSelection();
 }
 
-function setSceneCameraPreviewEnabled<TDocument, TPatch, TAsset>(
+function setMainCameraPreviewEnabled<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
   enabled: boolean,
 ): boolean {
   if (!enabled) {
-    state.sceneCameraPreviewEnabled = false;
-    state.sceneCameraPreview?.setActive(false);
-    state.status = 'Scene Camera preview disabled';
+    state.mainCameraPreviewEnabled = false;
+    state.mainCameraPreview?.setActive(false);
+    state.status = 'Main Camera preview disabled';
     return true;
   }
-  state.sceneCameraPreviewEnabled = true;
-  if (!syncSceneCameraPreview(state, options)) {
-    state.sceneCameraPreviewEnabled = false;
-    state.status = 'Scene Camera preview unavailable';
+  state.mainCameraPreviewEnabled = true;
+  if (!syncMainCameraPreview(state, options)) {
+    state.mainCameraPreviewEnabled = false;
+    state.status = 'Main Camera preview unavailable';
     state.statusTone = 'warning';
     state.statusToneStatus = state.status;
     state.statusDetails = 'The current document did not provide a Main Camera preview rig.';
     return true;
   }
-  state.status = 'Scene Camera preview enabled';
+  state.status = 'Main Camera preview enabled';
   return true;
 }
 
@@ -2902,18 +2902,18 @@ function setGridVisible<TDocument, TPatch, TAsset>(
   return true;
 }
 
-function syncSceneCameraPreview<TDocument, TPatch, TAsset>(
+function syncMainCameraPreview<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
 ): boolean {
-  const controller = state.sceneCameraPreview;
+  const controller = state.mainCameraPreview;
   if (!controller) return false;
-  if (!state.sceneCameraPreviewEnabled) {
+  if (!state.mainCameraPreviewEnabled) {
     controller.setActive(false);
     return false;
   }
   const document = state.session?.getState().workingDocument ?? null;
-  const rig = document ? options.documentAdapter.getSceneCameraPreviewRig?.(document) ?? null : null;
+  const rig = document ? options.documentAdapter.getMainCameraPreviewRig?.(document) ?? null : null;
   if (!rig) {
     controller.setActive(false);
     return false;
@@ -2962,12 +2962,12 @@ function syncViewportMeasurementState<TDocument, TPatch, TAsset>(
   if (measurement) state.viewportMeasurement = measurement;
 }
 
-function hasSceneCameraPreviewRig<TDocument, TPatch, TAsset>(
+function hasMainCameraPreviewRig<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
 ): boolean {
   const document = state.session?.getState().workingDocument ?? null;
-  return !!document && !!options.documentAdapter.getSceneCameraPreviewRig?.(document);
+  return !!document && !!options.documentAdapter.getMainCameraPreviewRig?.(document);
 }
 
 function createUiState<TDocument, TPatch, TAsset>(
@@ -3042,9 +3042,9 @@ function createUiState<TDocument, TPatch, TAsset>(
     viewportTools: cloneEditorViewportToolState(state.viewportTools),
     viewportMeasurement: cloneViewportMeasurement(state.viewportMeasurement),
     viewportSpatialOverlay: cloneEditorViewportSpatialOverlayState(state.viewportSpatialOverlay),
-    sceneCameraPreview: {
-      enabled: state.sceneCameraPreviewEnabled,
-      available: hasSceneCameraPreviewRig(state, options),
+    mainCameraPreview: {
+      enabled: state.mainCameraPreviewEnabled,
+      available: hasMainCameraPreviewRig(state, options),
     },
     grid: {
       visible: state.gridVisible,
@@ -3083,12 +3083,30 @@ function createSceneViewCoordinateAxesState<TDocument, TPatch, TAsset>(
   if (!right || !up || !forward) return null;
 
   return {
+    projectionMode: readSceneViewFreeCameraProjectionMode(state, camera),
+    projectionToggleDisabled: state.mainCameraPreviewEnabled,
     axes: [
       createSceneViewCoordinateAxis('x', 'X', '#ff4b70', { x: 1, y: 0, z: 0 }, right, up, forward),
       createSceneViewCoordinateAxis('y', 'Y', '#75ff42', { x: 0, y: 1, z: 0 }, right, up, forward),
       createSceneViewCoordinateAxis('z', 'Z', '#4f86ff', { x: 0, y: 0, z: 1 }, right, up, forward),
     ],
   };
+}
+
+function readSceneViewFreeCameraProjectionMode<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  camera: any,
+): EditorViewportProjectionMode {
+  return state.sceneViewCamera?.getState().projectionMode
+    ?? readSceneViewCameraProjectionMode(state, state.world?.camera ?? camera);
+}
+
+function readSceneViewCameraProjectionMode<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  camera: any,
+): EditorViewportProjectionMode {
+  const orthoMode = state.babylon?.Camera?.ORTHOGRAPHIC_CAMERA ?? 1;
+  return camera?.mode === orthoMode ? 'orthographic' : 'perspective';
 }
 
 function createSceneViewCoordinateAxis(
