@@ -1,3 +1,4 @@
+import * as BABYLON from '@babylonjs/core';
 import { describe, expect, it } from 'vitest';
 import type {
   EditorTransformBatchCommit,
@@ -6,6 +7,7 @@ import type {
 } from '../../packages/editor-core/src';
 import {
   createBabylonTransformGizmoController,
+  type BabylonTransformGizmoBlockEvent,
   type BabylonTransformGizmoDragEvent,
   resolveBabylonTransformHandleConstraint,
 } from '../../packages/editor-babylon/src/transform-gizmo-controller';
@@ -60,6 +62,9 @@ function createObservable() {
 
 function createHandle() {
   return {
+    angle: Number.NaN,
+    isHovered: false,
+    updateGizmoRotationToMatchAttachedMesh: false,
     dragBehavior: {
       onDragStartObservable: createObservable(),
       onDragObservable: createObservable(),
@@ -70,6 +75,7 @@ function createHandle() {
 
 function createGizmo() {
   return {
+    updateGizmoRotationToMatchAttachedMesh: false,
     planarGizmoEnabled: false,
     xGizmo: createHandle(),
     yGizmo: createHandle(),
@@ -91,8 +97,40 @@ function cloneTransform(transform: EditorTransformSnapshot): EditorTransformSnap
 
 function createFakeRuntime() {
   const managers: FakeGizmoManager[] = [];
+  const meshes: any[] = [];
   let freeMoveHandle: any | null = null;
   let placementMarker: any | null = null;
+
+  class FakeMesh {
+    name: string;
+    metadata: Record<string, unknown> = {};
+    position = new BABYLON.Vector3(0, 0, 0);
+    rotation = new BABYLON.Vector3(0, 0, 0);
+    scaling = new BABYLON.Vector3(1, 1, 1);
+    isPickable = false;
+    isVisible = true;
+    enabled = true;
+    material: unknown = null;
+    parent: unknown = null;
+    color: unknown = null;
+    alpha = 1;
+    billboardMode = 0;
+
+    constructor(name: string, _scene?: unknown) {
+      this.name = name;
+      meshes.push(this);
+    }
+
+    setEnabled(value: boolean): void {
+      this.enabled = value;
+    }
+
+    dispose(): void {
+      this.enabled = false;
+    }
+  }
+
+  const createMesh = (name: string) => new FakeMesh(name);
 
   class FakeGizmoManager {
     gizmos = {
@@ -102,6 +140,7 @@ function createFakeRuntime() {
     };
     utilityLayer = {
       utilityLayerScene: {
+        onPointerObservable: createObservable(),
         pick: (_x: number, _y: number, predicate?: (mesh: any) => boolean) => {
           if (predicate && freeMoveHandle && predicate(freeMoveHandle)) {
             return { hit: true, pickedMesh: freeMoveHandle };
@@ -133,12 +172,12 @@ function createFakeRuntime() {
     babylon: {
       GizmoManager: FakeGizmoManager,
       TransformNode: FakeTransformNode,
-      Vector3: FakeVector3,
-      Matrix: {
-        Identity: () => ({}),
-      },
-      Color3: FakeVector3,
+      Vector3: BABYLON.Vector3,
+      Matrix: BABYLON.Matrix,
+      Quaternion: BABYLON.Quaternion,
+      Color3: BABYLON.Color3,
       MeshBuilder: {
+        CreatePlane: (name: string, _options: Record<string, unknown>, _scene: unknown) => createMesh(name),
         CreateSphere: (name: string, _options: Record<string, unknown>, _scene: unknown) => {
           const mesh = {
             name,
@@ -164,11 +203,21 @@ function createFakeRuntime() {
         diffuseColor: unknown = null;
         emissiveColor: unknown = null;
         specularColor: unknown = null;
+        diffuseTexture: unknown = null;
+        alpha = 1;
+        disableLighting = false;
         constructor(_name: string, _scene: unknown) {}
+        dispose(): void {}
+      },
+      DynamicTexture: class FakeDynamicTexture {
+        hasAlpha = false;
+        constructor(_name: string, _options: unknown, _scene: unknown, _generateMipMaps?: boolean) {}
+        drawText(): void {}
         dispose(): void {}
       },
     },
     managers,
+    meshes,
     getFreeMoveHandle: () => freeMoveHandle,
     getPlacementMarker: () => placementMarker,
   };
@@ -184,6 +233,8 @@ function createFakeScene(overrides: {
   return {
     getEngine: () => ({
       getRenderingCanvas: () => canvas,
+      getRenderWidth: () => 1280,
+      getRenderHeight: () => 720,
     }),
     activeCamera: {
       getForwardRay: () => ({
@@ -510,6 +561,75 @@ describe('Babylon transform gizmo handle constraints', () => {
     expect(commits[0]?.targets[1]?.after.rotation.x).toBeCloseTo((15 * Math.PI) / 180);
   });
 
+  it('commits world rotate handles in world space for pre-rotated targets', () => {
+    const runtime = createFakeRuntime();
+    const scene = createFakeScene();
+    const initialRotation = { x: 0.45, y: 0.8, z: -0.25 };
+    const projection = createFakeProjection({
+      a: { position: { x: 0, y: 0, z: 0 }, rotation: initialRotation, scale: { x: 1, y: 1, z: 1 } },
+    });
+    const commits: EditorTransformGizmoCommit[] = [];
+    const controller = createBabylonTransformGizmoController({
+      babylon: runtime.babylon,
+      scene,
+      projection: projection as any,
+      initialTool: 'rotate',
+      initialSpace: 'world',
+      onDragEnd: event => {
+        if ('nodeId' in event) commits.push(event);
+      },
+    });
+
+    controller.setSelection({ selectedIds: ['a'], activeId: 'a' });
+    const manager = runtime.managers[0]!;
+    manager.gizmos.rotationGizmo.zGizmo.dragBehavior.onDragStartObservable.notify();
+    manager.attachedNode.rotation = new FakeVector3(0, 0, Math.PI / 6);
+    manager.gizmos.rotationGizmo.zGizmo.dragBehavior.onDragEndObservable.notify();
+
+    const after = commits[0]?.after.rotation;
+    expect(after?.x).toBeCloseTo(0.053746467954180574);
+    expect(after?.y).toBeCloseTo(0.8914884034697566);
+    expect(after?.z).toBeCloseTo(0.10635131382026909);
+    expect(after?.z).not.toBeCloseTo(initialRotation.z + Math.PI / 6);
+  });
+
+  it('uses rotation handle angles for local x-axis drags on pre-rotated targets', () => {
+    const runtime = createFakeRuntime();
+    const scene = createFakeScene();
+    const initialRotation = { x: 0.45, y: 0.8, z: -0.25 };
+    const projection = createFakeProjection({
+      a: { position: { x: 0, y: 0, z: 0 }, rotation: initialRotation, scale: { x: 1, y: 1, z: 1 } },
+    });
+    const commits: EditorTransformGizmoCommit[] = [];
+    const controller = createBabylonTransformGizmoController({
+      babylon: runtime.babylon,
+      scene,
+      projection: projection as any,
+      initialTool: 'rotate',
+      initialSpace: 'local',
+      onDragEnd: event => {
+        if ('nodeId' in event) commits.push(event);
+      },
+    });
+
+    controller.setSelection({ selectedIds: ['a'], activeId: 'a' });
+    const manager = runtime.managers[0]!;
+    manager.gizmos.rotationGizmo.xGizmo.dragBehavior.onDragStartObservable.notify();
+    manager.gizmos.rotationGizmo.xGizmo.angle = Math.PI / 6;
+    manager.gizmos.rotationGizmo.xGizmo.dragBehavior.onDragEndObservable.notify();
+
+    const expected = BABYLON.Quaternion
+      .FromEulerAngles(initialRotation.x, initialRotation.y, initialRotation.z)
+      .multiply(BABYLON.Quaternion.FromEulerAngles(Math.PI / 6, 0, 0))
+      .toEulerAngles();
+    const after = commits[0]?.after.rotation;
+    expect(after?.x).toBeCloseTo(expected.x);
+    expect(after?.y).toBeCloseTo(expected.y);
+    expect(after?.z).toBeCloseTo(expected.z);
+    expect(after?.y).not.toBeCloseTo(initialRotation.y);
+    expect(after?.z).not.toBeCloseTo(initialRotation.z);
+  });
+
   it('snaps native scale previews and commits when operation snap is enabled', () => {
     const runtime = createFakeRuntime();
     const scene = createFakeScene();
@@ -544,6 +664,131 @@ describe('Babylon transform gizmo handle constraints', () => {
       ['a', 1.2],
       ['b', 2.5],
     ]);
+  });
+
+  it('allows local non-uniform scale on rotated targets', () => {
+    const runtime = createFakeRuntime();
+    const scene = createFakeScene();
+    const initialRotation = { x: 0.25, y: 0.5, z: -0.75 };
+    const projection = createFakeProjection({
+      a: { position: { x: 0, y: 0, z: 0 }, rotation: initialRotation, scale: { x: 1, y: 2, z: 3 } },
+    });
+    const starts: BabylonTransformGizmoDragEvent[] = [];
+    const commits: EditorTransformGizmoCommit[] = [];
+    const controller = createBabylonTransformGizmoController({
+      babylon: runtime.babylon,
+      scene,
+      projection: projection as any,
+      initialTool: 'scale',
+      initialSpace: 'local',
+      onDragStart: event => starts.push(event),
+      onDragEnd: event => {
+        if ('nodeId' in event) commits.push(event);
+      },
+    });
+
+    controller.setSelection({ selectedIds: ['a'], activeId: 'a' });
+    const manager = runtime.managers[0]!;
+    expect(controller.getState().space).toBe('local');
+    expect(manager.gizmos.scaleGizmo.updateGizmoRotationToMatchAttachedMesh).toBe(true);
+    expect(manager.attachedNode.rotation.x).toBeCloseTo(initialRotation.x);
+    expect(manager.attachedNode.rotation.y).toBeCloseTo(initialRotation.y);
+    expect(manager.attachedNode.rotation.z).toBeCloseTo(initialRotation.z);
+
+    manager.gizmos.scaleGizmo.zGizmo.dragBehavior.onDragStartObservable.notify();
+    manager.attachedNode.scaling = new FakeVector3(1, 1, 2);
+    manager.gizmos.scaleGizmo.zGizmo.dragBehavior.onDragEndObservable.notify();
+
+    expect(starts[0]?.space).toBe('local');
+    expect(commits[0]?.space).toBe('local');
+    expect(commits[0]?.after.scale.x).toBeCloseTo(1);
+    expect(commits[0]?.after.scale.y).toBeCloseTo(2);
+    expect(commits[0]?.after.scale.z).toBeCloseTo(6);
+  });
+
+  it('blocks world non-uniform scale when a rotated target would require shear', () => {
+    const runtime = createFakeRuntime();
+    const scene = createFakeScene();
+    const initialTransform = {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: Math.PI / 4, z: 0 },
+      scale: { x: 1, y: 2, z: 3 },
+    };
+    const projection = createFakeProjection({ a: initialTransform });
+    const blocks: BabylonTransformGizmoBlockEvent[] = [];
+    const commits: EditorTransformGizmoCommit[] = [];
+    const controller = createBabylonTransformGizmoController({
+      babylon: runtime.babylon,
+      scene,
+      projection: projection as any,
+      initialTool: 'scale',
+      initialSpace: 'world',
+      onDragBlocked: event => blocks.push(event),
+      onDragEnd: event => {
+        if ('nodeId' in event) commits.push(event);
+      },
+    });
+
+    controller.setSelection({ selectedIds: ['a'], activeId: 'a' });
+    const manager = runtime.managers[0]!;
+    expect(controller.getState().space).toBe('world');
+    expect(manager.gizmos.scaleGizmo.updateGizmoRotationToMatchAttachedMesh).toBe(false);
+
+    manager.gizmos.scaleGizmo.xGizmo.dragBehavior.onDragStartObservable.notify();
+    manager.attachedNode.scaling = new FakeVector3(2, 1, 1);
+    manager.gizmos.scaleGizmo.xGizmo.dragBehavior.onDragObservable.notify();
+    manager.gizmos.scaleGizmo.xGizmo.dragBehavior.onDragEndObservable.notify();
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.reason).toBe('non-trs-representable');
+    expect(blocks[0]?.failedTargetId).toBe('a');
+    expect(commits).toHaveLength(0);
+    expect(projection.transforms.a).toEqual(initialTransform);
+  });
+
+  it('blocks a whole batch transform when any target cannot represent the solver output', () => {
+    const runtime = createFakeRuntime();
+    const scene = createFakeScene();
+    const initialTransforms = {
+      a: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+      b: {
+        position: { x: 2, y: 0, z: 0 },
+        rotation: { x: 0, y: Math.PI / 4, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+    };
+    const projection = createFakeProjection(initialTransforms);
+    const blocks: BabylonTransformGizmoBlockEvent[] = [];
+    const commits: EditorTransformBatchCommit[] = [];
+    const controller = createBabylonTransformGizmoController({
+      babylon: runtime.babylon,
+      scene,
+      projection: projection as any,
+      initialTool: 'scale',
+      initialSpace: 'world',
+      onDragBlocked: event => blocks.push(event),
+      onDragEnd: event => {
+        if ('targets' in event) commits.push(event);
+      },
+    });
+
+    controller.setSelection({ selectedIds: ['a', 'b'], activeId: 'a' });
+    const manager = runtime.managers[0]!;
+    manager.gizmos.scaleGizmo.xGizmo.dragBehavior.onDragStartObservable.notify();
+    manager.attachedNode.scaling = new FakeVector3(2, 1, 1);
+    manager.gizmos.scaleGizmo.xGizmo.dragBehavior.onDragObservable.notify();
+    manager.gizmos.scaleGizmo.xGizmo.dragBehavior.onDragEndObservable.notify();
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.reason).toBe('non-trs-representable');
+    expect(blocks[0]?.failedTargetId).toBe('b');
+    expect(commits).toHaveLength(0);
+    expect(projection.transforms.a).toEqual(initialTransforms.a);
+    expect(projection.transforms.b).toEqual(initialTransforms.b);
   });
 
   it('redirects alt native gizmo drags to duplicated targets before commit', () => {

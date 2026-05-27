@@ -12,6 +12,7 @@
 - 优先小步、可回退的改动，不做大而全的最终设计式重写。
 - 当前 API 和包边界默认视为工作共识，除非明确标注稳定，不把它们过早冻结。
 - 不把项目 schema、AssetManager 规则、SceneBuilder 逻辑或具体游戏语义搬进通用编辑器包。
+- 不让 `@fps-games/editor-core` 直接依赖 Babylon 或 `@fps-games/editor-babylon`；core 只定义引擎无关的编辑器语义和数据契约，Babylon 相关数学、projection、gizmo、camera 和 runtime 适配必须留在 `@fps-games/editor-babylon` 或更外层。否则框架核心会被渲染实现绑死，后续无法干净接入其他 renderer 或非 Babylon 测试环境。
 - 保存链路保持两阶段语义：项目 adapter 先保存 authoring source，编译 runtime scene；平台宿主再保存 runtime artifact。Forge Play `Save & Exit` 中 `document.export` 只负责 prepare authoring source 并导出 `sceneJsonText`，平台保存成功后的 `document.commit` 是提交确认，尾部 `mode.change(play, save: true)` 不能重复保存同一事务。
 - 平台资产库只发送 command，不直接写项目场景，也不依赖 native HTML5 drag/drop 作为权威链路。`asset.library.refresh`、`asset.import`、`editor.asset.place` 应由项目侧桥接处理：先注册/刷新资产库，再通过 `LocalEditorHarness` 和项目 document adapter 写入 `EditorSceneDocument`。不要把新资产实例直接写到旧 runtime scene document 或 `scene.json`。
 - 编辑器世界坐标系应与 GLB/glTF 模型资产保持一致：右手直角坐标系，以模型导入后的 authored transform 语义为准。Babylon、项目 runtime、camera 或可视化 helper 如果使用不同的本地轴/handedness 约定，必须在框架边界显式转换；不要把坐标系修正散落在业务 adapter 中，也不要把 `useRightHandedSystem` 当成完整语义。

@@ -1510,17 +1510,18 @@ scene.nodes[].source = {
 
     <h2>Gizmo 系统边界</h2>
     <p><span class="status-tag tag-current">当前设计共识</span>新 Gizmo 系统属于独立 EditorWorld 主链路，不复用旧 runtime path 的 <code>tool-controller.ts</code>。Babylon <code>GizmoManager</code> 只作为 3D 控件渲染、拾取和拖拽输入后端；权威数据仍然是 <code>SceneDocument</code> working copy。</p>
+    <p><span class="status-tag tag-current">Transform pipeline</span><code>@fps-games/editor-core</code> 只定义引擎无关的 TRS snapshot、tool、space、constraint 和 commit 契约，不能直接依赖 Babylon 或 <code>@fps-games/editor-babylon</code>。Babylon 的 <code>Matrix</code>、<code>Quaternion</code> 和 <code>GizmoManager</code> 可以作为 <code>@fps-games/editor-babylon</code> 内部 solver / interaction 后端，但不能把框架核心绑死到具体 renderer。</p>
     <table>
       <tr><th>层</th><th>职责</th><th>禁止事项</th></tr>
       <tr>
         <td><code>@fps-games/editor-core</code></td>
-        <td>定义 transform tool、space、snapshot、批量 transform commit、pivot 和 constraint 等无引擎类型；事务仍通过 <code>EditorSession.dispatch(document.patch)</code> 进入 undo/dirty。</td>
-        <td>不依赖 Babylon，不包含项目 schema，不实现项目 GameObject/Prefab 规则。</td>
+        <td>定义 transform tool、space、world-space snapshot、批量 transform commit、pivot、constraint 和阻断原因等无引擎类型；事务仍通过 <code>EditorSession.dispatch(document.patch)</code> 进入 undo/dirty。</td>
+        <td>不依赖 Babylon 或 <code>@fps-games/editor-babylon</code>，不包含项目 schema，不实现项目 GameObject/Prefab 规则。</td>
       </tr>
       <tr>
         <td><code>@fps-games/editor-babylon</code></td>
-        <td>适配 Babylon <code>GizmoManager</code>，单选 attach 到 projection root，多选 attach 到非持久化 selection-center pivot proxy；读取 projection transform，拖动中更新 projection preview，drag end 输出单选或批量 before/after。</td>
-        <td>不 dispatch document，不保存，不维护 undo/dirty，不认识 <code>lumber_order</code>。</td>
+        <td>适配 Babylon <code>GizmoManager</code>，单选 attach 到 projection root，多选 attach 到非持久化 selection-center pivot proxy；读取 projection world transform，拖动中更新 projection preview，drag end 输出单选或批量 world-space before/after。复杂旋转、缩放和 TRS 可表达性判断可以使用 Babylon solver。</td>
+        <td>不 dispatch document，不保存，不维护 undo/dirty，不认识项目 schema，不把 Babylon object 当作 authored source。</td>
       </tr>
       <tr>
         <td><code>@fps-games/editor</code></td>
@@ -1529,7 +1530,7 @@ scene.nodes[].source = {
       </tr>
       <tr>
         <td>project adapter</td>
-        <td>把单个或批量 transform input 转成项目 schema patch；例如 <code>lumber_order</code> 更新 GameObject Transform component 并 compile 到 <code>scene.json</code>。</td>
+        <td>把单个或批量 world transform input 转成项目 schema patch；有 parent 时负责 world transform 到 parent-local authored transform 的反解，并 compile 到 runtime scene。</td>
         <td>不实现通用 gizmo 状态、多选 pivot、View Plane 算法，不直接操作 Babylon <code>GizmoManager</code>。</td>
       </tr>
     </table>
@@ -1537,14 +1538,15 @@ scene.nodes[].source = {
     <h2>多选 Transform 与 View Plane Move</h2>
     <p><span class="status-tag tag-current">当前设计共识</span>多选后的移动、旋转、缩放不是项目侧特例，而是 <code>fps-game-editor</code> 的基础框架能力。<code>EditorSession.selection.selectedIds</code> 是 transform operation 的目标集合，<code>activeId</code> 只表示 Inspector 主对象和层级强高亮；多选 Gizmo 第一版固定使用选中对象 bounds center 作为 <code>selection-center</code> pivot。</p>
     <pre><code>selectedIds[]
-  -> projection.readNodeTransforms()
+  -> projection.readNodeTransforms() as world TRS
   -> projection.computeSelectionBounds()
   -> selection-center pivot proxy
-  -> Babylon GizmoManager preview
-  -> EditorTransformBatchCommit
-  -> project adapter creates batch document.patch
+  -> Babylon GizmoManager preview + transform solver
+  -> EditorTransformBatchCommit with world before/after
+  -> project adapter converts world to parent-local and creates batch document.patch
   -> EditorSession undo/dirty
   -> projection sync from WorkingDocument</code></pre>
+    <p>Scale 需要经过 TRS 可表达性判断：uniform scale 和 local non-uniform scale 可以回落到当前 TRS 模型；world non-uniform scale 如果产生 shear 或无法通过 decompose/recompose 校验，必须阻断并恢复 preview，不能悄悄写成错误的 local scale。</p>
     <p>View Plane Move 是 Move 工具的一种显式 constraint。它以当前 editor camera 方向构造穿过 pivot 的拖拽平面，鼠标 ray 与该平面求交得到位移 delta。该能力只影响 preview 和最终 commit，不改变保存链路，也不允许从 Babylon Scene 反扫 authored data。</p>
 
     <h2>Multi Inspector 精确编辑</h2>
