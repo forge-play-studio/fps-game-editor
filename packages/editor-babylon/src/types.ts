@@ -34,6 +34,7 @@ export type BabylonRuntimeGlobal = {
   Vector3?: new (x: number, y: number, z: number) => any;
   Color3?: new (r: number, g: number, b: number) => any;
   Color4?: new (r: number, g: number, b: number, a: number) => any;
+  TransformNode?: new (name: string, scene?: RuntimeScene) => any;
   HemisphericLight?: new (name: string, direction: any, scene: RuntimeScene) => any;
   Texture?: new (url: string, scene: RuntimeScene, noMipmap?: boolean, invertY?: boolean) => any;
   GizmoManager?: new (scene: RuntimeScene) => any;

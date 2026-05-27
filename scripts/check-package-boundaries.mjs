@@ -13,6 +13,15 @@ const forbidden = [
   'AssetManager',
   'gameplay',
 ];
+const packageForbiddenImports = [
+  {
+    packageDir: 'packages/editor-core',
+    forbidden: [
+      '@babylonjs/',
+      '@fps-games/editor-babylon',
+    ],
+  },
+];
 const checkedExtensions = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.json']);
 
 function walk(dir) {
@@ -32,6 +41,12 @@ for (const file of walk(packageRoot)) {
   const text = fs.readFileSync(file, 'utf8');
   for (const term of forbidden) {
     if (text.includes(term)) violations.push(`${rel}: forbidden term "${term}"`);
+  }
+  for (const rule of packageForbiddenImports) {
+    if (!rel.startsWith(`${rule.packageDir}/`)) continue;
+    for (const term of rule.forbidden) {
+      if (text.includes(term)) violations.push(`${rel}: ${rule.packageDir} must not reference "${term}"`);
+    }
   }
 }
 

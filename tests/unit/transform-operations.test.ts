@@ -7,6 +7,7 @@ import {
   snapEditorTransformSnapshot,
   type EditorTransformBatchCommit,
   type EditorTransformGizmoCommit,
+  type EditorTransformOperationBlockReason,
   type EditorTransformSnapshot,
 } from '@fps-games/editor-core';
 
@@ -72,6 +73,20 @@ describe('editor transform operation descriptors', () => {
 
     expect(singleCommit.constraint).toBe('free');
     expect(commit.constraint).toBe('free');
+  });
+
+  it('exposes engine-agnostic transform operation block reasons', () => {
+    const reasons: EditorTransformOperationBlockReason[] = [
+      'non-trs-representable',
+      'non-invertible-parent',
+      'unsupported-transform',
+    ];
+
+    expect(reasons).toEqual([
+      'non-trs-representable',
+      'non-invertible-parent',
+      'unsupported-transform',
+    ]);
   });
 
   it('snaps move, rotate, and scale deltas with operation defaults', () => {

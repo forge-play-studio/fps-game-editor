@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  composeEditorTransformMatrix,
   computeEditorTransformActionTargets,
+  editorTransformMatricesAlmostEqual,
   type EditorTransformSnapshot,
   type EditorTransformTargetSnapshot,
 } from '../../packages/editor-core/src';
@@ -10,7 +12,9 @@ import {
   reduceLabSceneDocument,
 } from '../../examples/editor-lab/src/lab-project';
 import {
+  getEditorSceneGameObjectWorldTransform,
   reduceEditorSceneDocument,
+  toEditorSceneLocalTransformFromWorld,
 } from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-session';
 import type { EditorSceneDocument } from '../../examples/mini-game-lab/src/fps-game-editor-adapter/editor-scene-document';
 
@@ -92,6 +96,110 @@ describe('transform action document adapters', () => {
     expect(readMiniPosition(next, 'middle').x).toBe(5);
     expect(readMiniPosition(next, 'last').x).toBe(10);
   });
+
+  it('applies mini-game-lab world transform commits as parent-local authored transforms', () => {
+    const document: EditorSceneDocument = {
+      schemaVersion: 1,
+      assets: [],
+      scene: {
+        gameObjects: [
+          createMiniGameObjectFromTransform('parent', {
+            position: { x: 3, y: 1, z: -2 },
+            rotation: { x: 0.2, y: Math.PI / 5, z: -0.1 },
+            scale: { x: 2, y: 2, z: 2 },
+          }),
+          createMiniGameObjectFromTransform('child', {
+            position: { x: 1, y: 0.25, z: -0.5 },
+            rotation: { x: -0.15, y: 0.3, z: 0.2 },
+            scale: { x: 0.75, y: 0.75, z: 0.75 },
+          }, 'parent'),
+        ],
+      },
+    };
+    const targetWorld: EditorTransformSnapshot = {
+      position: { x: 8, y: 3, z: -4 },
+      rotation: { x: 0.35, y: 0.8, z: -0.25 },
+      scale: { x: 1.5, y: 1.5, z: 1.5 },
+    };
+    const localTransform = toEditorSceneLocalTransformFromWorld(document, 'child', targetWorld);
+
+    expect(localTransform).not.toBeNull();
+    expect(localTransform?.position).not.toEqual(targetWorld.position);
+
+    const next = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      patch: {
+        kind: 'game-object.transform',
+        targetId: 'child',
+        transform: localTransform!,
+      },
+    });
+    const recomposedWorld = getEditorSceneGameObjectWorldTransform(next, 'child')!;
+
+    expectTransformsToMatchWorld(recomposedWorld, targetWorld);
+  });
+
+  it('applies mini-game-lab batch world transform commits atomically through parent-local authored transforms', () => {
+    const document: EditorSceneDocument = {
+      schemaVersion: 1,
+      assets: [],
+      scene: {
+        gameObjects: [
+          createMiniGameObjectFromTransform('parent', {
+            position: { x: -2, y: 0, z: 1 },
+            rotation: { x: 0, y: Math.PI / 6, z: 0.15 },
+            scale: { x: 1.25, y: 1.25, z: 1.25 },
+          }),
+          createMiniGameObjectFromTransform('first', {
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0.2, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+          }, 'parent'),
+          createMiniGameObjectFromTransform('second', {
+            position: { x: 3, y: 0, z: 1 },
+            rotation: { x: 0.2, y: 0, z: -0.1 },
+            scale: { x: 0.8, y: 0.8, z: 0.8 },
+          }, 'parent'),
+        ],
+      },
+    };
+    const worldTargets: Array<{ id: string; after: EditorTransformSnapshot }> = [
+      {
+        id: 'first',
+        after: {
+          position: { x: 1, y: 2, z: 3 },
+          rotation: { x: 0.1, y: 0.5, z: -0.2 },
+          scale: { x: 1.2, y: 1.2, z: 1.2 },
+        },
+      },
+      {
+        id: 'second',
+        after: {
+          position: { x: 4, y: -1, z: 0.5 },
+          rotation: { x: -0.25, y: 0.15, z: 0.45 },
+          scale: { x: 0.6, y: 0.6, z: 0.6 },
+        },
+      },
+    ];
+    const localTargets = worldTargets.map((target) => ({
+      targetId: target.id,
+      transform: toEditorSceneLocalTransformFromWorld(document, target.id, target.after)!,
+    }));
+
+    expect(localTargets.every(target => !!target.transform)).toBe(true);
+
+    const next = reduceEditorSceneDocument(document, {
+      type: 'document.patch',
+      patch: {
+        kind: 'game-object.transform-batch',
+        targets: localTargets,
+      },
+    });
+
+    for (const target of worldTargets) {
+      expectTransformsToMatchWorld(getEditorSceneGameObjectWorldTransform(next, target.id)!, target.after);
+    }
+  });
 });
 
 function changedTargets(targets: EditorTransformTargetSnapshot[]): EditorTransformTargetSnapshot[] {
@@ -107,6 +215,18 @@ function cloneSnapshot(transform: EditorTransformSnapshot): EditorTransformSnaps
 }
 
 function createMiniGameObject(id: string, position: { x: number; y: number; z: number }, parentId?: string) {
+  return createMiniGameObjectFromTransform(id, {
+    position,
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+  }, parentId);
+}
+
+function createMiniGameObjectFromTransform(
+  id: string,
+  transform: EditorTransformSnapshot,
+  parentId?: string,
+) {
   return {
     id,
     name: id,
@@ -114,9 +234,9 @@ function createMiniGameObject(id: string, position: { x: number; y: number; z: n
     components: [
       {
         type: 'Transform' as const,
-        position,
-        rotation: { x: 0, y: 0, z: 0 },
-        scale: { x: 1, y: 1, z: 1 },
+        position: transform.position,
+        rotation: transform.rotation,
+        scale: transform.scale,
       },
     ],
   };
@@ -138,4 +258,11 @@ function readMiniPosition(document: EditorSceneDocument, id: string): { x: numbe
     .find(component => component.type === 'Transform');
   if (!transform || transform.type !== 'Transform') throw new Error(`missing transform ${id}`);
   return transform.position;
+}
+
+function expectTransformsToMatchWorld(actual: EditorTransformSnapshot, expected: EditorTransformSnapshot): void {
+  expect(editorTransformMatricesAlmostEqual(
+    composeEditorTransformMatrix(actual),
+    composeEditorTransformMatrix(expected),
+  )).toBe(true);
 }

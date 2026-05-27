@@ -110,6 +110,7 @@ import {
   type BabylonMainCameraPreviewRig,
   type BabylonEditorGridController,
   type BabylonTransformGizmoCommit,
+  type BabylonTransformGizmoBlockEvent,
   type BabylonTransformGizmoController,
   type BabylonTransformGizmoDuplicateDragInput,
   type BabylonTransformGizmoDuplicateDragResult,
@@ -1376,6 +1377,15 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       state.status = event.targetIds.length > 1
         ? `Canceled ${event.tool} ${event.targetIds.length} objects`
         : `Canceled ${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
+      renderUi();
+    },
+    onDragBlocked(event) {
+      sceneViewInteraction.endGizmoDrag();
+      if (event.duplicate) cancelDuplicateDrag(state, options);
+      requestEditorSceneFrame(state, 'gizmo-drag-blocked');
+      state.status = formatBlockedGizmoTransformStatus(event);
+      state.statusTone = 'warning';
+      state.statusToneStatus = state.status;
       renderUi();
     },
     onDuplicateDragStart(input) {
@@ -2821,6 +2831,22 @@ function restoreBatchTransformPreview<TDocument, TPatch, TAsset>(
   const transforms: Record<string, EditorTransformSnapshot> = {};
   for (const target of targets) transforms[target.id] = target.before;
   state.projection?.setNodeTransformsPreview(transforms);
+}
+
+function formatBlockedGizmoTransformStatus(event: BabylonTransformGizmoBlockEvent): string {
+  const target = event.targetIds.length > 1
+    ? `${event.targetIds.length} objects`
+    : event.nodeId ?? event.activeId ?? 'selection';
+  const failed = event.failedTargetId && event.targetIds.length > 1
+    ? ` at ${event.failedTargetId}`
+    : '';
+  return `Blocked ${event.tool} ${target}${failed}: ${formatTransformOperationBlockReason(event.reason)}`;
+}
+
+function formatTransformOperationBlockReason(reason: BabylonTransformGizmoBlockEvent['reason']): string {
+  if (reason === 'non-trs-representable') return 'result cannot be represented as position/rotation/scale';
+  if (reason === 'non-invertible-parent') return 'parent transform cannot be inverted';
+  return 'unsupported transform';
 }
 
 function cancelActiveGizmoDrag<TDocument, TPatch, TAsset>(
