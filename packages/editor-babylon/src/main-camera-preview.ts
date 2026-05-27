@@ -123,6 +123,9 @@ export function createBabylonMainCameraPreviewController(
       if (camera.rotationQuaternion) camera.rotationQuaternion = null;
       camera.rotation = new Vector3(transform.rotation.x, transform.rotation.y, transform.rotation.z);
       applyBabylonEditorProjectionCameraRig(options.babylon, options.scene, camera, settings, { lockOrbit: false });
+      camera.position = new Vector3(transform.position.x, transform.position.y, transform.position.z);
+      if (camera.rotationQuaternion) camera.rotationQuaternion = null;
+      camera.rotation = new Vector3(transform.rotation.x, transform.rotation.y, transform.rotation.z);
     } else {
       if (typeof camera.alpha === 'number') {
         applyBabylonEditorProjectionCameraRig(options.babylon, options.scene, camera, settings, { target });
