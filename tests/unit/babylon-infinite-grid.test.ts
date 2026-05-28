@@ -18,7 +18,7 @@ describe('Babylon editor infinite grid', () => {
     });
 
     const gridMeshes = scene.meshes.filter(mesh => mesh.metadata?.editorGrid);
-    expect(gridMeshes).toHaveLength(4);
+    expect(gridMeshes).toHaveLength(18);
     expect(gridMeshes.every(mesh => mesh.isPickable === false)).toBe(true);
     expect(grid.isVisible()).toBe(true);
 
@@ -30,7 +30,7 @@ describe('Babylon editor infinite grid', () => {
     camera.target.x = 12;
     camera.target.z = -8;
     expect(() => scene.render()).not.toThrow();
-    expect(gridMeshes.some(mesh => mesh.isEnabled() === true)).toBe(true);
+    expect(gridMeshes.every(mesh => mesh.isEnabled() === true)).toBe(true);
 
     grid.dispose();
     expect(scene.meshes.filter(mesh => mesh.metadata?.editorGrid)).toHaveLength(0);
@@ -42,9 +42,8 @@ describe('Babylon editor infinite grid', () => {
   it('coarsens grid spacing as the editor camera pulls away', () => {
     const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
     const scene = new BABYLON.Scene(engine);
-    const runtimeCamera = new BABYLON.ArcRotateCamera('runtime-camera', 0, 1, 800, new BABYLON.Vector3(0, 0, 0), scene);
     const camera = new BABYLON.ArcRotateCamera('editor-camera', 0, 1, 8, new BABYLON.Vector3(0, 0, 0), scene);
-    scene.activeCamera = runtimeCamera;
+    scene.activeCamera = camera;
 
     const grid = createBabylonEditorInfiniteGrid({
       babylon: BABYLON as any,
@@ -63,14 +62,54 @@ describe('Babylon editor infinite grid', () => {
     expect(grid.getStep()).toBeGreaterThan(1);
 
     const gridMeshes = scene.meshes.filter(mesh => mesh.metadata?.editorGrid);
-    expect(gridMeshes).toHaveLength(4);
+    expect(gridMeshes).toHaveLength(18);
 
     grid.dispose();
     scene.dispose();
     engine.dispose();
   });
 
-  it('chunks dense grid lines into bounded line systems', () => {
+  it('uses the explicit editor camera even when the scene active camera changes', () => {
+    const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
+    const scene = new BABYLON.Scene(engine);
+    const editorCamera = new BABYLON.ArcRotateCamera(
+      'editor-camera',
+      0,
+      1,
+      8,
+      new BABYLON.Vector3(0, 0, 0),
+      scene,
+    );
+    const previewCamera = new BABYLON.ArcRotateCamera(
+      'preview-camera',
+      0,
+      1,
+      800,
+      new BABYLON.Vector3(0, 0, 0),
+      scene,
+    );
+    scene.activeCamera = previewCamera;
+
+    const grid = createBabylonEditorInfiniteGrid({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      camera: editorCamera,
+      name: 'explicit-camera-grid',
+      halfLineCount: 4,
+      adaptiveSteps: [1, 5, 10, 50, 100],
+      targetScreenSpacingPx: 48,
+    });
+
+    expect(grid.getStep()).toBe(1);
+    expect(() => scene.render()).not.toThrow();
+    expect(grid.getStep()).toBe(1);
+
+    grid.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('updates grid colors without recreating grid meshes', () => {
     const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
     const scene = new BABYLON.Scene(engine);
     const camera = new BABYLON.ArcRotateCamera('editor-camera', 0, 1, 8, new BABYLON.Vector3(0, 0, 0), scene);
@@ -80,19 +119,22 @@ describe('Babylon editor infinite grid', () => {
       babylon: BABYLON as any,
       scene: scene as any,
       camera,
-      name: 'chunked-grid',
-      halfLineCount: 96,
+      name: 'recolor-grid',
+      halfLineCount: 1,
+    });
+    const initialMeshes = scene.meshes.filter(mesh => mesh.metadata?.editorGrid);
+
+    grid.setColors({
+      gridColor: { r: 0.11, g: 0.22, b: 0.33 },
+      majorGridColor: { r: 0.4, g: 0.5, b: 0.6 },
+      axisXColor: { r: 0.7, g: 0.1, b: 0.2 },
+      axisZColor: { r: 0.2, g: 0.3, b: 0.8 },
     });
 
-    const gridMeshes = scene.meshes.filter(mesh => mesh.metadata?.editorGrid);
-    expect(gridMeshes.length).toBeGreaterThan(4);
-    expect(gridMeshes.length).toBeLessThan(96 * 4 + 2);
-    expect(Math.max(...gridMeshes.map(mesh => mesh.getTotalVertices()))).toBeLessThanOrEqual(128);
-    const visibleGridMeshes = gridMeshes.filter(mesh => mesh.isEnabled());
-    const visibleCoordinates = visibleGridMeshes.flatMap(mesh => (
-      Array.from(mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind) ?? []) as number[]
-    )).filter((_value, index) => index % 3 !== 1);
-    expect(Math.max(...visibleCoordinates.map(value => Math.abs(value)))).toBeLessThan(96);
+    expect(scene.meshes.filter(mesh => mesh.metadata?.editorGrid)).toEqual(initialMeshes);
+    expect(scene.meshes.find(mesh => mesh.name === 'recolor-grid-x-1')?.color).toMatchObject({ r: 0.11, g: 0.22, b: 0.33 });
+    expect(scene.meshes.find(mesh => mesh.name === 'recolor-grid-x-0')?.color).toMatchObject({ r: 0.7, g: 0.1, b: 0.2 });
+    expect(scene.meshes.find(mesh => mesh.name === 'recolor-grid-z-0')?.color).toMatchObject({ r: 0.2, g: 0.3, b: 0.8 });
 
     grid.dispose();
     scene.dispose();

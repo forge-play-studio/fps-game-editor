@@ -30,11 +30,11 @@ export type BabylonRuntimeGlobal = {
     PERSPECTIVE_CAMERA?: number;
     ORTHOGRAPHIC_CAMERA?: number;
   };
-  Vector2?: new (x: number, y: number) => any;
   Vector3?: new (x: number, y: number, z: number) => any;
   Color3?: new (r: number, g: number, b: number) => any;
   Color4?: new (r: number, g: number, b: number, a: number) => any;
   HemisphericLight?: new (name: string, direction: any, scene: RuntimeScene) => any;
+  DirectionalLight?: new (name: string, direction: any, scene: RuntimeScene) => any;
   Texture?: new (url: string, scene: RuntimeScene, noMipmap?: boolean, invertY?: boolean) => any;
   GizmoManager?: new (scene: RuntimeScene) => any;
   UtilityLayerRenderer?: any;

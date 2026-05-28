@@ -21,16 +21,26 @@ describe('Babylon editor world', () => {
     engine.dispose();
   });
 
-  it('keeps the lightweight sky backdrop out of the scene depth buffer', () => {
+  it('updates world appearance without creating a hidden fallback light', () => {
     const engine = new BABYLON.NullEngine();
     const world = createBabylonEditorWorld({
       engine,
       babylon: BABYLON as any,
+      clearColor: { r: 0.1, g: 0.2, b: 0.3, a: 1 },
+      sky: false,
       enableDefaultCameraControls: false,
-      sky: { preset: 'simple' },
     });
 
-    expect(world.skyBackdrop?.material?.disableDepthWrite).toBe(true);
+    expect(world.scene.lights).toHaveLength(0);
+    expect(world.scene.clearColor).toMatchObject({ r: 0.1, g: 0.2, b: 0.3, a: 1 });
+
+    world.setAppearance({
+      clearColor: { r: 0.4, g: 0.5, b: 0.6, a: 1 },
+      sky: false,
+    });
+
+    expect(world.scene.lights).toHaveLength(0);
+    expect(world.scene.clearColor).toMatchObject({ r: 0.4, g: 0.5, b: 0.6, a: 1 });
 
     world.dispose();
     engine.dispose();

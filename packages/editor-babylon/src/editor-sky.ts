@@ -9,11 +9,8 @@ export interface BabylonEditorSkyColor {
   b: number;
 }
 
-export type BabylonEditorSkyPreset = 'simple' | 'atmospheric';
-
 export interface BabylonEditorSkyOptions {
   enabled?: boolean;
-  preset?: BabylonEditorSkyPreset;
   radius?: number;
   topColor?: BabylonEditorSkyColor;
   horizonColor?: BabylonEditorSkyColor;
@@ -27,6 +24,7 @@ export interface BabylonEditorSkyOptions {
 export interface BabylonEditorSkyBackdrop {
   mesh: any;
   material: any;
+  update(sky?: BabylonEditorSkyOptions | false): void;
   dispose(): void;
 }
 
@@ -36,11 +34,8 @@ export interface BabylonEditorSkyBackdropOptions {
   sky?: BabylonEditorSkyOptions | false;
 }
 
-type ResolvedBabylonEditorSkyOptions = Required<BabylonEditorSkyOptions>;
-
-const DEFAULT_EDITOR_SKY: ResolvedBabylonEditorSkyOptions = {
+const DEFAULT_EDITOR_SKY: Required<BabylonEditorSkyOptions> = {
   enabled: true,
-  preset: 'simple',
   radius: 1200,
   topColor: { r: 0.28, g: 0.58, b: 0.86 },
   horizonColor: { r: 0.72, g: 0.83, b: 0.88 },
@@ -53,8 +48,6 @@ const DEFAULT_EDITOR_SKY: ResolvedBabylonEditorSkyOptions = {
 
 const POSITION_KIND = 'position';
 const COLOR_KIND = 'color';
-const SIMPLE_SKY_SEGMENTS = 16;
-const ATMOSPHERIC_SKY_SEGMENTS = 32;
 const SKY_SHADER_NAME = 'editorSkyBackdrop';
 const SKY_VERTEX_SHADER = `
 precision highp float;
@@ -137,7 +130,7 @@ export function createBabylonEditorSkyBackdrop(
     'editor.world.sky',
     {
       diameter: sky.radius * 2,
-      segments: sky.preset === 'simple' ? SIMPLE_SKY_SEGMENTS : ATMOSPHERIC_SKY_SEGMENTS,
+      segments: 32,
       sideOrientation: (options.babylon as any).Mesh?.BACKSIDE ?? 1,
     },
     options.scene,
@@ -147,7 +140,7 @@ export function createBabylonEditorSkyBackdrop(
   mesh.alwaysSelectAsActiveMesh = true;
   mesh.doNotSyncBoundingInfo = true;
 
-  const skyMaterial = createSkyMaterial(options.babylon, options.scene, sky);
+  const skyMaterial = createSkyMaterial(options.babylon, options.scene, sky, canUseSkyShader(options.babylon));
   if (!skyMaterial) {
     mesh.dispose?.();
     return null;
@@ -162,6 +155,16 @@ export function createBabylonEditorSkyBackdrop(
   return {
     mesh,
     material,
+    update(nextSkyOptions) {
+      const nextSky = resolveEditorSkyOptions(nextSkyOptions);
+      mesh.setEnabled?.(nextSky.enabled);
+      if (!nextSky.enabled) return;
+      if (shader) {
+        applySkyShaderUniforms(options.babylon, material, nextSky);
+      } else {
+        applySkyVertexColors(mesh, nextSky);
+      }
+    },
     dispose() {
       mesh.dispose?.();
       material.dispose?.();
@@ -172,9 +175,9 @@ export function createBabylonEditorSkyBackdrop(
 function createSkyMaterial(
   babylon: BabylonRuntimeGlobal,
   scene: RuntimeScene,
-  sky: ResolvedBabylonEditorSkyOptions,
+  sky: Required<BabylonEditorSkyOptions>,
+  preferShader: boolean,
 ): { material: any; shader: boolean } | null {
-  const preferShader = sky.preset === 'atmospheric' && canUseSkyShader(babylon);
   if (preferShader) {
     try {
       const shaderMaterial = createSkyShaderMaterial(babylon, scene, sky);
@@ -190,12 +193,10 @@ function createSkyMaterial(
 function createSkyShaderMaterial(
   babylon: BabylonRuntimeGlobal,
   scene: RuntimeScene,
-  sky: ResolvedBabylonEditorSkyOptions,
+  sky: Required<BabylonEditorSkyOptions>,
 ): any | null {
   if (!canUseSkyShader(babylon)) return null;
   const ShaderMaterial = babylon.ShaderMaterial!;
-  const Color3 = babylon.Color3!;
-  const Vector3 = babylon.Vector3;
   const store = babylon.Effect!.ShadersStore!;
   store[`${SKY_SHADER_NAME}VertexShader`] = SKY_VERTEX_SHADER;
   store[`${SKY_SHADER_NAME}FragmentShader`] = SKY_FRAGMENT_SHADER;
@@ -220,19 +221,7 @@ function createSkyShaderMaterial(
   );
   material.backFaceCulling = false;
   material.disableDepthWrite = true;
-  material.setColor3?.('topColor', toColor3(Color3, sky.topColor));
-  material.setColor3?.('horizonColor', toColor3(Color3, sky.horizonColor));
-  material.setColor3?.('bottomColor', toColor3(Color3, sky.bottomColor));
-  material.setColor3?.('cloudColor', toColor3(Color3, sky.cloudColor));
-  material.setColor3?.('sunColor', toColor3(Color3, sky.sunColor));
-  if (Vector3 && material.setVector3) {
-    material.setVector3('sunDirection', new Vector3(
-      sky.sunDirection.x,
-      sky.sunDirection.y,
-      sky.sunDirection.z,
-    ));
-  }
-  material.setFloat?.('cloudStrength', sky.cloudStrength);
+  applySkyShaderUniforms(babylon, material, sky);
   return material;
 }
 
@@ -253,7 +242,6 @@ function createSkyVertexColorMaterial(
   if (!StandardMaterial || !Color3) return null;
   const material = new StandardMaterial('editor.world.sky.material', scene);
   material.disableLighting = true;
-  material.disableDepthWrite = true;
   material.backFaceCulling = false;
   material.useVertexColors = true;
   material.diffuseColor = new Color3(1, 1, 1);
@@ -265,11 +253,10 @@ function createSkyVertexColorMaterial(
 
 function resolveEditorSkyOptions(
   sky: BabylonEditorSkyOptions | false | undefined,
-): ResolvedBabylonEditorSkyOptions {
+): Required<BabylonEditorSkyOptions> {
   if (sky === false) return { ...DEFAULT_EDITOR_SKY, enabled: false };
   return {
     enabled: sky?.enabled ?? DEFAULT_EDITOR_SKY.enabled,
-    preset: sky?.preset ?? DEFAULT_EDITOR_SKY.preset,
     radius: sky?.radius ?? DEFAULT_EDITOR_SKY.radius,
     topColor: sky?.topColor ?? DEFAULT_EDITOR_SKY.topColor,
     horizonColor: sky?.horizonColor ?? DEFAULT_EDITOR_SKY.horizonColor,
@@ -281,7 +268,30 @@ function resolveEditorSkyOptions(
   };
 }
 
-function applySkyVertexColors(mesh: any, sky: ResolvedBabylonEditorSkyOptions): void {
+function applySkyShaderUniforms(
+  babylon: BabylonRuntimeGlobal,
+  material: any,
+  sky: Required<BabylonEditorSkyOptions>,
+): void {
+  const Color3 = babylon.Color3;
+  if (!Color3) return;
+  const Vector3 = babylon.Vector3;
+  material.setColor3?.('topColor', toColor3(Color3, sky.topColor));
+  material.setColor3?.('horizonColor', toColor3(Color3, sky.horizonColor));
+  material.setColor3?.('bottomColor', toColor3(Color3, sky.bottomColor));
+  material.setColor3?.('cloudColor', toColor3(Color3, sky.cloudColor));
+  material.setColor3?.('sunColor', toColor3(Color3, sky.sunColor));
+  if (Vector3 && material.setVector3) {
+    material.setVector3('sunDirection', new Vector3(
+      sky.sunDirection.x,
+      sky.sunDirection.y,
+      sky.sunDirection.z,
+    ));
+  }
+  material.setFloat?.('cloudStrength', sky.cloudStrength);
+}
+
+function applySkyVertexColors(mesh: any, sky: Required<BabylonEditorSkyOptions>): void {
   const positions = mesh.getVerticesData?.(POSITION_KIND) as number[] | Float32Array | null | undefined;
   if (!positions || !mesh.setVerticesData) return;
 

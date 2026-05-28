@@ -4,7 +4,7 @@ import { createBabylonEditorProjection } from '../../packages/editor-babylon/src
 import { createBabylonSceneCameraPreviewController } from '../../packages/editor-babylon/src/scene-camera-preview';
 
 describe('Babylon editor projection runtime helpers', () => {
-  it('renders the MVP root helper as a sphere with a World Origin label', () => {
+  it('renders the MVP root helper as a sphere with a Root label', () => {
     const { babylon, scene } = createFakeRootProjectionRuntime();
     const projection = createBabylonEditorProjection({
       babylon: babylon as any,
@@ -31,7 +31,7 @@ describe('Babylon editor projection runtime helpers', () => {
       nodeId: 'mvp_root',
       helperKind: 'root',
       helper: 'label',
-      text: 'World Origin',
+      text: 'Root',
     });
 
     projection.projectNode({
@@ -143,6 +143,10 @@ describe('Babylon editor projection runtime helpers', () => {
     expect(lights).toHaveLength(1);
     expect(lights[0]?.intensity).toBe(2);
     expect((lights[0] as BABYLON.DirectionalLight | undefined)?.direction).toMatchObject({ x: -0.3, y: -1, z: -0.2 });
+    const directionHelper = scene.meshes.find(mesh => mesh.name === 'sun_light.lightDirection');
+    const directionPositions = directionHelper?.getVerticesData(BABYLON.VertexBuffer.PositionKind) ?? [];
+    const directionYValues = directionPositions.filter((_value, index) => index % 3 === 1);
+    expect(Math.min(...directionYValues)).toBeLessThan(-0.9);
 
     projection.projectNode({
       id: 'sun_light',
@@ -174,38 +178,65 @@ describe('Babylon editor projection runtime helpers', () => {
     engine.dispose();
   });
 
-  it('notifies when an async model projection becomes renderable', async () => {
+  it('creates and disposes one HemisphericLight when Hemispheric Light is reprojected', () => {
     const engine = new BABYLON.NullEngine();
     const scene = new BABYLON.Scene(engine);
-    const readyNodeIds: string[] = [];
     const projection = createBabylonEditorProjection({
       babylon: BABYLON as any,
       scene: scene as any,
-      importModel: async () => ({
-        meshes: [BABYLON.MeshBuilder.CreateBox('asset_node.mesh', { size: 1 }, scene)],
-        transformNodes: [],
-        animationGroups: [],
-      }),
-      onProjectionReady(event) {
-        readyNodeIds.push(event.nodeId);
-      },
     });
 
-    const projected = projection.projectNode({
-      id: 'asset_node',
-      name: 'Asset Node',
-      asset: { id: 'asset_box', sourceId: 'box' },
+    projection.projectNode({
+      id: 'environment_light',
+      name: 'Hemispheric Light',
+      active: false,
+      runtimeKind: 'light',
       transform: {
-        position: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 3, z: 0 },
         rotation: { x: 0, y: 0, z: 0 },
         scale: { x: 1, y: 1, z: 1 },
       },
+      light: {
+        type: 'hemispheric',
+        intensity: 0.8,
+        diffuseColor: { r: 0.9, g: 0.95, b: 1 },
+        groundColor: { r: 0.2, g: 0.25, b: 0.32 },
+      },
     });
 
-    await projected?.loadPromise;
+    let lights = scene.lights.filter(light => light.name === 'environment_light.hemisphericLight');
+    expect(lights).toHaveLength(1);
+    expect(lights[0]).toBeInstanceOf(BABYLON.HemisphericLight);
+    expect(lights[0]?.intensity).toBe(0.8);
+    expect(lights[0]?.isEnabled()).toBe(false);
+    expect((lights[0] as BABYLON.HemisphericLight | undefined)?.diffuse).toMatchObject({ r: 0.9, g: 0.95, b: 1 });
+    expect((lights[0] as BABYLON.HemisphericLight | undefined)?.groundColor).toMatchObject({ r: 0.2, g: 0.25, b: 0.32 });
 
-    expect(readyNodeIds).toEqual(['asset_node']);
-    expect(scene.meshes.find(mesh => mesh.name === 'asset_node.mesh')?.parent?.name).toBe('asset_node.modelRoot');
+    projection.projectNode({
+      id: 'environment_light',
+      name: 'Hemispheric Light',
+      runtimeKind: 'light',
+      transform: {
+        position: { x: 0, y: 3, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+      light: {
+        type: 'hemispheric',
+        intensity: 0.2,
+        diffuseColor: { r: 0.4, g: 0.5, b: 0.6 },
+        groundColor: { r: 0.1, g: 0.12, b: 0.14 },
+      },
+    });
+
+    lights = scene.lights.filter(light => light.name === 'environment_light.hemisphericLight');
+    expect(lights).toHaveLength(1);
+    expect(lights[0]?.intensity).toBe(0.2);
+    expect((lights[0] as BABYLON.HemisphericLight | undefined)?.diffuse).toMatchObject({ r: 0.4, g: 0.5, b: 0.6 });
+    expect((lights[0] as BABYLON.HemisphericLight | undefined)?.groundColor).toMatchObject({ r: 0.1, g: 0.12, b: 0.14 });
+
+    projection.removeNode('environment_light');
+    expect(scene.lights.filter(light => light.name === 'environment_light.hemisphericLight')).toHaveLength(0);
 
     projection.dispose();
     scene.dispose();
@@ -321,8 +352,8 @@ describe('Babylon scene camera preview controller', () => {
     });
 
     expect(preview.isActive()).toBe(true);
-    expect(scene.activeCamera?.name).toBe('editor-main-camera-preview');
-    expect(scene.cameraToUseForPointers?.name).toBe('editor-main-camera-preview');
+    expect(scene.activeCamera?.name).toBe('editor-scene-camera-preview');
+    expect(scene.cameraToUseForPointers?.name).toBe('editor-scene-camera-preview');
     expect(scene.activeCamera?.mode).toBe(BABYLON.Camera.ORTHOGRAPHIC_CAMERA);
     expect(scene.activeCamera?.alpha).toBe(1.2);
     expect(scene.activeCamera?.beta).toBe(0.7);

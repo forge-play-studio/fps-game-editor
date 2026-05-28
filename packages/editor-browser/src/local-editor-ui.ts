@@ -76,7 +76,6 @@ import type {
   LocalEditorBrowserInspectorPersistenceMode,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserPlacementMode,
-  LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserTransformAction,
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformSnapStepKind,
@@ -97,7 +96,6 @@ import type {
 export {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
-  formatLocalEditorBrowserInspectorNumberValue,
   formatLocalEditorBrowserInspectorValue,
   resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
@@ -159,7 +157,6 @@ export type {
   LocalEditorBrowserInspectorSection,
   LocalEditorBrowserPlacementMode,
   LocalEditorBrowserPrimitiveShape,
-  LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
   LocalEditorBrowserSceneGraphCreatePrimitiveIntent,
   LocalEditorBrowserSceneGraphDeleteIntent,
@@ -195,46 +192,11 @@ export type {
   LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
 
-export type LocalEditorBrowserInspectorNumberParseMode = 'live' | 'final';
-const INSPECTOR_INPUT_PENDING = Symbol('inspector-input-pending');
-
-type InspectorInputReadValue =
-  | number
-  | string
-  | boolean
-  | Record<string, unknown>
-  | null
-  | typeof INSPECTOR_INPUT_PENDING;
-
-export function parseLocalEditorBrowserInspectorNumberValue(
-  value: string,
-  mode: LocalEditorBrowserInspectorNumberParseMode = 'final',
-): number | null {
-  const normalized = value.trim();
-  if (normalized === '') return mode === 'final' ? 0 : null;
-  if (
-    normalized === '-'
-    || normalized === '+'
-    || normalized === '.'
-    || normalized === '-.'
-    || normalized === '+.'
-  ) {
-    return null;
-  }
-  if (mode === 'live' && (/[.]$/.test(normalized) || /e[+-]?$/i.test(normalized))) return null;
-  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) return null;
-  const numeric = Number(normalized);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function readInspectorInputValue(
-  input: HTMLInputElement | HTMLSelectElement,
-  mode: LocalEditorBrowserInspectorNumberParseMode = 'final',
-): InspectorInputReadValue {
+function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): number | string | boolean | Record<string, unknown> | null {
   const control = input.dataset.serializedControl;
   const valueType = input.dataset.serializedValueType;
   if ((control === 'vec2' || control === 'vec3') && input instanceof HTMLInputElement) {
-    return readInspectorVectorInputValue(input, mode);
+    return readInspectorVectorInputValue(input);
   }
   if (control === 'enum' && input instanceof HTMLSelectElement) {
     const option = input.selectedOptions.item(0);
@@ -249,9 +211,7 @@ function readInspectorInputValue(
   }
   if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
   if (control === 'boolean' || valueType === 'boolean') return input.value === 'true';
-  if (control === 'number' || valueType === 'number') {
-    return parseLocalEditorBrowserInspectorNumberValue(input.value, mode) ?? INSPECTOR_INPUT_PENDING;
-  }
+  if (control === 'number' || valueType === 'number') return Number(input.value);
   if (control === 'color' && input instanceof HTMLInputElement && input.type === 'color') {
     const value = input.value.replace('#', '');
     const numeric = Number.parseInt(value, 16);
@@ -385,10 +345,7 @@ function setToolbarButtonIcon(
   else button.prepend(nextIcon);
 }
 
-function readInspectorVectorInputValue(
-  input: HTMLInputElement,
-  mode: LocalEditorBrowserInspectorNumberParseMode,
-): Record<string, number> | typeof INSPECTOR_INPUT_PENDING {
+function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, number> {
   const wrapper = input.closest<HTMLElement>('[data-inspector-vector-control]');
   const values: Record<string, number> = {};
   const fields = wrapper
@@ -397,9 +354,8 @@ function readInspectorVectorInputValue(
   for (const field of fields) {
     const axis = field.dataset.serializedVectorAxis;
     if (!axis) continue;
-    const numeric = parseLocalEditorBrowserInspectorNumberValue(field.value, mode);
-    if (numeric == null) return INSPECTOR_INPUT_PENDING;
-    values[axis] = numeric;
+    const numeric = Number(field.value);
+    values[axis] = Number.isFinite(numeric) ? numeric : 0;
   }
   return values;
 }
@@ -407,35 +363,22 @@ function readInspectorVectorInputValue(
 function createInspectorPropertyInput(
   input: HTMLInputElement | HTMLSelectElement,
   source: LocalEditorBrowserInspectorEditSource,
-  numberParseMode: LocalEditorBrowserInspectorNumberParseMode = 'final',
 ): LocalEditorBrowserUiPropertyInput | null {
   if (!input.dataset.serializedPath || !input.dataset.serializedTargetId) return null;
   const targetIds = input.dataset.serializedTargetIds
     ? input.dataset.serializedTargetIds.split(',').filter(Boolean)
     : undefined;
-  const value = readInspectorInputValue(input, numberParseMode);
-  if (value === INSPECTOR_INPUT_PENDING) return null;
   return {
     targetId: input.dataset.serializedTargetId,
     targetIds,
     path: input.dataset.serializedPath,
-    value,
+    value: readInspectorInputValue(input),
     control: input.dataset.serializedControl as LocalEditorBrowserInspectorControlKind | undefined,
     valueType: input.dataset.serializedValueType as LocalEditorBrowserInspectorProperty['valueType'] | undefined,
     commitMode: input.dataset.serializedCommitMode as LocalEditorBrowserInspectorCommitMode | undefined,
     persistence: input.dataset.serializedPersistence as LocalEditorBrowserInspectorPersistenceMode | undefined,
     source: (input.dataset.serializedEditSource as LocalEditorBrowserInspectorEditSource | undefined) ?? source,
   };
-}
-
-function hasPendingInspectorNumberValue(
-  input: HTMLInputElement,
-  mode: LocalEditorBrowserInspectorNumberParseMode = 'live',
-): boolean {
-  const control = input.dataset.serializedControl;
-  const valueType = input.dataset.serializedValueType;
-  if (control !== 'number' && valueType !== 'number' && control !== 'vec2' && control !== 'vec3') return false;
-  return readInspectorInputValue(input, mode) === INSPECTOR_INPUT_PENDING;
 }
 
 function readInspectorCommitMode(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorCommitMode {
@@ -458,111 +401,6 @@ interface CoordinateAxesOverlayElements {
   axisLabels: Map<string, SVGTextElement>;
   axisDiscs: Map<string, SVGCircleElement>;
   centerDot: SVGCircleElement;
-  projectionIcon: SVGGElement;
-  projectionIconShape: SVGPathElement;
-}
-
-interface SceneFrameRateOverlayElements {
-  root: HTMLDivElement;
-  fpsValue: HTMLSpanElement;
-  modeLabel: HTMLSpanElement;
-}
-
-function createSceneFrameRateOverlay(doc: Document): SceneFrameRateOverlayElements {
-  const root = doc.createElement('div');
-  root.classList.add(LOCAL_EDITOR_THEME_CLASS);
-  root.dataset.editorSceneFrameRateOverlay = 'true';
-  root.style.cssText = [
-    'position:absolute',
-    'right:14px',
-    'bottom:134px',
-    'z-index:3',
-    'display:none',
-    'align-items:center',
-    'gap:6px',
-    'width:112px',
-    'height:30px',
-    'padding:0 8px',
-    'box-sizing:border-box',
-    'border:1px solid color-mix(in srgb, var(--fps-editor-border) 78%, transparent)',
-    'border-radius:6px',
-    'background:color-mix(in srgb, var(--fps-editor-chrome) 76%, transparent)',
-    'box-shadow:var(--fps-editor-shadow-panel)',
-    'font-family:var(--fps-editor-font)',
-    'font-size:11px',
-    'font-weight:900',
-    'letter-spacing:0',
-    'color:var(--fps-editor-text-strong)',
-    'pointer-events:none',
-    'backdrop-filter:blur(5px)',
-    'overflow:hidden',
-  ].join(';');
-
-  const label = doc.createElement('span');
-  label.textContent = 'FPS';
-  label.style.cssText = [
-    'color:var(--fps-editor-muted-strong)',
-    'font-size:10px',
-    'line-height:1',
-  ].join(';');
-  const fpsValue = doc.createElement('span');
-  fpsValue.textContent = '--';
-  fpsValue.style.cssText = [
-    'width:26px',
-    'flex:0 0 26px',
-    'font-variant-numeric:tabular-nums',
-    'font-size:13px',
-    'line-height:1',
-  ].join(';');
-  const modeLabel = doc.createElement('span');
-  modeLabel.textContent = 'IDLE';
-  modeLabel.style.cssText = [
-    'margin-left:auto',
-    'padding:2px 4px',
-    'flex:0 0 auto',
-    'border:1px solid var(--fps-editor-border-soft)',
-    'border-radius:4px',
-    'background:color-mix(in srgb, var(--fps-editor-field) 72%, transparent)',
-    'color:var(--fps-editor-muted)',
-    'font-size:9px',
-    'line-height:1',
-  ].join(';');
-
-  root.appendChild(label);
-  root.appendChild(fpsValue);
-  root.appendChild(modeLabel);
-  return { root, fpsValue, modeLabel };
-}
-
-function renderSceneFrameRateOverlay(
-  overlay: SceneFrameRateOverlayElements,
-  stats: LocalEditorBrowserSceneFrameStats | null,
-): void {
-  if (!stats) {
-    overlay.root.style.display = 'none';
-    return;
-  }
-  overlay.root.style.display = 'flex';
-  const fps = Number.isFinite(stats.fps) ? Math.round(stats.fps as number) : null;
-  const displayFps = stats.mode === 'idle' ? 0 : fps;
-  overlay.fpsValue.textContent = displayFps == null ? '--' : String(displayFps);
-  overlay.modeLabel.textContent = stats.mode === 'continuous' ? 'LIVE' : 'IDLE';
-  overlay.modeLabel.style.color = stats.mode === 'continuous'
-    ? 'var(--fps-editor-success)'
-    : 'var(--fps-editor-muted)';
-  overlay.fpsValue.style.color = displayFps == null || stats.mode === 'idle'
-    ? 'var(--fps-editor-muted)'
-    : displayFps >= 50
-      ? 'var(--fps-editor-success)'
-      : displayFps >= 30
-        ? 'var(--fps-editor-warn)'
-        : 'var(--fps-editor-danger-strong)';
-  overlay.root.title = [
-    `Scene FPS: ${displayFps == null ? '--' : displayFps}`,
-    `mode: ${stats.mode}`,
-    stats.lastFrameMs == null ? '' : `frame: ${stats.lastFrameMs.toFixed(1)}ms`,
-    stats.activeReasons.length ? `active: ${stats.activeReasons.join(', ')}` : '',
-  ].filter(Boolean).join(' | ');
 }
 
 function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElements {
@@ -637,31 +475,6 @@ function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElemen
   centerDot.setAttribute('fill', 'color-mix(in srgb, var(--fps-editor-text) 82%, transparent)');
   labelLayer.appendChild(centerDot);
 
-  const projectionIcon = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
-  projectionIcon.setAttribute('transform', 'translate(8 8)');
-  projectionIcon.setAttribute('role', 'button');
-  projectionIcon.setAttribute('tabindex', '0');
-  projectionIcon.dataset.coordinateAxesProjectionToggle = 'true';
-  projectionIcon.style.cssText = 'opacity:0.92;pointer-events:auto;cursor:pointer;outline:none';
-  const projectionIconFrame = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  projectionIconFrame.setAttribute('x', '0');
-  projectionIconFrame.setAttribute('y', '0');
-  projectionIconFrame.setAttribute('width', '18');
-  projectionIconFrame.setAttribute('height', '18');
-  projectionIconFrame.setAttribute('rx', '4');
-  projectionIconFrame.setAttribute('fill', 'color-mix(in srgb, var(--fps-editor-chrome) 78%, transparent)');
-  projectionIconFrame.setAttribute('stroke', 'color-mix(in srgb, var(--fps-editor-border) 82%, transparent)');
-  projectionIconFrame.setAttribute('stroke-width', '1');
-  const projectionIconShape = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-  projectionIconShape.setAttribute('fill', 'none');
-  projectionIconShape.setAttribute('stroke', 'color-mix(in srgb, var(--fps-editor-accent) 82%, #ffffff)');
-  projectionIconShape.setAttribute('stroke-width', '1.6');
-  projectionIconShape.setAttribute('stroke-linejoin', 'round');
-  projectionIconShape.setAttribute('stroke-linecap', 'round');
-  projectionIcon.appendChild(projectionIconFrame);
-  projectionIcon.appendChild(projectionIconShape);
-  svg.appendChild(projectionIcon);
-
   return {
     root,
     lineLayer,
@@ -671,8 +484,6 @@ function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElemen
     axisLabels,
     axisDiscs,
     centerDot,
-    projectionIcon,
-    projectionIconShape,
   };
 }
 
@@ -685,7 +496,6 @@ function renderCoordinateAxesOverlay(
     return;
   }
   overlay.root.style.display = '';
-  renderCoordinateAxesProjectionIcon(overlay, state.projectionMode, state.projectionToggleDisabled === true);
   const center = 56;
   const lineLength = 38;
   const sortedAxes = [...state.axes].sort((left, right) => right.depth - left.depth);
@@ -712,29 +522,6 @@ function renderCoordinateAxesOverlay(
     overlay.labelLayer.appendChild(group);
   }
   overlay.labelLayer.appendChild(overlay.centerDot);
-}
-
-function renderCoordinateAxesProjectionIcon(
-  overlay: CoordinateAxesOverlayElements,
-  mode: LocalEditorBrowserViewportProjectionMode,
-  disabled: boolean,
-): void {
-  overlay.projectionIcon.dataset.viewportProjectionMode = mode;
-  overlay.projectionIcon.setAttribute(
-    'aria-label',
-    disabled
-      ? `编辑视口投影：${VIEWPORT_PROJECTION_LABELS[mode]}，Main Camera 预览中不可切换`
-      : `编辑视口投影：${VIEWPORT_PROJECTION_LABELS[mode]}，点击切换`,
-  );
-  overlay.projectionIcon.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-  overlay.projectionIcon.style.opacity = disabled ? '0.46' : '0.92';
-  overlay.projectionIcon.style.cursor = disabled ? 'not-allowed' : 'pointer';
-  overlay.projectionIconShape.setAttribute(
-    'd',
-    mode === 'orthographic'
-      ? 'M5 6.5H12.5V14H5ZM7.5 4H15V11.5'
-      : 'M4.5 14H13.5L10.5 4H7.5ZM7 10.5H11',
-  );
 }
 
 interface SpatialOverlayElements {
@@ -1442,17 +1229,17 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneUtilityActions.appendChild(gridToggleButton);
   sceneUtilityActions.appendChild(themeToggleButton);
   sceneUtilityActions.appendChild(sceneHelpButton);
-  const mainCameraPreviewGroup = doc.createElement('div');
-  mainCameraPreviewGroup.style.cssText = [
+  const cameraPreviewGroup = doc.createElement('div');
+  cameraPreviewGroup.style.cssText = [
     'display:flex',
     'align-items:center',
     'gap:4px',
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const mainCameraPreviewButton = createToolbarIconButton(doc, '从 Main Camera 查看场景', 'camera');
-  mainCameraPreviewButton.dataset.mainCameraPreviewToggle = 'true';
-  mainCameraPreviewGroup.appendChild(mainCameraPreviewButton);
+  const sceneCameraButton = createToolbarIconButton(doc, '从 Main Camera 查看场景', 'camera');
+  sceneCameraButton.dataset.sceneCameraPreviewToggle = 'true';
+  cameraPreviewGroup.appendChild(sceneCameraButton);
   const viewportToolsGroup = doc.createElement('div');
   viewportToolsGroup.style.cssText = [
     'display:flex',
@@ -1545,7 +1332,6 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'pointer-events:auto',
   ].join(';');
   const coordinateAxesOverlay = createCoordinateAxesOverlay(doc);
-  const sceneFrameRateOverlay = createSceneFrameRateOverlay(doc);
   const spatialOverlay = createSpatialOverlay(doc);
   const measurementOverlay = createMeasurementOverlay(doc);
   sceneToolOverlay.appendChild(sceneTitle);
@@ -1557,13 +1343,12 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneToolOverlay.appendChild(actionGroup);
   sceneToolOverlay.appendChild(viewportToolsGroup);
   sceneToolOverlay.appendChild(sceneUtilityActions);
-  sceneToolOverlay.appendChild(mainCameraPreviewGroup);
+  sceneToolOverlay.appendChild(cameraPreviewGroup);
   sceneToolOverlay.appendChild(editorStatusButton);
   sceneToolOverlay.appendChild(toolbarOverflowButton);
   workbench.sceneHeader.appendChild(sceneToolOverlay);
   workbench.sceneFrame.appendChild(spatialOverlay.root);
   workbench.sceneFrame.appendChild(measurementOverlay.root);
-  workbench.sceneFrame.appendChild(sceneFrameRateOverlay.root);
   workbench.sceneFrame.appendChild(coordinateAxesOverlay.root);
   root.appendChild(localTestMenu);
   root.appendChild(toolbarOverflowMenu);
@@ -1602,7 +1387,6 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     applyLocalEditorTheme(workbench.root, activeTheme);
     applyLocalEditorTheme(spatialOverlay.root, activeTheme);
     applyLocalEditorTheme(measurementOverlay.root, activeTheme);
-    applyLocalEditorTheme(sceneFrameRateOverlay.root, activeTheme);
     applyLocalEditorTheme(shortcutHelpPanel, activeTheme);
     applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
     applyLocalEditorTheme(localTestMenu, activeTheme);
@@ -1841,14 +1625,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     actionGroup,
     viewportToolsGroup,
     sceneUtilityActions,
-    mainCameraPreviewGroup,
+    cameraPreviewGroup,
     editorStatusButton,
     toolbarOverflowButton,
   ];
   const toolbarOverflowItems: ToolbarOverflowItem[] = [
     { id: 'editor-status', element: editorStatusButton, kind: 'group' },
     { id: 'scene-utilities', element: sceneUtilityActions, kind: 'group' },
-    { id: 'main-camera-preview', element: mainCameraPreviewGroup, kind: 'group' },
+    { id: 'camera-preview', element: cameraPreviewGroup, kind: 'group' },
     { id: 'viewport-tools', element: viewportToolsGroup, kind: 'group' },
     { id: 'transform-actions', element: actionGroup, kind: 'group' },
     { id: 'placement', element: placementGroup, kind: 'group' },
@@ -2043,27 +1827,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const visible = currentState?.grid?.visible ?? true;
     callbacks.onGridVisibleChange?.(!visible);
   });
-  mainCameraPreviewButton.addEventListener('click', () => {
-    const enabled = currentState?.mainCameraPreview?.enabled ?? false;
-    callbacks.onMainCameraPreviewToggle?.(!enabled);
-  });
-  const toggleCoordinateAxesProjection = (event: Event): void => {
-    event.preventDefault();
-    event.stopPropagation();
-    const axesState = currentState?.coordinateAxes ?? null;
-    if (!axesState || axesState.projectionToggleDisabled || currentState?.busy) return;
-    const currentMode = axesState.projectionMode;
-    const nextMode: LocalEditorBrowserViewportProjectionMode = currentMode === 'orthographic' ? 'perspective' : 'orthographic';
-    callbacks.onViewportProjectionModeChange?.(nextMode);
-    if (event.type === 'click') coordinateAxesOverlay.projectionIcon.blur();
-  };
-  coordinateAxesOverlay.projectionIcon.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-  });
-  coordinateAxesOverlay.projectionIcon.addEventListener('click', toggleCoordinateAxesProjection);
-  coordinateAxesOverlay.projectionIcon.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    toggleCoordinateAxesProjection(event);
+  sceneCameraButton.addEventListener('click', () => {
+    const enabled = currentState?.sceneCameraPreview?.enabled ?? false;
+    callbacks.onSceneCameraPreviewToggle?.(!enabled);
   });
   viewportToolsGroup.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -2236,7 +2002,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (input?.type === 'checkbox' || input?.type === 'color') return;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
     if (readInspectorCommitMode(input) !== 'live') return;
-    const propertyInput = createInspectorPropertyInput(input, 'input', 'live');
+    const propertyInput = createInspectorPropertyInput(input, 'input');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
@@ -2248,28 +2014,16 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (input instanceof HTMLInputElement && (input.type === 'text' || input.type === 'number')) {
       if (readInspectorCommitMode(input) !== 'change') return;
     }
-    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input), 'final');
+    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input));
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
   inspectorPanel.addEventListener('focusout', (event) => {
     const input = event.target instanceof HTMLInputElement ? event.target : null;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
-    if (hasPendingInspectorNumberValue(input, 'final')) {
-      if (currentState) render(currentState);
-      return;
-    }
-    const commitMode = readInspectorCommitMode(input);
-    if (commitMode === 'live' && hasPendingInspectorNumberValue(input, 'live')) {
-      const propertyInput = createInspectorPropertyInput(input, 'input', 'final');
-      if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
-      else if (currentState) render(currentState);
-      return;
-    }
-    if (commitMode !== 'blur') return;
-    const propertyInput = createInspectorPropertyInput(input, 'input', 'final');
+    if (readInspectorCommitMode(input) !== 'blur') return;
+    const propertyInput = createInspectorPropertyInput(input, 'input');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
-    else if (currentState) render(currentState);
   });
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -2346,7 +2100,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   };
   doc.addEventListener('keydown', onKeyDown);
 
-  function captureEditableFocus(doc: Document): { selector: string; value: string | null; preserveValue?: boolean } | null {
+  function captureEditableFocus(doc: Document): { selector: string; value: string | null } | null {
     const active = doc.activeElement instanceof HTMLInputElement ? doc.activeElement : null;
     if (!active) return null;
     if (active.dataset.editorHierarchyRenameInput) {
@@ -2362,7 +2116,6 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
           `[data-serialized-target-id="${cssEscape(active.dataset.serializedTargetId)}"]`,
         ].join(''),
         value: active.value,
-        preserveValue: hasPendingInspectorNumberValue(active),
       };
     }
     if (active.dataset.editorInspectorSearch != null) {
@@ -2374,15 +2127,11 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     return null;
   }
 
-  function restoreEditableFocus(
-    doc: Document,
-    snapshot: { selector: string; value: string | null; preserveValue?: boolean } | null,
-  ): void {
+  function restoreEditableFocus(doc: Document, snapshot: { selector: string; value: string | null } | null): void {
     if (!snapshot) return;
     const input = doc.querySelector<HTMLInputElement>(snapshot.selector);
     if (!input) return;
     input.focus({ preventScroll: true });
-    if (snapshot.value != null && snapshot.preserveValue) input.value = snapshot.value;
     if (snapshot.value != null && input.value === snapshot.value) {
       const position = input.value.length;
       try {
@@ -2428,7 +2177,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!inEditor || disabled) contextMenu.close();
     hostChrome.style.display = !inEditor && localTestActionsEnabled ? 'flex' : 'none';
     enterEditorButton.disabled = disabled;
-    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, mainCameraPreviewButton, gridToggleButton]) {
+    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton, gridToggleButton]) {
       button.style.display = 'inline-flex';
       button.disabled = disabled;
     }
@@ -2439,26 +2188,25 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     inputRouter.setModalOpen(inEditor && helpOpen);
     const transformTool = state.transformTool ?? null;
     workbench.root.style.display = inEditor ? '' : 'none';
-    if (inEditor) workbenchLayoutController.refresh();
     sceneToolOverlay.style.display = inEditor ? 'flex' : 'none';
     if (!inEditor) closeSnapSettingsPopover();
     if (!inEditor) closePlacementSettingsPopover();
     if (!inEditor) closeTransformActionPopover();
     if (!inEditor) closeOverlaySettingsPopover();
-    const mainCameraPreview = state.mainCameraPreview ?? { enabled: false, available: false };
-    mainCameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
-    mainCameraPreviewButton.disabled = disabled || !mainCameraPreview.available;
-    const mainCameraPreviewTooltip = mainCameraPreview.available
+    const sceneCameraPreview = state.sceneCameraPreview ?? { enabled: false, available: false };
+    cameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
+    sceneCameraButton.disabled = disabled || !sceneCameraPreview.available;
+    const sceneCameraTooltip = sceneCameraPreview.available
       ? '从 Main Camera 查看当前场景'
       : '当前场景没有可预览的 Main Camera';
-    setToolbarButtonTooltip(mainCameraPreviewButton, mainCameraPreviewTooltip);
-    LocalEditorShared.applyButtonActiveState(mainCameraPreviewButton, mainCameraPreview.enabled);
+    setToolbarButtonTooltip(sceneCameraButton, sceneCameraTooltip);
+    LocalEditorShared.applyButtonActiveState(sceneCameraButton, sceneCameraPreview.enabled);
     const viewportTools = state.viewportTools ?? null;
-    const viewportControlsDisabled = disabled || mainCameraPreview.enabled;
-    const viewportControlsTooltip = mainCameraPreview.enabled
+    const viewportControlsDisabled = disabled || sceneCameraPreview.enabled;
+    const viewportControlsTooltip = sceneCameraPreview.enabled
       ? '当前为 Main Camera 预览，请关闭后再使用视口工具'
       : '';
-    const viewportProjectionTooltip = mainCameraPreview.enabled
+    const viewportProjectionTooltip = sceneCameraPreview.enabled
       ? '当前为 Main Camera 预览，投影由 Main Camera 决定；关闭预览后可切换编辑视口投影'
       : '';
     viewportToolsGroup.style.display = inEditor ? 'flex' : 'none';
@@ -2595,7 +2343,6 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       ? 'var(--fps-editor-border)'
       : statusToneColor;
     renderCoordinateAxesOverlay(coordinateAxesOverlay, inEditor ? state.coordinateAxes ?? null : null);
-    renderSceneFrameRateOverlay(sceneFrameRateOverlay, inEditor ? state.sceneFrameStats ?? null : null);
     renderSpatialOverlay(spatialOverlay, inEditor ? state.viewportSpatialOverlay ?? null : null);
     renderMeasurementOverlay(measurementOverlay, inEditor ? state.viewportMeasurement ?? null : null);
     const boxSelection = state.boxSelection;
@@ -2624,12 +2371,6 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   return {
     update(state) {
       render(state);
-    },
-    updateSceneFrameStats(stats) {
-      renderSceneFrameRateOverlay(
-        sceneFrameRateOverlay,
-        currentState?.mode === 'editor' ? stats : null,
-      );
     },
     setTheme(theme) {
       setActiveTheme(theme);
