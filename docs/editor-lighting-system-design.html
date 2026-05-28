@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fps-game-editor 光照系统设计文档</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-soft: #eef3f7;
+      --ink: #1f2630;
+      --muted: #5e6877;
+      --line: #d8e0ea;
+      --accent: #2866a4;
+      --accent-strong: #174a7c;
+      --green: #217c53;
+      --yellow: #9b6b11;
+      --red: #b23b3b;
+      --code: #132238;
+      --shadow: 0 18px 46px rgba(24, 35, 58, 0.09);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.68 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-strong); text-decoration: underline; }
+    code {
+      border: 1px solid #d6deea;
+      border-radius: 4px;
+      background: #f1f5fa;
+      color: var(--code);
+      padding: 1px 5px;
+      font-size: 0.92em;
+    }
+    pre {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #111827;
+      color: #d7dee9;
+      padding: 14px 16px;
+      font-size: 0.9em;
+      line-height: 1.58;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: 292px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+      padding: 24px 20px;
+    }
+    .brand-title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.22;
+    }
+    .brand-subtitle {
+      margin: 8px 0 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .nav-label {
+      margin: 20px 0 8px;
+      color: #7b8593;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .nav-list {
+      display: grid;
+      gap: 4px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .nav-list a {
+      display: block;
+      border-radius: 6px;
+      color: var(--muted);
+      padding: 7px 9px;
+      line-height: 1.35;
+    }
+    .nav-list a:hover {
+      background: var(--surface-soft);
+      color: var(--accent-strong);
+      text-decoration: none;
+    }
+    .hero {
+      border-bottom: 1px solid var(--line);
+      background: #e8eef5;
+      padding: 58px clamp(24px, 5vw, 74px) 36px;
+    }
+    .hero-inner { max-width: 1060px; }
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    h1 {
+      margin: 0;
+      color: #151a22;
+      font-size: clamp(34px, 5vw, 56px);
+      line-height: 1.06;
+    }
+    .hero-copy {
+      max-width: 860px;
+      margin: 18px 0 0;
+      color: #3d4654;
+      font-size: 18px;
+      line-height: 1.65;
+    }
+    main {
+      max-width: 1060px;
+      padding: 34px clamp(24px, 5vw, 74px) 74px;
+    }
+    section {
+      scroll-margin-top: 24px;
+      margin-bottom: 34px;
+    }
+    .doc-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+    h2 {
+      margin: 0 0 16px;
+      font-size: 28px;
+      line-height: 1.18;
+    }
+    h3 {
+      margin: 26px 0 10px;
+      font-size: 21px;
+      line-height: 1.28;
+    }
+    p { margin: 0 0 12px; color: var(--muted); }
+    ul, ol { margin: 8px 0 16px 22px; color: var(--muted); padding: 0; }
+    li { margin: 5px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 18px;
+      font-size: 0.93em;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf3f9;
+      color: var(--accent-strong);
+      font-size: 0.9em;
+    }
+    .note {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      background: #f8fbfe;
+      padding: 13px 15px;
+      margin: 14px 0;
+      color: var(--muted);
+    }
+    .note.good { border-left-color: var(--green); }
+    .note.warn { border-left-color: var(--yellow); }
+    .note.risk { border-left-color: var(--red); }
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-right: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .tag.good { color: var(--green); background: rgba(33, 124, 83, 0.09); border: 1px solid rgba(33, 124, 83, 0.24); }
+    .tag.warn { color: var(--yellow); background: rgba(155, 107, 17, 0.09); border: 1px solid rgba(155, 107, 17, 0.24); }
+    .tag.risk { color: var(--red); background: rgba(178, 59, 59, 0.09); border: 1px solid rgba(178, 59, 59, 0.24); }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin: 14px 0 18px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 14px 0 18px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdff;
+      padding: 15px;
+    }
+    .card h3 {
+      margin-top: 0;
+      color: #202734;
+      font-size: 18px;
+    }
+    .role {
+      margin-bottom: 6px;
+      color: var(--green);
+      font-weight: 800;
+    }
+    .diagram {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdff;
+      padding: 18px;
+      margin: 14px 0 18px;
+    }
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      min-width: 850px;
+    }
+    .flow-box {
+      flex: 1;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      padding: 12px;
+      text-align: center;
+    }
+    .flow-title {
+      margin-bottom: 5px;
+      color: var(--accent-strong);
+      font-weight: 850;
+    }
+    .flow-sub {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      color: #7a8494;
+      font-weight: 900;
+    }
+    .footer {
+      margin-top: 46px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 860px) {
+      .shell { display: block; }
+      .sidebar {
+        position: static;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--line);
+      }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .hero { padding-top: 36px; }
+      main { padding-bottom: 46px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <h2 class="brand-title">光照系统设计</h2>
+      <p class="brand-subtitle">fps-game-editor editor-first lighting architecture</p>
+
+      <div class="nav-label">核心</div>
+      <ul class="nav-list">
+        <li><a href="#summary">设计摘要</a></li>
+        <li><a href="#principles">边界原则</a></li>
+        <li><a href="#model">作者态模型</a></li>
+        <li><a href="#flow">数据流</a></li>
+      </ul>
+
+      <div class="nav-label">实现约束</div>
+      <ul class="nav-list">
+        <li><a href="#preview">编辑器预览</a></li>
+        <li><a href="#runtime">运行时消费</a></li>
+        <li><a href="#babylon">BabylonJS 适配</a></li>
+        <li><a href="#inspector">Inspector</a></li>
+      </ul>
+
+      <div class="nav-label">推进</div>
+      <ul class="nav-list">
+        <li><a href="#current">当前代码观察</a></li>
+        <li><a href="#recommendations">实现建议</a></li>
+        <li><a href="#checklist">验收清单</a></li>
+        <li><a href="#open">待确认问题</a></li>
+      </ul>
+    </aside>
+
+    <div>
+      <header class="hero">
+        <div class="hero-inner">
+          <p class="eyebrow">fps-game-editor design document</p>
+          <h1>编辑器光照系统设计</h1>
+          <p class="hero-copy">
+            本文档记录 fps-game-editor 光照系统的产品语义、工程边界和 BabylonJS 适配方式。
+            核心目标是：编辑器作为光照作者态真相源，运行时只消费编辑器导出的稳定光照配置；
+            同时利用 BabylonJS 的渲染能力，但不让编辑器核心模型过度耦合 BabylonJS 对象模型。
+          </p>
+        </div>
+      </header>
+
+      <main>
+        <section id="summary" class="doc-panel">
+          <h2>设计摘要</h2>
+          <p>
+            光照系统应以 fps-game-editor 自有的场景文档和组件语义为中心。BabylonJS 是当前主要渲染后端，
+            负责把编辑器光照模型投影成真实的 <code>HemisphericLight</code>、<code>DirectionalLight</code> 和相关渲染状态，
+            但它不应该成为编辑器文档、Inspector Schema 或导出协议的权威模型。
+          </p>
+          <div class="note good">
+            <span class="tag good">核心判断</span>
+            理想情况下，编辑器预览与运行时可以做到视觉一致。前提是光源、背景、渲染管线、材质和相机都来自同一份作者态参数，
+            而不是 editor、runtime、pa_template 分别维护各自的默认值。
+          </div>
+
+          <div class="grid-3">
+            <div class="card">
+              <h3>编辑器</h3>
+              <div class="role">作者态真相源</div>
+              <p>负责创建、保护、编辑和导出光照参数。Inspector 修改的是 scene document，而不是 Babylon runtime object。</p>
+            </div>
+            <div class="card">
+              <h3>editor-babylon</h3>
+              <div class="role">渲染适配层</div>
+              <p>负责把 editor domain model 映射到 BabylonJS lights、颜色、向量、sky、grid 和 preview 状态。</p>
+            </div>
+            <div class="card">
+              <h3>runtime</h3>
+              <div class="role">导出配置消费者</div>
+              <p>只读取编辑器导出的 scene/runtime config，不重新发明光照规则，不维护隐藏兜底光源。</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="principles" class="doc-panel">
+          <h2>边界原则</h2>
+          <ol>
+            <li><strong>编辑器模型优先。</strong>核心文档里保存的是编辑器认可的稳定光照语义，不保存 BabylonJS class instance。</li>
+            <li><strong>命名可以对齐 BabylonJS，协议不被 BabylonJS 绑死。</strong>UI 可以显示 <code>Hemispheric Light</code>、<code>Directional Light</code>，但核心类型仍然是编辑器自己的 light component。</li>
+            <li><strong>两个 protected light 是当前 PA 游戏的默认光照面。</strong>现阶段只保留环境光/半球光与直射光，不暴露阴影相关属性。</li>
+            <li><strong>编辑器辅助层不是游戏内容。</strong>grid、gizmo、selection outline 可以随光照调整可读性，但不进入 runtime 光照语义。</li>
+            <li><strong>同源默认值。</strong>光照默认值不能散落在 editor world、projection、pa_template runtime、rendering.json 多处。</li>
+            <li><strong>运行时只消费导出结果。</strong>runtime 可以使用 BabylonJS 创建灯光，但参数必须来自导出的 scene config 或稳定 fallback resolver。</li>
+          </ol>
+        </section>
+
+        <section id="model" class="doc-panel">
+          <h2>作者态模型</h2>
+          <p>
+            当前建议把光照作者态收敛到两个 protected scene object。它们是场景的系统节点，可以在 Hierarchy 中看到，可以在 Inspector 中编辑有限字段，
+            但不能被普通删除、改成其他组件或降级为普通 transform。
+          </p>
+
+          <table>
+            <tr>
+              <th>系统 ID</th>
+              <th>显示名称</th>
+              <th>编辑器类型</th>
+              <th>BabylonJS 映射</th>
+              <th>当前暴露字段</th>
+            </tr>
+            <tr>
+              <td><code>environment_light</code></td>
+              <td><code>Hemispheric Light</code></td>
+              <td><code>light.type = "hemispheric"</code></td>
+              <td><code>BABYLON.HemisphericLight</code></td>
+              <td><code>enabled</code>、<code>intensity</code>、<code>diffuseColor</code> / sky light color、<code>groundColor</code></td>
+            </tr>
+            <tr>
+              <td><code>sun_light</code></td>
+              <td><code>Directional Light</code></td>
+              <td><code>light.type = "directional"</code></td>
+              <td><code>BABYLON.DirectionalLight</code></td>
+              <td><code>enabled</code>、<code>intensity</code>、<code>direction</code>、<code>diffuseColor</code></td>
+            </tr>
+          </table>
+
+          <h3>建议的中间模型</h3>
+          <pre><code>type EditorLightKind = "hemispheric" | "directional";
+
+interface EditorColorRGB {
+  r: number;
+  g: number;
+  b: number;
+}
+
+interface EditorVector3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+interface EditorHemisphericLight {
+  type: "hemispheric";
+  enabled: boolean;
+  intensity: number;
+  diffuseColor: EditorColorRGB;
+  groundColor: EditorColorRGB;
+}
+
+interface EditorDirectionalLight {
+  type: "directional";
+  enabled: boolean;
+  intensity: number;
+  direction: EditorVector3;
+  diffuseColor: EditorColorRGB;
+}
+
+type EditorLight = EditorHemisphericLight | EditorDirectionalLight;</code></pre>
+
+          <div class="note warn">
+            <span class="tag warn">命名说明</span>
+            <code>diffuseColor</code> 更贴近 BabylonJS 的字段；中文 Inspector 可显示为“天空光颜色”。
+            如果产品语义希望更明确，也可以在 editor domain 中使用 <code>skyLightColor</code>，由 Babylon adapter 映射到 <code>diffuse</code>。
+          </div>
+        </section>
+
+        <section id="flow" class="doc-panel">
+          <h2>数据流</h2>
+          <div class="diagram">
+            <div class="flow">
+              <div class="flow-box">
+                <div class="flow-title">Scene Document</div>
+                <div class="flow-sub">protected lights<br>camera / materials / scene objects</div>
+              </div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-box">
+                <div class="flow-title">Lighting Resolver</div>
+                <div class="flow-sub">合并默认值<br>归一化颜色/方向/强度</div>
+              </div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-box">
+                <div class="flow-title">Lighting Profile</div>
+                <div class="flow-sub">lights<br>background / sky hint<br>editor grid contrast</div>
+              </div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-box">
+                <div class="flow-title">Babylon Preview</div>
+                <div class="flow-sub">创建真实 lights<br>驱动 sky / grid / overlays</div>
+              </div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-box">
+                <div class="flow-title">Export / Runtime</div>
+                <div class="flow-sub">导出稳定 config<br>runtime 按配置创建 lights</div>
+              </div>
+            </div>
+          </div>
+
+          <p>
+            <code>Lighting Resolver</code> 是建议新增的关键边界。它不依赖 BabylonJS，只接收 editor scene document 和默认值，
+            输出稳定的 <code>SceneLightingProfile</code>。editor-babylon、导出器、pa_template runtime 都可以围绕这个 profile 对齐行为。
+          </p>
+        </section>
+
+        <section id="preview" class="doc-panel">
+          <h2>编辑器预览</h2>
+          <p>
+            编辑器预览应分成“游戏内容受光”和“编辑器辅助可读性”两个层面。mesh、primitive、模型材质应该真实受光；
+            背景、sky、grid、gizmo、outline 则需要显式跟随 lighting profile 调整，而不是期待 BabylonJS light 自动影响它们。
+          </p>
+
+          <table>
+            <tr><th>预览对象</th><th>应如何受光照参数影响</th><th>是否导出到 runtime</th></tr>
+            <tr>
+              <td>游戏 mesh / primitive</td>
+              <td>使用真实 Babylon light 参与材质计算。</td>
+              <td>是，作为场景内容。</td>
+            </tr>
+            <tr>
+              <td>scene clearColor / background</td>
+              <td>由 lighting profile 显式派生或由 scene environment config 指定。</td>
+              <td>建议导出，保证 editor/runtime 一致。</td>
+            </tr>
+            <tr>
+              <td>editor sky backdrop</td>
+              <td>如果存在，应读取同一份 sky/background profile；不能固定为独立编辑器风格。</td>
+              <td>视产品决定。若 runtime 也有 sky，应导出。</td>
+            </tr>
+            <tr>
+              <td>editor grid</td>
+              <td>根据环境亮度调整颜色和透明度，保持可读。</td>
+              <td>否，只是编辑器辅助层。</td>
+            </tr>
+            <tr>
+              <td>gizmo / selection outline</td>
+              <td>保持可读性，必要时做亮暗主题适配。</td>
+              <td>否，只是编辑器辅助层。</td>
+            </tr>
+          </table>
+        </section>
+
+        <section id="runtime" class="doc-panel">
+          <h2>运行时消费</h2>
+          <p>
+            运行时的职责是消费导出后的光照参数，并创建对应的渲染对象。它可以继续使用 BabylonJS，
+            但不应该在 <code>SceneBuilder</code>、<code>RenderingService</code> 或 <code>rendering.json</code> 中维护一套和编辑器无关的光照默认规则。
+          </p>
+
+          <div class="note good">
+            <span class="tag good">目标状态</span>
+            同一份 exported scene config 在编辑器和 runtime 中产生同一组主要光源、主要背景/环境色和主要 image processing 参数。
+          </div>
+
+          <h3>运行时可以保留的能力</h3>
+          <ul>
+            <li>把导出配置转为 <code>new HemisphericLight(...)</code> 和 <code>new DirectionalLight(...)</code>。</li>
+            <li>根据导出配置应用 <code>scene.clearColor</code>、曝光、对比度、bloom 等渲染管线参数。</li>
+            <li>在缺少旧项目配置时使用 resolver 提供的兼容默认值。</li>
+          </ul>
+
+          <h3>运行时应避免的行为</h3>
+          <ul>
+            <li>在 scene config 已有 protected lights 时继续创建隐藏兜底灯。</li>
+            <li>使用独立于编辑器的 hard-coded clearColor、light intensity 或 direction。</li>
+            <li>把 shadow、IBL、sky 等未来能力隐式打开，导致编辑器看不到但运行时生效。</li>
+          </ul>
+        </section>
+
+        <section id="babylon" class="doc-panel">
+          <h2>BabylonJS 适配边界</h2>
+          <p>
+            BabylonJS 相关 API 应集中在 <code>packages/editor-babylon</code> 和项目 runtime 的 Babylon adapter 中。
+            editor core、protocol、document、Inspector schema 不应该直接依赖 <code>Color3</code>、<code>Vector3</code>、<code>HemisphericLight</code> 或 <code>DirectionalLight</code>。
+          </p>
+
+          <table>
+            <tr><th>编辑器语义</th><th>BabylonJS 映射</th><th>边界说明</th></tr>
+            <tr>
+              <td><code>{ r, g, b }</code></td>
+              <td><code>new Color3(r, g, b)</code></td>
+              <td>转换只发生在 Babylon adapter 内。</td>
+            </tr>
+            <tr>
+              <td><code>{ x, y, z }</code></td>
+              <td><code>new Vector3(x, y, z)</code></td>
+              <td>核心协议只使用 plain object。</td>
+            </tr>
+            <tr>
+              <td><code>type: "hemispheric"</code></td>
+              <td><code>HemisphericLight</code></td>
+              <td>UI 名称可显示为 <code>Hemispheric Light</code>，但存储类型不绑定 class name。</td>
+            </tr>
+            <tr>
+              <td><code>type: "directional"</code></td>
+              <td><code>DirectionalLight</code></td>
+              <td>方向、强度、颜色由 profile 归一化后传入。</td>
+            </tr>
+          </table>
+        </section>
+
+        <section id="inspector" class="doc-panel">
+          <h2>Inspector 设计</h2>
+          <p>
+            Light Inspector 应延续 Camera Inspector 的经验：中文/英文属性名可切换，字段有 tooltip，原始数据可只读查看。
+            Inspector 展示的是编辑器认可的属性子集，而不是 BabylonJS 支持的全部属性。
+          </p>
+
+          <table>
+            <tr><th>字段</th><th>中文名</th><th>英文名</th><th>说明</th></tr>
+            <tr><td><code>language</code></td><td>语言</td><td>Language</td><td>Inspector 自身显示语言，不进入 runtime export。</td></tr>
+            <tr><td><code>type</code></td><td>类型</td><td>Type</td><td>protected light 的类型只读。</td></tr>
+            <tr><td><code>intensity</code></td><td>强度</td><td>Intensity</td><td>非负数。建议保留可输入形式，后续可增加 slider。</td></tr>
+            <tr><td><code>diffuseColor</code></td><td>天空光颜色 / 光照颜色</td><td>Sky Light Color / Light Color</td><td>半球光对应 sky light，直射光对应 diffuse light color。</td></tr>
+            <tr><td><code>groundColor</code></td><td>地面颜色</td><td>Ground Color</td><td>仅半球光暴露。</td></tr>
+            <tr><td><code>direction</code></td><td>方向</td><td>Direction</td><td>仅直射光暴露。</td></tr>
+            <tr><td><code>raw</code></td><td>原始光源数据</td><td>Raw Light Data</td><td>只读，辅助调试。</td></tr>
+          </table>
+
+          <div class="note warn">
+            <span class="tag warn">暂不暴露</span>
+            shadow、specular、range、falloff、include/exclude meshes、lightmap、IBL 等 BabylonJS 能力暂不进入首版 Inspector。
+          </div>
+        </section>
+
+        <section id="current" class="doc-panel">
+          <h2>当前代码观察</h2>
+          <p>本节记录当前仓库里和设计相关的观察点，帮助后续实现时定位需要收敛的地方。</p>
+
+          <table>
+            <tr><th>区域</th><th>当前现象</th><th>设计影响</th></tr>
+            <tr>
+              <td><code>.local/pa_template/src/services/SceneBuilder.ts</code></td>
+              <td>运行时已经创建 <code>HemisphericLight</code> 和 <code>DirectionalLight</code>。</td>
+              <td>说明 runtime 有基础，但需要改成消费编辑器导出的同源参数。</td>
+            </tr>
+            <tr>
+              <td><code>.local/pa_template/src/config/rendering.json</code></td>
+              <td>存在 <code>globalVolume.lights</code>、exposure、contrast、bloom、shadow 配置。</td>
+              <td>可作为兼容 fallback，但不应长期成为编辑器 protected lights 之外的另一套作者态。</td>
+            </tr>
+            <tr>
+              <td><code>.local/pa_template/src/config/types.ts</code></td>
+              <td>当前 scene light 类型主要覆盖 directional。</td>
+              <td>需要补齐 hemispheric/ambient light 的 scene model。</td>
+            </tr>
+            <tr>
+              <td><code>.local/pa_template/src/core/Game.ts</code></td>
+              <td>runtime <code>scene.clearColor</code> 是 hard-coded。</td>
+              <td>若要求 editor/runtime 背景一致，需要纳入 lighting/environment profile。</td>
+            </tr>
+            <tr>
+              <td><code>packages/editor-babylon/src/editor-world.ts</code></td>
+              <td>editor world 存在默认 <code>editor-world-light</code> 兜底。</td>
+              <td>应清理隐藏兜底，避免 protected lights 失去作者态权威。</td>
+            </tr>
+            <tr>
+              <td><code>packages/editor-babylon/src/editor-sky.ts</code></td>
+              <td>editor sky material 使用 <code>disableLighting = true</code>。</td>
+              <td>sky 不会自动受灯光影响，需要 profile 显式驱动颜色。</td>
+            </tr>
+          </table>
+        </section>
+
+        <section id="recommendations" class="doc-panel">
+          <h2>实现建议</h2>
+          <ol>
+            <li>在 editor domain 中定义稳定的 <code>EditorLight</code> / <code>SceneLightingProfile</code>，不要让 core 依赖 BabylonJS 类型。</li>
+            <li>确保 scene document 默认存在两个 protected lights：<code>environment_light</code> 和 <code>sun_light</code>。</li>
+            <li>新增或收敛一个 resolver，统一处理默认值、数值 clamp、颜色 fallback、方向归一化和 preview 派生参数。</li>
+            <li>让 editor-babylon 只负责将 profile 映射到 Babylon lights、clearColor、sky tint 和 grid contrast。</li>
+            <li>导出器从同一份 profile 或 scene document 生成 runtime config，剥离 Inspector-only 字段。</li>
+            <li>pa_template runtime 从导出的 scene config 读取两盏灯；旧 <code>rendering.json</code> 光照配置只作为缺省兼容。</li>
+            <li>为 editor preview 与 runtime 增加同源配置测试，至少覆盖 light intensity、color、direction、clearColor。</li>
+          </ol>
+        </section>
+
+        <section id="checklist" class="doc-panel">
+          <h2>验收清单</h2>
+          <ul>
+            <li>Hierarchy 中固定存在 protected <code>Hemispheric Light</code> 与 <code>Directional Light</code>。</li>
+            <li>关闭或调暗 protected lights 后，游戏内容不会被隐藏兜底光继续照亮。</li>
+            <li>半球光强度、天空光颜色、地面颜色会影响真实受光材质。</li>
+            <li>直射光强度、方向、颜色会影响真实受光材质。</li>
+            <li>背景/sky/grid 的视觉变化来自 lighting profile 的显式派生，而不是随机硬编码。</li>
+            <li>Inspector 支持中文/英文切换和 tooltip，字段子集清晰，不暴露 shadow。</li>
+            <li>导出的 scene config 不包含 <code>inspectorLanguage</code> 等编辑器 UI 字段。</li>
+            <li>runtime 与 editor 在相同 scene config 下创建同一组主要光照参数。</li>
+            <li>editor core/protocol 不引用 BabylonJS runtime class。</li>
+          </ul>
+        </section>
+
+        <section id="open" class="doc-panel">
+          <h2>待确认问题</h2>
+          <ul>
+            <li>半球光在 editor domain 中字段名使用 <code>diffuseColor</code> 还是 <code>skyLightColor</code>。</li>
+            <li>背景色是否作为光照 profile 的派生结果，还是作为独立 <code>SceneEnvironment</code> 作者态字段。</li>
+            <li>runtime 是否需要与 editor 使用同一套 sky/backdrop，还是第一阶段只对齐 <code>clearColor</code>。</li>
+            <li><code>rendering.json</code> 的 <code>globalVolume.lights</code> 是否长期保留，还是逐步迁移为 scene document 默认值。</li>
+            <li>阴影能力何时进入 Inspector，以及是否作为 directional light 子属性还是独立 shadow profile。</li>
+          </ul>
+        </section>
+
+        <p class="footer">
+          本文档用于记录当前设计共识。后续实现应以编辑器作者态模型为中心，逐步把 BabylonJS 细节收敛到 adapter 层。
+        </p>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

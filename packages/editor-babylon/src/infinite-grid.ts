@@ -20,8 +20,16 @@ export interface BabylonEditorInfiniteGridOptions {
   axisZColor?: { r: number; g: number; b: number };
 }
 
+export interface BabylonEditorGridColorOptions {
+  gridColor?: { r: number; g: number; b: number };
+  majorGridColor?: { r: number; g: number; b: number };
+  axisXColor?: { r: number; g: number; b: number };
+  axisZColor?: { r: number; g: number; b: number };
+}
+
 export interface BabylonEditorGridController {
   setVisible(visible: boolean): void;
+  setColors(colors: BabylonEditorGridColorOptions): void;
   isVisible(): boolean;
   getStep(): number;
   dispose(): void;
@@ -49,6 +57,10 @@ const DEFAULT_STEP = 1;
 const DEFAULT_MAJOR_STEP_MULTIPLIER = 5;
 const DEFAULT_HALF_LINE_COUNT = 80;
 const DEFAULT_TARGET_SCREEN_SPACING_PX = 48;
+const DEFAULT_GRID_COLOR = { r: 0.18, g: 0.27, b: 0.42 };
+const DEFAULT_MAJOR_GRID_COLOR = { r: 0.24, g: 0.36, b: 0.56 };
+const DEFAULT_AXIS_X_COLOR = { r: 0.8, g: 0.22, b: 0.22 };
+const DEFAULT_AXIS_Z_COLOR = { r: 0.22, g: 0.55, b: 0.85 };
 const DEFAULT_ADAPTIVE_STEPS = [
   1,
   5,
@@ -80,10 +92,16 @@ export function createBabylonEditorInfiniteGrid(
   );
   const halfLineCount = Math.max(4, Math.floor(normalizePositive(options.halfLineCount, DEFAULT_HALF_LINE_COUNT)));
   const name = options.name ?? 'editor-infinite-grid';
-  const gridColor = createColor(Color3, options.gridColor ?? { r: 0.18, g: 0.27, b: 0.42 });
-  const majorGridColor = createColor(Color3, options.majorGridColor ?? { r: 0.24, g: 0.36, b: 0.56 });
-  const axisXColor = createColor(Color3, options.axisXColor ?? { r: 0.8, g: 0.22, b: 0.22 });
-  const axisZColor = createColor(Color3, options.axisZColor ?? { r: 0.22, g: 0.55, b: 0.85 });
+  const defaultColors: Required<BabylonEditorGridColorOptions> = {
+    gridColor: options.gridColor ?? DEFAULT_GRID_COLOR,
+    majorGridColor: options.majorGridColor ?? DEFAULT_MAJOR_GRID_COLOR,
+    axisXColor: options.axisXColor ?? DEFAULT_AXIS_X_COLOR,
+    axisZColor: options.axisZColor ?? DEFAULT_AXIS_Z_COLOR,
+  };
+  let gridColor = createColor(Color3, defaultColors.gridColor);
+  let majorGridColor = createColor(Color3, defaultColors.majorGridColor);
+  let axisXColor = createColor(Color3, defaultColors.axisXColor);
+  let axisZColor = createColor(Color3, defaultColors.axisZColor);
   const lines: GridLine[] = [];
   let visible = true;
   let disposed = false;
@@ -170,6 +188,13 @@ export function createBabylonEditorInfiniteGrid(
       }
       if (nextVisible) updateGrid(true);
     },
+    setColors(colors) {
+      gridColor = createColor(Color3, colors.gridColor ?? defaultColors.gridColor);
+      majorGridColor = createColor(Color3, colors.majorGridColor ?? defaultColors.majorGridColor);
+      axisXColor = createColor(Color3, colors.axisXColor ?? defaultColors.axisXColor);
+      axisZColor = createColor(Color3, colors.axisZColor ?? defaultColors.axisZColor);
+      updateGrid(true);
+    },
     isVisible() {
       return visible;
     },
@@ -201,7 +226,7 @@ function isSameGridFrameState(left: GridFrameState, right: GridFrameState): bool
 }
 
 function readGridCenter(scene: RuntimeScene, camera: RuntimeCamera | null, step: number): GridCenter {
-  const activeCamera = scene?.activeCamera ?? camera;
+  const activeCamera = camera ?? scene?.activeCamera ?? null;
   const source = activeCamera?.target ?? activeCamera?.position ?? { x: 0, z: 0 };
   return {
     x: Math.floor((Number(source.x) || 0) / step) * step,
@@ -245,7 +270,7 @@ function resolveAdaptiveStep(
 }
 
 function estimatePixelsPerWorldUnit(scene: RuntimeScene, camera: RuntimeCamera | null): number {
-  const activeCamera = scene?.activeCamera ?? camera;
+  const activeCamera = camera ?? scene?.activeCamera ?? null;
   const engine = scene?.getEngine?.();
   const viewportHeight = readViewportHeight(engine);
   if (!activeCamera || viewportHeight <= 0) return 1;
@@ -294,6 +319,7 @@ function createColor(Color3: any, color: { r: number; g: number; b: number }): a
 function createNoopGridController(): BabylonEditorGridController {
   return {
     setVisible() {},
+    setColors() {},
     isVisible() {
       return false;
     },

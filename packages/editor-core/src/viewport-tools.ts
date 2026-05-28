@@ -86,10 +86,10 @@ export interface EditorViewportSpatialOverlayState {
 }
 
 export const DEFAULT_EDITOR_VIEWPORT_OVERLAY_SETTINGS = {
-  bounds: true,
-  dimensions: true,
+  bounds: false,
+  dimensions: false,
   edgeLengths: false,
-  anchor: true,
+  anchor: false,
 } satisfies EditorViewportOverlaySettings;
 
 export const DEFAULT_EDITOR_VIEWPORT_TOOL_STATE = {

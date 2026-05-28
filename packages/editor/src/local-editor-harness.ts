@@ -109,14 +109,24 @@ import {
   type BabylonSceneCameraPreviewController,
   type BabylonSceneCameraPreviewRig,
   type BabylonEditorGridController,
+  type BabylonEditorGridColorOptions,
   type BabylonTransformGizmoCommit,
   type BabylonTransformGizmoController,
   type BabylonTransformGizmoDuplicateDragInput,
   type BabylonTransformGizmoDuplicateDragResult,
   type BabylonEditorWorld,
+  type BabylonEditorWorldAppearanceOptions,
   type BabylonEditorSkyOptions,
   type BabylonRuntimeGlobal,
 } from '@fps-games/editor-babylon';
+import {
+  createLocalEditorSceneRenderScheduler,
+  type LocalEditorSceneRenderScheduler,
+} from './local-editor-scene-render-scheduler';
+import {
+  createLocalEditorViewportRenderCoordinator,
+  type LocalEditorViewportRenderCoordinator,
+} from './local-editor-viewport-render-coordinator';
 
 export type LocalEditorHarnessMode = 'game' | 'editor';
 type LocalEditorMaybePromise<T> = T | Promise<T>;
@@ -373,6 +383,7 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   getProjectionNodes(document: TDocument): BabylonEditorProjectionNode[];
   getProjectionNode(document: TDocument, id: string): BabylonEditorProjectionNode | null;
   getSceneCameraPreviewRig?(document: TDocument): BabylonSceneCameraPreviewRig | null;
+  getWorldAppearance?(document: TDocument): LocalEditorHarnessWorldAppearance | null;
   isSelectable?(document: TDocument, id: string): boolean;
   isLocked?(document: TDocument, id: string): boolean;
   createPatchFromAsset(asset: TAsset, input?: LocalEditorHarnessAssetPatchInput<TDocument, TAsset>): { patch: TPatch; label?: string };
@@ -427,6 +438,12 @@ export interface LocalEditorHarnessWorldAdapter<TAsset = LocalEditorHarnessAsset
   resolveAssetId?(asset: TAsset): string;
 }
 
+export interface LocalEditorHarnessWorldAppearance {
+  clearColor?: BabylonEditorWorldAppearanceOptions['clearColor'];
+  sky?: BabylonEditorSkyOptions | false;
+  grid?: BabylonEditorGridColorOptions;
+}
+
 export type LocalEditorHarnessGridController = BabylonEditorGridController;
 
 export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
@@ -443,6 +460,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     cameraRadius?: number;
     clearColor?: { r: number; g: number; b: number; a: number };
     sky?: BabylonEditorSkyOptions | false;
+    grid?: BabylonEditorGridColorOptions;
     useRightHandedSystem?: boolean;
     coordinateAxes?: boolean;
   };
@@ -453,11 +471,13 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
   createGrid?: (
     babylon: BabylonRuntimeGlobal & Record<string, any>,
     scene: unknown,
+    camera?: unknown,
   ) => LocalEditorHarnessGridController | void;
 }
 
 export interface LocalEditorHarness<TDocument = unknown> {
   render(): void;
+  notifyViewportRevealed(reason?: string): void;
   setTheme?(theme: LocalEditorThemeName): void;
   getTheme?(): LocalEditorThemeName;
   getHostServices(): EditorHostServices | null;
@@ -492,6 +512,9 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   sceneViewMeasurement: BabylonSceneViewMeasurementController | null;
   sceneViewSpatialOverlay: BabylonSceneViewSpatialOverlayController | null;
   selectionController: BabylonProjectionSelectionController | null;
+  sceneRenderScheduler: LocalEditorSceneRenderScheduler | null;
+  viewportRenderCoordinator: LocalEditorViewportRenderCoordinator | null;
+  worldAppearanceKey: string;
   boxSelection: BabylonProjectionSelectionBox | null;
   transformTool: EditorTransformTool;
   transformSpace: EditorTransformSpace;
@@ -542,6 +565,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     sceneViewMeasurement: null,
     sceneViewSpatialOverlay: null,
     selectionController: null,
+    sceneRenderScheduler: null,
+    viewportRenderCoordinator: null,
+    worldAppearanceKey: '',
     boxSelection: null,
     transformTool: 'select',
     transformSpace: 'world',
@@ -646,16 +672,19 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         state.gizmo?.setTool(tool);
         state.gizmo?.setConstraint(state.transformConstraint);
         harness.render();
+        requestEditorSceneFrame(state, 'transform-tool-change');
       },
       onTransformSpaceChange: (space) => {
         state.transformSpace = space;
         state.gizmo?.setSpace(space);
         harness.render();
+        requestEditorSceneFrame(state, 'transform-space-change');
       },
       onTransformConstraintChange: (constraint) => {
         state.transformConstraint = normalizeTransformConstraint(state.transformTool, constraint);
         state.gizmo?.setConstraint(state.transformConstraint);
         harness.render();
+        requestEditorSceneFrame(state, 'transform-constraint-change');
       },
       onTransformSnapEnabledChange: (enabled) => {
         state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, {
@@ -667,6 +696,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         state.gizmo?.setOperationSettings(state.transformOperationSettings);
         state.status = enabled ? 'Transform snap enabled' : 'Transform snap disabled';
         harness.render();
+        requestEditorSceneFrame(state, 'transform-operation-settings-change');
       },
       onTransformSnapStepChange: (input) => {
         const value = normalizePositiveStep(input.value);
@@ -679,6 +709,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         state.gizmo?.setOperationSettings(state.transformOperationSettings);
         state.status = `Transform snap ${input.kind} step ${value}`;
         harness.render();
+        requestEditorSceneFrame(state, 'transform-operation-settings-change');
       },
       onPlacementModeChange: (mode) => {
         state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, {
@@ -688,6 +719,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         if (state.transformOperationSettings.placementMode === 'off') clearArmedPlacement(state);
         state.status = `Placement mode: ${state.transformOperationSettings.placementMode}`;
         harness.render();
+        requestEditorSceneFrame(state, 'placement-mode-change');
       },
       onTransformAction: (action) => {
         if (executeTransformAction(state, options, action)) harness.render();
@@ -733,6 +765,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       syncViewportMeasurementState(state);
       syncViewportSpatialOverlay(state);
       ui.update(createUiState(state, options));
+    },
+    notifyViewportRevealed(reason = 'viewport-revealed') {
+      state.viewportRenderCoordinator?.requestRevealFrame(reason);
     },
     setTheme(theme) {
       ui.setTheme(theme);
@@ -803,6 +838,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       state.mode = 'editor';
       state.summary = loadedSource?.summary ?? summarizeDocument(options, preparedDocument, source);
       state.status = `GameWorld disposed; EditorWorld active; assets=${assets.length}`;
+      harness.render();
+      harness.notifyViewportRevealed('editor-enter');
     },
     async saveScene() {
       cancelActiveOperation(state);
@@ -1023,6 +1060,7 @@ function setViewportViewPreset<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
+  requestEditorSceneFrame(state, 'viewport-view-preset');
   return true;
 }
 
@@ -1049,6 +1087,7 @@ function setViewportProjectionMode<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
+  requestEditorSceneFrame(state, 'viewport-projection-mode');
   return true;
 }
 
@@ -1104,6 +1143,7 @@ function setViewportUtilityTool<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
+  requestEditorSceneFrame(state, 'viewport-utility-tool');
   return true;
 }
 
@@ -1119,7 +1159,25 @@ function clearViewportMeasurement<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
+  requestEditorSceneFrame(state, 'viewport-measurement-clear');
   return true;
+}
+
+function getPointerContinuousRenderReason(intent: string | null | undefined): string | null {
+  if (
+    intent === 'orbit'
+    || intent === 'pan'
+    || intent === 'dolly'
+    || intent === 'flythrough'
+    || intent === 'gizmo-drag'
+    || intent === 'view-plane-move'
+    || intent === 'placement'
+    || intent === 'measurement'
+    || intent === 'box-select'
+  ) {
+    return `viewport-pointer-${intent}`;
+  }
+  return null;
 }
 
 export function applyLocalEditorHarnessViewportMeasurementPointerStart(
@@ -1238,25 +1296,33 @@ function validateTransformActionSelection<TDocument, TPatch, TAsset>(
 async function createEditorWorld<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
-  render: () => void,
+  renderUi: () => void,
 ): Promise<void> {
   disposeEditorWorld(state);
+  const render = (reason = 'editor-world-update'): void => {
+    renderUi();
+    requestEditorSceneFrame(state, reason);
+  };
   const canvas = options.worldAdapter.getCanvas();
   if (!canvas) throw new Error('Editor canvas not found');
   const babylon = await options.worldAdapter.loadBabylon();
   const engine = options.worldAdapter.createEngine(babylon, canvas);
+  const document = state.session?.getState().workingDocument;
+  const initialAppearance = resolveLocalEditorWorldAppearance(options, document);
+  const initialAppearanceKey = serializeLocalEditorWorldAppearance(initialAppearance);
   const world = createBabylonEditorWorld({
     engine,
     canvas,
     babylon,
     cameraTarget: options.world?.cameraTarget,
     cameraRadius: options.world?.cameraRadius,
-    clearColor: options.world?.clearColor,
-    sky: options.world?.sky,
+    clearColor: initialAppearance.clearColor,
+    sky: initialAppearance.sky,
     useRightHandedSystem: options.world?.useRightHandedSystem,
     enableDefaultCameraControls: false,
   });
-  const grid = options.createGrid?.(babylon, world.scene) ?? null;
+  const grid = options.createGrid?.(babylon, world.scene, world.camera) ?? null;
+  if (initialAppearance.grid) grid?.setColors(initialAppearance.grid);
   grid?.setVisible(state.gridVisible);
   const projection = createBabylonEditorProjection({
     babylon,
@@ -1333,6 +1399,8 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     isPlacementCandidate: () => isPlacementArmed(state),
     isMeasurementCandidate: () => state.viewportTools.activeUtilityTool === 'measure-distance',
     onPointerIntentStart(event) {
+      const continuousReason = getPointerContinuousRenderReason(event.state.intent);
+      if (continuousReason) beginEditorSceneContinuousRender(state, continuousReason);
       if (event.state.intent === 'measurement') {
         if (handleViewportMeasurementStart(state, event.originalEvent)) render();
         return;
@@ -1351,9 +1419,12 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
       if (event.state.intent === 'selection-click' || event.state.intent === 'box-select') {
         selectionController.beginPointerSelection(event.originalEvent);
+        requestEditorSceneFrame(state, 'viewport-pointer-selection-start');
       }
     },
     onPointerIntentMove(event) {
+      const continuousReason = getPointerContinuousRenderReason(event.state.intent);
+      if (continuousReason) beginEditorSceneContinuousRender(state, continuousReason);
       if (event.state.intent === 'measurement') {
         if (handleViewportMeasurementMove(state, event.originalEvent)) render();
         return;
@@ -1372,9 +1443,13 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
       if (event.state.intent === 'selection-click' || event.state.intent === 'box-select') {
         selectionController.updatePointerSelection(event.originalEvent, event.state.intent);
+        requestEditorSceneFrame(state, 'viewport-pointer-selection-update');
       }
     },
     onPointerIntentEnd(event) {
+      const continuousReason = getPointerContinuousRenderReason(event.state.intent);
+      if (continuousReason) endEditorSceneContinuousRender(state, continuousReason);
+      if (event.state.intent === 'flythrough') endEditorSceneContinuousRender(state, 'viewport-flythrough-keys');
       if (event.state.intent === 'measurement') {
         if (handleViewportMeasurementEnd(state)) render();
         return;
@@ -1389,9 +1464,13 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
       if (event.state.intent === 'selection-click' || event.state.intent === 'box-select') {
         selectionController.endPointerSelection(event.originalEvent, event.state.intent);
+        requestEditorSceneFrame(state, 'viewport-pointer-selection-end');
       }
     },
     onPointerIntentCancel(event) {
+      const continuousReason = getPointerContinuousRenderReason(event.state.intent);
+      if (continuousReason) endEditorSceneContinuousRender(state, continuousReason);
+      if (event.state.intent === 'flythrough') endEditorSceneContinuousRender(state, 'viewport-flythrough-keys');
       if (event.state.intent === 'measurement') {
         render();
         return;
@@ -1417,6 +1496,14 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     onWheel(event) {
       if (!state.sceneCameraPreviewEnabled && state.sceneViewCamera?.handleWheel(event)) render();
     },
+    onMovementKeysChange(event) {
+      if (event.pressedMovementKeys.length > 0) {
+        beginEditorSceneContinuousRender(state, 'viewport-flythrough-keys');
+        requestEditorSceneFrame(state, 'viewport-flythrough-keys');
+      } else {
+        endEditorSceneContinuousRender(state, 'viewport-flythrough-keys');
+      }
+    },
   });
   const sceneViewCamera = createBabylonSceneViewCameraController({
     babylon,
@@ -1433,16 +1520,24 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     babylon,
     scene: world.scene,
   });
-  const document = state.session?.getState().workingDocument;
+  const sceneRenderScheduler = createLocalEditorSceneRenderScheduler({
+    render: () => world.render(),
+  });
+  const viewportRenderCoordinator = createLocalEditorViewportRenderCoordinator({
+    scheduler: sceneRenderScheduler,
+    getEngine: () => state.engine,
+  });
   if (document) {
     projection.projectNodes(options.documentAdapter.getProjectionNodes(document));
     const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
     projection.syncSelection(selection);
     gizmo.setSelection(selection);
   }
-  const resize = () => engine.resize?.();
+  const resize = () => {
+    engine.resize?.();
+    viewportRenderCoordinator.requestFrame('resize');
+  };
   window.addEventListener('resize', resize);
-  engine.runRenderLoop?.(() => world.render());
   state.babylon = babylon;
   state.engine = engine;
   state.world = world;
@@ -1455,7 +1550,11 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   state.sceneViewMeasurement = sceneViewMeasurement;
   state.sceneViewSpatialOverlay = sceneViewSpatialOverlay;
   state.selectionController = selectionController;
+  state.sceneRenderScheduler = sceneRenderScheduler;
+  state.viewportRenderCoordinator = viewportRenderCoordinator;
+  state.worldAppearanceKey = initialAppearanceKey;
   state.resizeHandler = resize;
+  viewportRenderCoordinator.requestFrame('editor-world-created');
 }
 
 function disposeEditorWorld<TDocument, TPatch, TAsset>(
@@ -1478,6 +1577,10 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
   state.sceneViewInput = null;
   state.selectionController?.dispose();
   state.selectionController = null;
+  state.viewportRenderCoordinator?.dispose();
+  state.viewportRenderCoordinator = null;
+  state.sceneRenderScheduler?.dispose();
+  state.sceneRenderScheduler = null;
   state.boxSelection = null;
   state.viewportSpatialOverlay = createEmptyEditorViewportSpatialOverlayState();
   state.viewportMeasurement = createEmptyViewportMeasurement();
@@ -2088,6 +2191,81 @@ function syncSelectionToProjection<TDocument, TPatch, TAsset>(
   state.projection?.syncSelection(selection);
   state.gizmo?.setSelection(selection);
   state.gizmo?.refreshSelection();
+  requestEditorSceneFrame(state, 'projection-selection');
+}
+
+function requestEditorSceneFrame<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  reason: string,
+): void {
+  state.viewportRenderCoordinator?.requestFrame(reason);
+}
+
+function beginEditorSceneContinuousRender<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  reason: string,
+): void {
+  state.viewportRenderCoordinator?.beginContinuous(reason);
+}
+
+function endEditorSceneContinuousRender<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  reason: string,
+): void {
+  state.viewportRenderCoordinator?.endContinuous(reason);
+}
+
+function invalidateEditorScene<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  reason: string,
+): void {
+  state.viewportRenderCoordinator?.invalidateScene(reason);
+}
+
+function syncEditorWorldAppearanceFromDocument<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  reason: string,
+): void {
+  const appearance = resolveLocalEditorWorldAppearance(options, document);
+  const key = serializeLocalEditorWorldAppearance(appearance);
+  if (key === state.worldAppearanceKey) return;
+  state.worldAppearanceKey = key;
+  state.world?.setAppearance({
+    clearColor: appearance.clearColor,
+    sky: appearance.sky,
+  });
+  state.grid?.setColors(appearance.grid ?? {});
+  requestEditorSceneFrame(state, reason);
+}
+
+function resolveLocalEditorWorldAppearance<TDocument, TPatch, TAsset>(
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument | undefined,
+): LocalEditorHarnessWorldAppearance {
+  const documentAppearance = document
+    ? options.documentAdapter.getWorldAppearance?.(document) ?? null
+    : null;
+  return {
+    clearColor: documentAppearance?.clearColor ?? options.world?.clearColor,
+    sky: hasEditorWorldAppearanceSky(documentAppearance) ? documentAppearance.sky : options.world?.sky,
+    grid: documentAppearance?.grid ?? options.world?.grid,
+  };
+}
+
+function hasEditorWorldAppearanceSky(
+  appearance: LocalEditorHarnessWorldAppearance | null,
+): appearance is LocalEditorHarnessWorldAppearance & Pick<Required<LocalEditorHarnessWorldAppearance>, 'sky'> {
+  return !!appearance && Object.prototype.hasOwnProperty.call(appearance, 'sky');
+}
+
+function serializeLocalEditorWorldAppearance(appearance: LocalEditorHarnessWorldAppearance): string {
+  return JSON.stringify({
+    clearColor: appearance.clearColor ?? null,
+    sky: hasEditorWorldAppearanceSky(appearance) ? appearance.sky : null,
+    grid: appearance.grid ?? null,
+  });
 }
 
 function executeTransformAction<TDocument, TPatch, TAsset>(
@@ -2368,6 +2546,7 @@ function addAssetToDocument<TDocument, TPatch, TAsset>(
     if (projectedNode) {
       state.projection?.projectNode(projectedNode);
       if (selectionResult) syncSelectionToProjection(state, selectionResult.selection);
+      invalidateEditorScene(state, 'projection-project-node');
     }
   }
   return {
@@ -2747,6 +2926,7 @@ function focusProjectionNode<TDocument, TPatch, TAsset>(
   state.status = focused
     ? `Focused ${nodeId} · ${formatEditorStatusTime(Date.now())}`
     : `Focus failed: camera could not frame ${nodeId}`;
+  if (focused) requestEditorSceneFrame(state, 'viewport-focus-selection');
   return true;
 }
 
@@ -2813,6 +2993,8 @@ function rebuildProjectionFromDocument<TDocument, TPatch, TAsset>(
   state.projection?.rebuild(options.documentAdapter.getProjectionNodes(document));
   const sanitized = sanitizeSelection(state, options, document, selection);
   syncSelectionToProjection(state, sanitized ?? selection);
+  syncEditorWorldAppearanceFromDocument(state, options, document, 'world-appearance-rebuild');
+  invalidateEditorScene(state, 'projection-rebuild');
 }
 
 function syncProjectionForDispatchResult<TDocument, TPatch, TAsset>(
@@ -2832,6 +3014,12 @@ function syncProjectionForDispatchResult<TDocument, TPatch, TAsset>(
     const sanitized = result.workingDocument ? sanitizeSelection(state, options, result.workingDocument, selection) : null;
     syncSelectionToProjection(state, sanitized ?? selection);
   }
+  if (result.documentChanged && result.workingDocument) {
+    syncEditorWorldAppearanceFromDocument(state, options, result.workingDocument, 'world-appearance-dispatch-result');
+  }
+  if (result.documentChanged || result.selectionChanged) {
+    invalidateEditorScene(state, 'projection-dispatch-result');
+  }
 }
 
 function syncProjectionForChangedIds<TDocument, TPatch, TAsset>(
@@ -2846,6 +3034,8 @@ function syncProjectionForChangedIds<TDocument, TPatch, TAsset>(
   }
   const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
   syncSelectionToProjection(state, selection);
+  syncEditorWorldAppearanceFromDocument(state, options, document, 'world-appearance-sync-changed-ids');
+  invalidateEditorScene(state, 'projection-sync-changed-ids');
 }
 
 function reprojectProjectionForChangedIds<TDocument, TPatch, TAsset>(
@@ -2861,6 +3051,8 @@ function reprojectProjectionForChangedIds<TDocument, TPatch, TAsset>(
   const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
   syncSelectionToProjection(state, selection);
   state.gizmo?.refreshSelection();
+  syncEditorWorldAppearanceFromDocument(state, options, document, 'world-appearance-reproject-changed-ids');
+  invalidateEditorScene(state, 'projection-reproject-changed-ids');
 }
 
 function setSceneCameraPreviewEnabled<TDocument, TPatch, TAsset>(
@@ -2872,6 +3064,7 @@ function setSceneCameraPreviewEnabled<TDocument, TPatch, TAsset>(
     state.sceneCameraPreviewEnabled = false;
     state.sceneCameraPreview?.setActive(false);
     state.status = 'Scene Camera preview disabled';
+    requestEditorSceneFrame(state, 'scene-camera-preview-toggle');
     return true;
   }
   state.sceneCameraPreviewEnabled = true;
@@ -2884,6 +3077,7 @@ function setSceneCameraPreviewEnabled<TDocument, TPatch, TAsset>(
     return true;
   }
   state.status = 'Scene Camera preview enabled';
+  requestEditorSceneFrame(state, 'scene-camera-preview-toggle');
   return true;
 }
 
@@ -2899,6 +3093,7 @@ function setGridVisible<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
+  requestEditorSceneFrame(state, 'grid-visible-change');
   return true;
 }
 
@@ -2937,6 +3132,11 @@ function syncViewportCameraState<TDocument, TPatch, TAsset>(
 function syncViewportSpatialOverlay<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
 ): void {
+  const settings = state.viewportTools.overlay;
+  if (!settings.bounds && !settings.dimensions && !settings.edgeLengths && !settings.anchor) {
+    state.viewportSpatialOverlay = createEmptyEditorViewportSpatialOverlayState();
+    return;
+  }
   const overlay = state.sceneViewSpatialOverlay;
   const selection = state.session?.getState().selection;
   const activeId = selection?.activeId ?? null;
@@ -2950,7 +3150,7 @@ function syncViewportSpatialOverlay<TDocument, TPatch, TAsset>(
     nodeId: activeId,
     bounds,
     anchor,
-    settings: state.viewportTools.overlay,
+    settings,
   });
 }
 

@@ -22,11 +22,17 @@ export interface BabylonEditorWorldOptions {
   enableDefaultCameraControls?: boolean;
 }
 
+export interface BabylonEditorWorldAppearanceOptions {
+  clearColor?: { r: number; g: number; b: number; a: number };
+  sky?: BabylonEditorSkyOptions | false;
+}
+
 export interface BabylonEditorWorld {
   scene: RuntimeScene;
   camera: RuntimeCamera;
   gizmoManager: any | null;
   skyBackdrop: BabylonEditorSkyBackdrop | null;
+  setAppearance(options: BabylonEditorWorldAppearanceOptions): void;
   render(): void;
   dispose(): void;
 }
@@ -44,15 +50,8 @@ export function createBabylonEditorWorld(options: BabylonEditorWorldOptions): Ba
   if (options.useRightHandedSystem !== undefined) {
     scene.useRightHandedSystem = options.useRightHandedSystem;
   }
-  if (options.clearColor && options.babylon.Color4) {
-    scene.clearColor = new options.babylon.Color4(
-      options.clearColor.r,
-      options.clearColor.g,
-      options.clearColor.b,
-      options.clearColor.a,
-    );
-  }
-  const skyBackdrop = createBabylonEditorSkyBackdrop({
+  applyEditorWorldClearColor(options.babylon, scene, options.clearColor);
+  let skyBackdrop = createBabylonEditorSkyBackdrop({
     babylon: options.babylon,
     scene,
     sky: options.sky,
@@ -82,15 +81,8 @@ export function createBabylonEditorWorld(options: BabylonEditorWorldOptions): Ba
     camera.attachControl?.(options.canvas, true);
     configureEditorCameraControls(camera);
   }
-
-  if (options.babylon.HemisphericLight) {
-    const light = new options.babylon.HemisphericLight(
-      'editor-world-light',
-      new Vector3Ctor(0.3, 1, 0.2),
-      scene,
-    );
-    light.intensity = 0.86;
-  }
+  scene.activeCamera = camera;
+  scene.cameraToUseForPointers = camera;
 
   const gizmoManager = options.enableGizmoManager && options.babylon.GizmoManager
     ? new options.babylon.GizmoManager(scene)
@@ -100,7 +92,26 @@ export function createBabylonEditorWorld(options: BabylonEditorWorldOptions): Ba
     scene,
     camera,
     gizmoManager,
-    skyBackdrop,
+    get skyBackdrop() {
+      return skyBackdrop;
+    },
+    setAppearance(appearance) {
+      applyEditorWorldClearColor(options.babylon, scene, appearance.clearColor);
+      if (isEditorWorldSkyDisabled(appearance.sky)) {
+        skyBackdrop?.dispose();
+        skyBackdrop = null;
+        return;
+      }
+      if (skyBackdrop) {
+        skyBackdrop.update(appearance.sky);
+      } else {
+        skyBackdrop = createBabylonEditorSkyBackdrop({
+          babylon: options.babylon,
+          scene,
+          sky: appearance.sky,
+        });
+      }
+    },
     render() {
       scene.render();
     },
@@ -119,4 +130,22 @@ function configureEditorCameraControls(camera: RuntimeCamera): void {
     try { pointerInput.panningMouseButton = 1; } catch {}
   }
   try { (camera as any).panningMouseButton = 1; } catch {}
+}
+
+function applyEditorWorldClearColor(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  clearColor: BabylonEditorWorldAppearanceOptions['clearColor'],
+): void {
+  if (!clearColor || !babylon.Color4) return;
+  scene.clearColor = new babylon.Color4(
+    clearColor.r,
+    clearColor.g,
+    clearColor.b,
+    clearColor.a,
+  );
+}
+
+function isEditorWorldSkyDisabled(sky: BabylonEditorWorldAppearanceOptions['sky']): boolean {
+  return sky === false || sky?.enabled === false;
 }
