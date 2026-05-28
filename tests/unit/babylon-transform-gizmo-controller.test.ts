@@ -288,6 +288,9 @@ function createFakeProjection(initialTransforms: Record<string, EditorTransformS
         scaling: new FakeVector3(transform.scale.x, transform.scale.y, transform.scale.z),
       };
     },
+    removeRoot: (id: string) => {
+      delete roots[id];
+    },
     getAttachableRoot: (id: string) => roots[id] ?? null,
     readNodeTransform: (id: string) => {
       const transform = transforms[id];
@@ -385,6 +388,34 @@ describe('Babylon transform gizmo handle constraints', () => {
 
     controller.setTool('move');
     expect(runtime.managers).toHaveLength(1);
+  });
+
+  it('reattaches the current selection when the active tool is requested again after projection readiness', () => {
+    const runtime = createFakeRuntime();
+    const scene = createFakeScene();
+    const transform = {
+      position: { x: 2, y: 3, z: 4 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    };
+    const projection = createFakeProjection({ a: transform });
+    projection.removeRoot('a');
+    const controller = createBabylonTransformGizmoController({
+      babylon: runtime.babylon,
+      scene,
+      projection: projection as any,
+      initialTool: 'move',
+    });
+
+    controller.setSelection({ selectedIds: ['a'], activeId: 'a' });
+    const manager = runtime.managers[0]!;
+    expect(manager.attachedNode).toBeNull();
+
+    projection.addNode('a', transform);
+    controller.setTool('move');
+
+    expect(manager.attachedNode?.name).toBe('editor.selectionPivotProxy');
+    expect(manager.attachedNode?.position).toMatchObject({ x: 2, y: 3, z: 4 });
   });
 
   it('keeps native move plane drags in the batch lifecycle with a plane constraint', () => {

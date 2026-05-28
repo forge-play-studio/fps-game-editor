@@ -1134,7 +1134,10 @@ export function createBabylonTransformGizmoController(
     },
     setTool(nextTool) {
       if (disposed) return;
-      if (tool === nextTool) return;
+      if (tool === nextTool) {
+        if (!activeDrag) attachCurrentSelection();
+        return;
+      }
       controller.cancelDrag();
       tool = nextTool;
       constraint = normalizeConstraintForTool(tool, constraint) ?? 'axis';
@@ -1142,7 +1145,10 @@ export function createBabylonTransformGizmoController(
     },
     setSpace(nextSpace) {
       if (disposed) return;
-      if (space === nextSpace) return;
+      if (space === nextSpace) {
+        if (!activeDrag) attachCurrentSelection();
+        return;
+      }
       controller.cancelDrag();
       space = nextSpace;
       attachCurrentSelection();
@@ -1150,7 +1156,10 @@ export function createBabylonTransformGizmoController(
     setConstraint(nextConstraint) {
       if (disposed) return;
       const normalized = normalizeConstraintForTool(tool, nextConstraint) ?? 'axis';
-      if (constraint === normalized) return;
+      if (constraint === normalized) {
+        if (!activeDrag) attachCurrentSelection();
+        return;
+      }
       controller.cancelDrag();
       constraint = normalized;
       attachCurrentSelection();

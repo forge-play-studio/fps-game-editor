@@ -1,5 +1,6 @@
 import {
   createBadge,
+  createEditorInputStyle,
   createPanelHeader,
   createToolbarButton,
   createTreeView,
@@ -25,6 +26,7 @@ export interface LocalEditorHierarchyViewInput {
   rename: { id: string; value: string } | null;
   drop: LocalEditorBrowserSceneGraphDropIntent | null;
   rootDrop: boolean;
+  searchQuery: string;
 }
 
 export function renderLocalEditorHierarchyPanel(
@@ -41,6 +43,8 @@ export function renderLocalEditorHierarchyPanel(
   createGroupButton.style.fontSize = '11px';
   panel.appendChild(createPanelHeader(doc, 'Hierarchy', [createGroupButton], 'hierarchy'));
 
+  panel.appendChild(createHierarchySearchInput(doc, input.searchQuery));
+
   const list = createTreeView(doc);
   list.style.flex = '1';
   list.style.minHeight = '0';
@@ -49,17 +53,61 @@ export function renderLocalEditorHierarchyPanel(
     list.style.boxShadow = 'inset 0 -2px 0 var(--fps-editor-warn-strong)';
     list.style.background = 'var(--fps-editor-warn-soft)';
   }
-  if (input.model.visibleRows.length === 0) {
+  const rows = resolveLocalEditorHierarchySearchRows(input.model, input.searchQuery);
+  if (rows.length === 0) {
     const empty = doc.createElement('div');
-    empty.textContent = 'No hierarchy nodes.';
+    empty.textContent = input.searchQuery.trim() ? 'No matching GameObjects.' : 'No hierarchy nodes.';
     empty.style.cssText = 'padding:8px;color:var(--fps-editor-muted);font-size:11px';
     list.appendChild(empty);
   } else {
-    for (const node of input.model.visibleRows) {
+    for (const node of rows) {
       list.appendChild(renderHierarchyRow(doc, node, input.rename, input.drop));
     }
   }
   panel.appendChild(list);
+}
+
+export function resolveLocalEditorHierarchySearchRows(
+  model: LocalEditorHierarchyTreeModel,
+  query: string,
+): LocalEditorHierarchyTreeNode[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return model.visibleRows;
+  const includedIds = new Set<string>();
+  for (const node of collectHierarchyRows(model)) {
+    if (!node.label.toLowerCase().includes(needle)) continue;
+    includedIds.add(node.id);
+    for (const ancestor of model.getAncestors(node.id)) includedIds.add(ancestor.id);
+  }
+  return collectHierarchyRows(model).filter(node => includedIds.has(node.id));
+}
+
+function createHierarchySearchInput(doc: Document, value: string): HTMLInputElement {
+  const input = doc.createElement('input');
+  input.type = 'search';
+  input.dataset.editorHierarchySearch = 'true';
+  input.placeholder = '搜索 GameObject 名称';
+  input.value = value;
+  input.style.cssText = [
+    createEditorInputStyle(),
+    'width:100%',
+    'height:28px',
+    'margin:0 0 8px',
+    'outline:none',
+  ].join(';');
+  return input;
+}
+
+function collectHierarchyRows(model: LocalEditorHierarchyTreeModel): LocalEditorHierarchyTreeNode[] {
+  const rows: LocalEditorHierarchyTreeNode[] = [];
+  const visit = (id: string): void => {
+    const node = model.getNode(id);
+    if (!node) return;
+    rows.push(node);
+    for (const child of model.getChildren(id)) visit(child.id);
+  };
+  for (const rootId of model.rootIds) visit(rootId);
+  return rows;
 }
 
 function renderHierarchyRow(
