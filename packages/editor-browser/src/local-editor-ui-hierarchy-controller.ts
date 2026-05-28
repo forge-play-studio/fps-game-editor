@@ -60,6 +60,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   let hierarchyShortcutScopeActive = false;
   let hierarchyClipboard: { ids: string[]; activeId: string | null } | null = null;
   let hierarchySearch = '';
+  let hierarchySearchComposing = false;
   let currentModel: LocalEditorHierarchyTreeModel | null = null;
   let lastRenderedActiveId: string | null | undefined;
   let pendingHierarchyScrollId: string | null = null;
@@ -94,6 +95,10 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   const onClick = (event: MouseEvent): void => {
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (target?.closest('[data-editor-hierarchy-rename-input]')) return;
+    if (target?.closest('input[data-editor-hierarchy-search]')) {
+      clearSelectionFromSearchClick(event);
+      return;
+    }
     const toggle = target?.closest<HTMLElement>('[data-editor-hierarchy-toggle]')?.dataset.editorHierarchyToggle;
     if (toggle) {
       event.preventDefault();
@@ -156,7 +161,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
     const input = event.target instanceof HTMLInputElement ? event.target : null;
     if (input?.dataset.editorHierarchySearch != null) {
       hierarchySearch = input.value;
-      requestRender();
+      if (!hierarchySearchComposing && !isComposingInputEvent(event)) requestRender();
       return;
     }
     if (!input?.dataset.editorHierarchyRenameInput || !hierarchyRename) return;
@@ -169,6 +174,7 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   const onKeyDown = (event: KeyboardEvent): void => {
     const input = event.target instanceof HTMLInputElement ? event.target : null;
     if (input?.dataset.editorHierarchySearch != null) {
+      if (event.isComposing || hierarchySearchComposing) return;
       if (event.key !== 'Escape' || hierarchySearch.length === 0) return;
       event.preventDefault();
       hierarchySearch = '';
@@ -186,6 +192,20 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       hierarchyRename = null;
       requestRender();
     }
+  };
+
+  const onCompositionStart = (event: CompositionEvent): void => {
+    const input = event.target instanceof HTMLInputElement ? event.target : null;
+    if (input?.dataset.editorHierarchySearch == null) return;
+    hierarchySearchComposing = true;
+  };
+
+  const onCompositionEnd = (event: CompositionEvent): void => {
+    const input = event.target instanceof HTMLInputElement ? event.target : null;
+    if (input?.dataset.editorHierarchySearch == null) return;
+    hierarchySearchComposing = false;
+    hierarchySearch = input.value;
+    requestRender();
   };
 
   const onFocusOut = (event: FocusEvent): void => {
@@ -318,6 +338,8 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   panel.addEventListener('dblclick', onDoubleClick);
   panel.addEventListener('input', onInput);
   panel.addEventListener('keydown', onKeyDown);
+  panel.addEventListener('compositionstart', onCompositionStart);
+  panel.addEventListener('compositionend', onCompositionEnd);
   panel.addEventListener('focusout', onFocusOut);
   panel.addEventListener('dragstart', onDragStart);
   panel.addEventListener('dragover', onDragOver);
@@ -341,6 +363,8 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       panel.removeEventListener('dblclick', onDoubleClick);
       panel.removeEventListener('input', onInput);
       panel.removeEventListener('keydown', onKeyDown);
+      panel.removeEventListener('compositionstart', onCompositionStart);
+      panel.removeEventListener('compositionend', onCompositionEnd);
       panel.removeEventListener('focusout', onFocusOut);
       panel.removeEventListener('dragstart', onDragStart);
       panel.removeEventListener('dragover', onDragOver);
@@ -395,6 +419,10 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
       event.preventDefault();
       submitHierarchyAction(action);
       return true;
+  }
+
+  function isComposingInputEvent(event: Event): boolean {
+    return (event as Event & { isComposing?: boolean }).isComposing === true;
   }
 
   function createModel(state: LocalEditorBrowserUiState<TDocument>): LocalEditorHierarchyTreeModel {
@@ -608,6 +636,13 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
     if (hierarchyRename || hierarchyDrag || hierarchyDrop || hierarchyRootDrop) return false;
     const state = getState();
     return (state?.selectedIds.length ?? 0) > 0;
+  }
+
+  function clearSelectionFromSearchClick(event: MouseEvent): void {
+    if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+    const state = getState();
+    if ((state?.selectedIds.length ?? 0) === 0) return;
+    submitSelectionCommand({ type: 'selection.clear', label: 'Clear Selection' });
   }
 
   function isHierarchyShortcutScope(event: KeyboardEvent): boolean {
