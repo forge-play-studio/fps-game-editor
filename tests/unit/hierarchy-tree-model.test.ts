@@ -5,6 +5,7 @@ import {
   createLocalEditorHierarchyNodeMenu,
   createLocalEditorHierarchyPasteShortcutAction,
   createLocalEditorHierarchySelectAllShortcutAction,
+  resolveLocalEditorHierarchySearchRows,
   canLocalEditorHierarchyNodeHaveChildren,
   createLocalEditorHierarchyTreeModel,
   isLocalEditorHierarchyNodeMovable,
@@ -63,6 +64,23 @@ describe('local editor hierarchy tree model', () => {
     expect(model.nodes.map(node => node.id)).toContain('box');
     expect(model.visibleRows.map(row => row.id)).toEqual(['root', 'group_a', 'group_b', 'label_group', 'locked_group', 'locked_child', 'visual_root_peer']);
     expect(model.getNode('group_a')).toMatchObject({ expanded: false });
+  });
+
+  it('filters hierarchy search rows by GameObject name while preserving ancestors', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, [], null, { collapsedIds: ['group_a'] });
+
+    expect(resolveLocalEditorHierarchySearchRows(model, 'socket child').map(row => row.id)).toEqual([
+      'root',
+      'group_a',
+      'socket',
+      'socket_child',
+    ]);
+    expect(resolveLocalEditorHierarchySearchRows(model, 'sphere').map(row => row.id)).toEqual([
+      'root',
+      'group_a',
+      'sphere',
+    ]);
+    expect(resolveLocalEditorHierarchySearchRows(model, '').map(row => row.id)).toEqual(model.visibleRows.map(row => row.id));
   });
 
   it('uses explicit canHaveChildren capability instead of role to decide container behavior', () => {
@@ -217,6 +235,41 @@ describe('local editor hierarchy action registry', () => {
         pivot: 'selection-center',
         preserveWorldTransform: true,
       },
+    });
+  });
+
+  it('adds a hierarchy node menu action for selecting a selectable parent', () => {
+    const model = createLocalEditorHierarchyTreeModel(hierarchy, ['box'], 'box');
+    const boxMenu = createLocalEditorHierarchyNodeMenu({
+      state: createHierarchyState(['box'], 'box'),
+      model,
+      node: model.getNode('box')!,
+      hasDuplicateHandler: true,
+      hasGroupSelectionHandler: true,
+    });
+    const groupMenu = createLocalEditorHierarchyNodeMenu({
+      state: createHierarchyState(['group_a'], 'group_a'),
+      model,
+      node: model.getNode('group_a')!,
+      hasDuplicateHandler: true,
+      hasGroupSelectionHandler: true,
+    });
+
+    expect(boxMenu.items.find(item => item.id === 'hierarchy.select-parent')).toMatchObject({
+      label: 'Select Parent',
+      disabled: false,
+    });
+    expect(boxMenu.actions.get('hierarchy.select-parent')).toMatchObject({
+      kind: 'selection-command',
+      command: {
+        type: 'selection.replace',
+        selectedIds: ['group_a'],
+        activeId: 'group_a',
+      },
+    });
+    expect(groupMenu.items.find(item => item.id === 'hierarchy.select-parent')).toMatchObject({
+      disabled: true,
+      disabledReason: 'The parent node is protected or locked.',
     });
   });
 

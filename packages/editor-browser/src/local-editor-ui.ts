@@ -19,6 +19,9 @@ export {
   createLocalEditorHierarchyController,
 } from './local-editor-ui-hierarchy-controller';
 export {
+  resolveLocalEditorHierarchySearchRows,
+} from './local-editor-ui-hierarchy-view';
+export {
   canLocalEditorHierarchyNodeHaveChildren,
   createLocalEditorHierarchyTreeModel,
   isLocalEditorHierarchyNodeMovable,
@@ -2369,6 +2372,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     }
     if (active.dataset.editorInspectorSearch != null) {
       return { selector: 'input[data-editor-inspector-search]', value: active.value };
+    }
+    if (active.dataset.editorHierarchySearch != null) {
+      return { selector: 'input[data-editor-hierarchy-search]', value: active.value };
     }
     if (active.dataset.editorAssetFilter != null) {
       return { selector: 'input[data-editor-asset-filter]', value: active.value };

@@ -1341,6 +1341,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     importModel: options.worldAdapter.importProjectionModel,
     logger: console,
     onProjectionReady(event) {
+      syncCurrentSelectionToSceneArtifacts(state);
       viewportRenderCoordinator.invalidateScene(`projection-${event.nodeId}-ready`);
     },
   });
@@ -2223,6 +2224,15 @@ function syncSelectionToProjection<TDocument, TPatch, TAsset>(
   requestEditorSceneFrame(state, 'projection-selection');
 }
 
+function syncCurrentSelectionToSceneArtifacts<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+): void {
+  syncSelectionToProjection(
+    state,
+    state.session?.getState().selection ?? { selectedIds: [], activeId: null },
+  );
+}
+
 function invalidateEditorScene<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   reason: string,
@@ -3029,9 +3039,7 @@ function reprojectProjectionForChangedIds<TDocument, TPatch, TAsset>(
     const projectedNode = options.documentAdapter.getProjectionNode(document, changedId);
     if (projectedNode) state.projection?.projectNode(projectedNode);
   }
-  const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
-  syncSelectionToProjection(state, selection);
-  state.gizmo?.refreshSelection();
+  syncCurrentSelectionToSceneArtifacts(state);
   invalidateEditorScene(state, 'projection-reproject-changed-ids', options);
 }
 

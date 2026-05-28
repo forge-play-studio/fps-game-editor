@@ -59,7 +59,10 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   let hierarchyRootDrop = false;
   let hierarchyShortcutScopeActive = false;
   let hierarchyClipboard: { ids: string[]; activeId: string | null } | null = null;
+  let hierarchySearch = '';
   let currentModel: LocalEditorHierarchyTreeModel | null = null;
+  let lastRenderedActiveId: string | null | undefined;
+  let pendingHierarchyScrollId: string | null = null;
 
   const getModel = (state: LocalEditorBrowserUiState<TDocument>): LocalEditorHierarchyTreeModel => {
     if (currentModel) return currentModel;
@@ -69,13 +72,23 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
 
   const render = (state: LocalEditorBrowserUiState<TDocument>): void => {
     if (hierarchyRename && !state.hierarchy.some(item => item.id === hierarchyRename?.id)) hierarchyRename = null;
+    const activeIdChanged = state.activeId !== lastRenderedActiveId;
+    if (activeIdChanged) {
+      pendingHierarchyScrollId = null;
+      expandActiveHierarchyPath(state);
+    }
     currentModel = createModel(state);
     renderLocalEditorHierarchyPanel(doc, panel, {
       model: currentModel,
       rename: hierarchyRename,
       drop: hierarchyDrop,
       rootDrop: hierarchyRootDrop,
+      searchQuery: hierarchySearch,
     });
+    if (activeIdChanged && state.activeId && shouldAutoScrollActiveHierarchyNode()) {
+      scheduleActiveHierarchyScroll(state.activeId);
+    }
+    lastRenderedActiveId = state.activeId;
   };
 
   const onClick = (event: MouseEvent): void => {
@@ -141,6 +154,11 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
 
   const onInput = (event: Event): void => {
     const input = event.target instanceof HTMLInputElement ? event.target : null;
+    if (input?.dataset.editorHierarchySearch != null) {
+      hierarchySearch = input.value;
+      requestRender();
+      return;
+    }
     if (!input?.dataset.editorHierarchyRenameInput || !hierarchyRename) return;
     hierarchyRename = {
       id: input.dataset.editorHierarchyRenameInput,
@@ -150,6 +168,13 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
 
   const onKeyDown = (event: KeyboardEvent): void => {
     const input = event.target instanceof HTMLInputElement ? event.target : null;
+    if (input?.dataset.editorHierarchySearch != null) {
+      if (event.key !== 'Escape' || hierarchySearch.length === 0) return;
+      event.preventDefault();
+      hierarchySearch = '';
+      requestRender();
+      return;
+    }
     if (!input?.dataset.editorHierarchyRenameInput) return;
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -445,6 +470,41 @@ export function createLocalEditorHierarchyController<TDocument = unknown>(
   function expandNode(id: string | null | undefined): void {
     if (!id) return;
     collapsedIds.delete(id);
+  }
+
+  function expandActiveHierarchyPath(state: LocalEditorBrowserUiState<TDocument>): void {
+    if (!state.activeId) return;
+    const model = createModel(state);
+    if (!model.getNode(state.activeId)) return;
+    for (const ancestor of model.getAncestors(state.activeId)) {
+      collapsedIds.delete(ancestor.id);
+    }
+  }
+
+  function shouldAutoScrollActiveHierarchyNode(): boolean {
+    return !hierarchyRename && !hierarchyDrag && !hierarchyDrop && !hierarchyRootDrop;
+  }
+
+  function scheduleActiveHierarchyScroll(activeId: string): void {
+    pendingHierarchyScrollId = activeId;
+    setTimeout(() => {
+      if (pendingHierarchyScrollId !== activeId) return;
+      pendingHierarchyScrollId = null;
+      const row = findHierarchyRow(activeId);
+      if (!row) return;
+      try {
+        row.scrollIntoView({ block: 'center', inline: 'nearest' });
+      } catch {
+        row.scrollIntoView();
+      }
+    }, 0);
+  }
+
+  function findHierarchyRow(id: string): HTMLElement | null {
+    for (const row of panel.querySelectorAll<HTMLElement>('[data-editor-hierarchy-id]')) {
+      if (row.dataset.editorHierarchyId === id) return row;
+    }
+    return null;
   }
 
   function expandDropParent(resolved: LocalEditorHierarchyDropResolution): void {
