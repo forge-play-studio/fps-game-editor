@@ -106,7 +106,9 @@ import type {
 export {
   applyLocalEditorBrowserInspectorControlBinding,
   createLocalEditorBrowserInspectorControlRegistry,
+  formatLocalEditorBrowserInspectorNumberValue,
   formatLocalEditorBrowserInspectorValue,
+  parseLocalEditorBrowserInspectorNumberValue,
   resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
 } from './local-editor-ui-panels';
@@ -215,11 +217,17 @@ export type {
   LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
 
-function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): number | string | boolean | Record<string, unknown> | null {
+const PENDING_NUMERIC_PROPERTY_INPUT = Symbol('pending-numeric-property-input');
+type LocalEditorPendingNumericPropertyInput = typeof PENDING_NUMERIC_PROPERTY_INPUT;
+
+function readInspectorInputValue(
+  input: HTMLInputElement | HTMLSelectElement,
+  source: LocalEditorBrowserInspectorEditSource,
+): number | string | boolean | Record<string, unknown> | null | LocalEditorPendingNumericPropertyInput {
   const control = input.dataset.serializedControl;
   const valueType = input.dataset.serializedValueType;
   if ((control === 'vec2' || control === 'vec3') && input instanceof HTMLInputElement) {
-    return readInspectorVectorInputValue(input);
+    return readInspectorVectorInputValue(input, source) ?? PENDING_NUMERIC_PROPERTY_INPUT;
   }
   if (control === 'enum' && input instanceof HTMLSelectElement) {
     const option = input.selectedOptions.item(0);
@@ -234,7 +242,11 @@ function readInspectorInputValue(input: HTMLInputElement | HTMLSelectElement): n
   }
   if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
   if (control === 'boolean' || valueType === 'boolean') return input.value === 'true';
-  if (control === 'number' || valueType === 'number') return Number(input.value);
+  if (control === 'number' || valueType === 'number') {
+    const mode = source === 'input' && readInspectorCommitMode(input) === 'live' ? 'live' : 'final';
+    return LocalEditorPanels.parseLocalEditorBrowserInspectorNumberValue(input.value, mode)
+      ?? PENDING_NUMERIC_PROPERTY_INPUT;
+  }
   if (control === 'color' && input instanceof HTMLInputElement && input.type === 'color') {
     const value = input.value.replace('#', '');
     const numeric = Number.parseInt(value, 16);
@@ -368,17 +380,22 @@ function setToolbarButtonIcon(
   else button.prepend(nextIcon);
 }
 
-function readInspectorVectorInputValue(input: HTMLInputElement): Record<string, number> {
+function readInspectorVectorInputValue(
+  input: HTMLInputElement,
+  source: LocalEditorBrowserInspectorEditSource,
+): Record<string, number> | null {
   const wrapper = input.closest<HTMLElement>('[data-inspector-vector-control]');
   const values: Record<string, number> = {};
+  const mode = source === 'input' && readInspectorCommitMode(input) === 'live' ? 'live' : 'final';
   const fields = wrapper
     ? Array.from(wrapper.querySelectorAll<HTMLInputElement>('input[data-serialized-vector-axis]'))
     : [input];
   for (const field of fields) {
     const axis = field.dataset.serializedVectorAxis;
     if (!axis) continue;
-    const numeric = Number(field.value);
-    values[axis] = Number.isFinite(numeric) ? numeric : 0;
+    const numeric = LocalEditorPanels.parseLocalEditorBrowserInspectorNumberValue(field.value, mode);
+    if (numeric == null) return null;
+    values[axis] = numeric;
   }
   return values;
 }
@@ -391,11 +408,13 @@ function createInspectorPropertyInput(
   const targetIds = input.dataset.serializedTargetIds
     ? input.dataset.serializedTargetIds.split(',').filter(Boolean)
     : undefined;
+  const value = readInspectorInputValue(input, source);
+  if (value === PENDING_NUMERIC_PROPERTY_INPUT) return null;
   return {
     targetId: input.dataset.serializedTargetId,
     targetIds,
     path: input.dataset.serializedPath,
-    value: readInspectorInputValue(input),
+    value,
     control: input.dataset.serializedControl as LocalEditorBrowserInspectorControlKind | undefined,
     valueType: input.dataset.serializedValueType as LocalEditorBrowserInspectorProperty['valueType'] | undefined,
     commitMode: input.dataset.serializedCommitMode as LocalEditorBrowserInspectorCommitMode | undefined,
@@ -404,7 +423,10 @@ function createInspectorPropertyInput(
   };
 }
 
-function readRenderingInputValue(input: HTMLInputElement | HTMLTextAreaElement): unknown {
+function readRenderingInputValue(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  source: LocalEditorBrowserRenderingPropertyEditSource,
+): unknown | LocalEditorPendingNumericPropertyInput {
   const control = input.dataset.renderingControl;
   const valueType = input.dataset.renderingValueType;
   if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
@@ -418,7 +440,11 @@ function readRenderingInputValue(input: HTMLInputElement | HTMLTextAreaElement):
       b: (numeric & 255) / 255,
     };
   }
-  if (control === 'number' || valueType === 'number') return Number(input.value);
+  if (control === 'number' || valueType === 'number') {
+    const mode = source === 'input' && readRenderingCommitMode(input) === 'live' ? 'live' : 'final';
+    return LocalEditorPanels.parseLocalEditorBrowserInspectorNumberValue(input.value, mode)
+      ?? PENDING_NUMERIC_PROPERTY_INPUT;
+  }
   if (control === 'string-list' || valueType === 'string-list') {
     return input.value
       .split(/\r?\n/)
@@ -437,11 +463,13 @@ function createRenderingPropertyInput(
   const systemId = input.dataset.renderingSystemId;
   const path = input.dataset.renderingPath;
   if (!sectionId || !systemId || !path) return null;
+  const value = readRenderingInputValue(input, source);
+  if (value === PENDING_NUMERIC_PROPERTY_INPUT) return null;
   return {
     sectionId,
     systemId,
     path,
-    value: readRenderingInputValue(input),
+    value,
     control: input.dataset.renderingControl as LocalEditorBrowserRenderingPropertyControlKind | undefined,
     valueType: input.dataset.renderingValueType as LocalEditorBrowserRenderingPropertyValueType | undefined,
     commitMode: input.dataset.renderingCommitMode as LocalEditorBrowserRenderingPropertyCommitMode | undefined,

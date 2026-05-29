@@ -917,10 +917,10 @@ function createCameraFrustumLines(
   } else {
     const halfHeight = Math.max(0.12, settings.orthoSize * 0.08);
     const halfWidth = halfHeight * aspect;
-    const nearTopLeft = new Vector3(-halfWidth, halfHeight, -nearDistance);
-    const nearTopRight = new Vector3(halfWidth, halfHeight, -nearDistance);
-    const nearBottomRight = new Vector3(halfWidth, -halfHeight, -nearDistance);
-    const nearBottomLeft = new Vector3(-halfWidth, -halfHeight, -nearDistance);
+    const nearTopLeft = new Vector3(-halfWidth, halfHeight, nearDistance);
+    const nearTopRight = new Vector3(halfWidth, halfHeight, nearDistance);
+    const nearBottomRight = new Vector3(halfWidth, -halfHeight, nearDistance);
+    const nearBottomLeft = new Vector3(-halfWidth, -halfHeight, nearDistance);
     const farTopLeft = new Vector3(-halfWidth, halfHeight, -distance);
     const farTopRight = new Vector3(halfWidth, halfHeight, -distance);
     const farBottomRight = new Vector3(halfWidth, -halfHeight, -distance);

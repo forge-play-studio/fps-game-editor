@@ -1901,6 +1901,21 @@ export function formatLocalEditorBrowserInspectorNumberValue(value: number): str
   return rounded.toFixed(3).replace(/\.?0+$/, '');
 }
 
+export function parseLocalEditorBrowserInspectorNumberValue(
+  value: string,
+  mode: 'live' | 'final',
+): number | null {
+  const trimmed = value.trim();
+  if (trimmed === '') return mode === 'final' ? 0 : null;
+  if (mode === 'live' && !isCompleteInspectorNumberInput(trimmed)) return null;
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isCompleteInspectorNumberInput(value: string): boolean {
+  return /^[+-]?(?:\d+|\d*\.\d+)(?:[eE][+-]?\d+)?$/.test(value);
+}
+
 function formatInspectorEditableValue<TDocument>(
   value: unknown,
   property: LocalEditorBrowserInspectorProperty<TDocument>,

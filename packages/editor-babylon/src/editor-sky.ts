@@ -11,6 +11,7 @@ export interface BabylonEditorSkyColor {
 
 export interface BabylonEditorSkyOptions {
   enabled?: boolean;
+  preset?: 'simple' | 'vertex-color' | 'atmospheric';
   radius?: number;
   topColor?: BabylonEditorSkyColor;
   horizonColor?: BabylonEditorSkyColor;
@@ -36,6 +37,7 @@ export interface BabylonEditorSkyBackdropOptions {
 
 const DEFAULT_EDITOR_SKY: Required<BabylonEditorSkyOptions> = {
   enabled: true,
+  preset: 'simple',
   radius: 1200,
   topColor: { r: 0.28, g: 0.58, b: 0.86 },
   horizonColor: { r: 0.72, g: 0.83, b: 0.88 },
@@ -48,6 +50,8 @@ const DEFAULT_EDITOR_SKY: Required<BabylonEditorSkyOptions> = {
 
 const POSITION_KIND = 'position';
 const COLOR_KIND = 'color';
+const SIMPLE_SKY_SEGMENTS = 16;
+const ATMOSPHERIC_SKY_SEGMENTS = 32;
 const SKY_SHADER_NAME = 'editorSkyBackdrop';
 const SKY_VERTEX_SHADER = `
 precision highp float;
@@ -130,7 +134,7 @@ export function createBabylonEditorSkyBackdrop(
     'editor.world.sky',
     {
       diameter: sky.radius * 2,
-      segments: 32,
+      segments: sky.preset === 'atmospheric' ? ATMOSPHERIC_SKY_SEGMENTS : SIMPLE_SKY_SEGMENTS,
       sideOrientation: (options.babylon as any).Mesh?.BACKSIDE ?? 1,
     },
     options.scene,
@@ -140,7 +144,12 @@ export function createBabylonEditorSkyBackdrop(
   mesh.alwaysSelectAsActiveMesh = true;
   mesh.doNotSyncBoundingInfo = true;
 
-  const skyMaterial = createSkyMaterial(options.babylon, options.scene, sky, canUseSkyShader(options.babylon));
+  const skyMaterial = createSkyMaterial(
+    options.babylon,
+    options.scene,
+    sky,
+    sky.preset === 'atmospheric' && canUseSkyShader(options.babylon),
+  );
   if (!skyMaterial) {
     mesh.dispose?.();
     return null;
@@ -242,6 +251,7 @@ function createSkyVertexColorMaterial(
   if (!StandardMaterial || !Color3) return null;
   const material = new StandardMaterial('editor.world.sky.material', scene);
   material.disableLighting = true;
+  material.disableDepthWrite = true;
   material.backFaceCulling = false;
   material.useVertexColors = true;
   material.diffuseColor = new Color3(1, 1, 1);
@@ -257,6 +267,7 @@ function resolveEditorSkyOptions(
   if (sky === false) return { ...DEFAULT_EDITOR_SKY, enabled: false };
   return {
     enabled: sky?.enabled ?? DEFAULT_EDITOR_SKY.enabled,
+    preset: sky?.preset ?? DEFAULT_EDITOR_SKY.preset,
     radius: sky?.radius ?? DEFAULT_EDITOR_SKY.radius,
     topColor: sky?.topColor ?? DEFAULT_EDITOR_SKY.topColor,
     horizonColor: sky?.horizonColor ?? DEFAULT_EDITOR_SKY.horizonColor,
