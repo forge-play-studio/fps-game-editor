@@ -100,6 +100,39 @@ describe('Babylon editor infinite grid', () => {
     engine.dispose();
   });
 
+  it('updates grouped grid colors without rebuilding grid meshes', () => {
+    const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
+    const scene = new BABYLON.Scene(engine);
+    const camera = new BABYLON.ArcRotateCamera('editor-camera', 0, 1, 8, new BABYLON.Vector3(0, 0, 0), scene);
+    scene.activeCamera = camera;
+
+    const grid = createBabylonEditorInfiniteGrid({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      camera,
+      name: 'recolor-grid',
+      halfLineCount: 8,
+    });
+    const initialMeshes = scene.meshes.filter(mesh => mesh.metadata?.editorGrid);
+
+    grid.setColors({
+      gridColor: { r: 0.11, g: 0.22, b: 0.33 },
+      majorGridColor: { r: 0.4, g: 0.5, b: 0.6 },
+      axisXColor: { r: 0.7, g: 0.1, b: 0.2 },
+      axisZColor: { r: 0.2, g: 0.3, b: 0.8 },
+    });
+
+    expect(scene.meshes.filter(mesh => mesh.metadata?.editorGrid)).toEqual(initialMeshes);
+    expect(scene.meshes.find(mesh => mesh.metadata?.editorGridGroup === 'regular')?.color).toMatchObject({ r: 0.11, g: 0.22, b: 0.33 });
+    expect(scene.meshes.find(mesh => mesh.metadata?.editorGridGroup === 'major')?.color).toMatchObject({ r: 0.4, g: 0.5, b: 0.6 });
+    expect(scene.meshes.find(mesh => mesh.metadata?.editorGridGroup === 'axis-x')?.color).toMatchObject({ r: 0.7, g: 0.1, b: 0.2 });
+    expect(scene.meshes.find(mesh => mesh.metadata?.editorGridGroup === 'axis-z')?.color).toMatchObject({ r: 0.2, g: 0.3, b: 0.8 });
+
+    grid.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
   it('covers the active preview camera ground footprint when a dynamic render camera is provided', () => {
     const engine = new BABYLON.NullEngine({ renderWidth: 1280, renderHeight: 720 });
     const scene = new BABYLON.Scene(engine);

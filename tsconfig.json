@@ -5,6 +5,9 @@
       "path": "./packages/editor-protocol"
     },
     {
+      "path": "./packages/babylon-renderer"
+    },
+    {
       "path": "./packages/editor-browser"
     },
     {

@@ -79,6 +79,11 @@ import type {
   LocalEditorBrowserInspectorPersistenceMode,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserRenderingPropertyChangeInput,
+  LocalEditorBrowserRenderingPropertyCommitMode,
+  LocalEditorBrowserRenderingPropertyControlKind,
+  LocalEditorBrowserRenderingPropertyEditSource,
+  LocalEditorBrowserRenderingPropertyValueType,
   LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserTransformAction,
   LocalEditorBrowserTransformSpace,
@@ -94,6 +99,7 @@ import type {
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
+  LocalEditorRightDockTab,
   LocalEditorThemeController,
 } from './local-editor-ui-types';
 
@@ -102,6 +108,7 @@ export {
   createLocalEditorBrowserInspectorControlRegistry,
   formatLocalEditorBrowserInspectorNumberValue,
   formatLocalEditorBrowserInspectorValue,
+  parseLocalEditorBrowserInspectorNumberValue,
   resolveLocalEditorBrowserInspectorSectionStatus,
   resolveLocalEditorBrowserInspectorControlRegistration,
 } from './local-editor-ui-panels';
@@ -161,6 +168,17 @@ export type {
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserInspectorSection,
   LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserRenderingPanelState,
+  LocalEditorBrowserRenderingActionInput,
+  LocalEditorBrowserRenderingProperty,
+  LocalEditorBrowserRenderingPropertyChangeInput,
+  LocalEditorBrowserRenderingPropertyCommitMode,
+  LocalEditorBrowserRenderingPropertyControlKind,
+  LocalEditorBrowserRenderingPropertyEditSource,
+  LocalEditorBrowserRenderingPropertyValueType,
+  LocalEditorBrowserRenderingSection,
+  LocalEditorBrowserRenderingSystem,
+  LocalEditorBrowserRenderingSystemKind,
   LocalEditorBrowserPrimitiveShape,
   LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
@@ -193,51 +211,23 @@ export type {
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
+  LocalEditorRightDockTab,
   LocalEditorThemeController,
   LocalEditorContextAction,
   LocalEditorContextMenuItem,
 } from './local-editor-ui-types';
 
-export type LocalEditorBrowserInspectorNumberParseMode = 'live' | 'final';
-const INSPECTOR_INPUT_PENDING = Symbol('inspector-input-pending');
-
-type InspectorInputReadValue =
-  | number
-  | string
-  | boolean
-  | Record<string, unknown>
-  | null
-  | typeof INSPECTOR_INPUT_PENDING;
-
-export function parseLocalEditorBrowserInspectorNumberValue(
-  value: string,
-  mode: LocalEditorBrowserInspectorNumberParseMode = 'final',
-): number | null {
-  const normalized = value.trim();
-  if (normalized === '') return mode === 'final' ? 0 : null;
-  if (
-    normalized === '-'
-    || normalized === '+'
-    || normalized === '.'
-    || normalized === '-.'
-    || normalized === '+.'
-  ) {
-    return null;
-  }
-  if (mode === 'live' && (/[.]$/.test(normalized) || /e[+-]?$/i.test(normalized))) return null;
-  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) return null;
-  const numeric = Number(normalized);
-  return Number.isFinite(numeric) ? numeric : null;
-}
+const PENDING_NUMERIC_PROPERTY_INPUT = Symbol('pending-numeric-property-input');
+type LocalEditorPendingNumericPropertyInput = typeof PENDING_NUMERIC_PROPERTY_INPUT;
 
 function readInspectorInputValue(
   input: HTMLInputElement | HTMLSelectElement,
-  mode: LocalEditorBrowserInspectorNumberParseMode = 'final',
-): InspectorInputReadValue {
+  source: LocalEditorBrowserInspectorEditSource,
+): number | string | boolean | Record<string, unknown> | null | LocalEditorPendingNumericPropertyInput {
   const control = input.dataset.serializedControl;
   const valueType = input.dataset.serializedValueType;
   if ((control === 'vec2' || control === 'vec3') && input instanceof HTMLInputElement) {
-    return readInspectorVectorInputValue(input, mode);
+    return readInspectorVectorInputValue(input, source) ?? PENDING_NUMERIC_PROPERTY_INPUT;
   }
   if (control === 'enum' && input instanceof HTMLSelectElement) {
     const option = input.selectedOptions.item(0);
@@ -253,7 +243,9 @@ function readInspectorInputValue(
   if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
   if (control === 'boolean' || valueType === 'boolean') return input.value === 'true';
   if (control === 'number' || valueType === 'number') {
-    return parseLocalEditorBrowserInspectorNumberValue(input.value, mode) ?? INSPECTOR_INPUT_PENDING;
+    const mode = source === 'input' && readInspectorCommitMode(input) === 'live' ? 'live' : 'final';
+    return LocalEditorPanels.parseLocalEditorBrowserInspectorNumberValue(input.value, mode)
+      ?? PENDING_NUMERIC_PROPERTY_INPUT;
   }
   if (control === 'color' && input instanceof HTMLInputElement && input.type === 'color') {
     const value = input.value.replace('#', '');
@@ -390,18 +382,19 @@ function setToolbarButtonIcon(
 
 function readInspectorVectorInputValue(
   input: HTMLInputElement,
-  mode: LocalEditorBrowserInspectorNumberParseMode,
-): Record<string, number> | typeof INSPECTOR_INPUT_PENDING {
+  source: LocalEditorBrowserInspectorEditSource,
+): Record<string, number> | null {
   const wrapper = input.closest<HTMLElement>('[data-inspector-vector-control]');
   const values: Record<string, number> = {};
+  const mode = source === 'input' && readInspectorCommitMode(input) === 'live' ? 'live' : 'final';
   const fields = wrapper
     ? Array.from(wrapper.querySelectorAll<HTMLInputElement>('input[data-serialized-vector-axis]'))
     : [input];
   for (const field of fields) {
     const axis = field.dataset.serializedVectorAxis;
     if (!axis) continue;
-    const numeric = parseLocalEditorBrowserInspectorNumberValue(field.value, mode);
-    if (numeric == null) return INSPECTOR_INPUT_PENDING;
+    const numeric = LocalEditorPanels.parseLocalEditorBrowserInspectorNumberValue(field.value, mode);
+    if (numeric == null) return null;
     values[axis] = numeric;
   }
   return values;
@@ -410,14 +403,13 @@ function readInspectorVectorInputValue(
 function createInspectorPropertyInput(
   input: HTMLInputElement | HTMLSelectElement,
   source: LocalEditorBrowserInspectorEditSource,
-  numberParseMode: LocalEditorBrowserInspectorNumberParseMode = 'final',
 ): LocalEditorBrowserUiPropertyInput | null {
   if (!input.dataset.serializedPath || !input.dataset.serializedTargetId) return null;
   const targetIds = input.dataset.serializedTargetIds
     ? input.dataset.serializedTargetIds.split(',').filter(Boolean)
     : undefined;
-  const value = readInspectorInputValue(input, numberParseMode);
-  if (value === INSPECTOR_INPUT_PENDING) return null;
+  const value = readInspectorInputValue(input, source);
+  if (value === PENDING_NUMERIC_PROPERTY_INPUT) return null;
   return {
     targetId: input.dataset.serializedTargetId,
     targetIds,
@@ -431,24 +423,79 @@ function createInspectorPropertyInput(
   };
 }
 
-function hasPendingInspectorNumberValue(
-  input: HTMLInputElement,
-  mode: LocalEditorBrowserInspectorNumberParseMode = 'live',
-): boolean {
-  const control = input.dataset.serializedControl;
-  const valueType = input.dataset.serializedValueType;
-  if (control !== 'number' && valueType !== 'number' && control !== 'vec2' && control !== 'vec3') return false;
-  return readInspectorInputValue(input, mode) === INSPECTOR_INPUT_PENDING;
+function readRenderingInputValue(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  source: LocalEditorBrowserRenderingPropertyEditSource,
+): unknown | LocalEditorPendingNumericPropertyInput {
+  const control = input.dataset.renderingControl;
+  const valueType = input.dataset.renderingValueType;
+  if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
+  if (input instanceof HTMLInputElement && input.type === 'color') {
+    const value = input.value.replace('#', '');
+    const numeric = Number.parseInt(value, 16);
+    if (!Number.isFinite(numeric)) return null;
+    return {
+      r: ((numeric >> 16) & 255) / 255,
+      g: ((numeric >> 8) & 255) / 255,
+      b: (numeric & 255) / 255,
+    };
+  }
+  if (control === 'number' || valueType === 'number') {
+    const mode = source === 'input' && readRenderingCommitMode(input) === 'live' ? 'live' : 'final';
+    return LocalEditorPanels.parseLocalEditorBrowserInspectorNumberValue(input.value, mode)
+      ?? PENDING_NUMERIC_PROPERTY_INPUT;
+  }
+  if (control === 'string-list' || valueType === 'string-list') {
+    return input.value
+      .split(/\r?\n/)
+      .map(value => value.trim())
+      .filter(Boolean);
+  }
+  if (control === 'boolean' || valueType === 'boolean') return input.value === 'true';
+  return input.value;
+}
+
+function createRenderingPropertyInput(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  source: LocalEditorBrowserRenderingPropertyEditSource,
+): LocalEditorBrowserRenderingPropertyChangeInput | null {
+  const sectionId = input.dataset.renderingSectionId;
+  const systemId = input.dataset.renderingSystemId;
+  const path = input.dataset.renderingPath;
+  if (!sectionId || !systemId || !path) return null;
+  const value = readRenderingInputValue(input, source);
+  if (value === PENDING_NUMERIC_PROPERTY_INPUT) return null;
+  return {
+    sectionId,
+    systemId,
+    path,
+    value,
+    control: input.dataset.renderingControl as LocalEditorBrowserRenderingPropertyControlKind | undefined,
+    valueType: input.dataset.renderingValueType as LocalEditorBrowserRenderingPropertyValueType | undefined,
+    commitMode: input.dataset.renderingCommitMode as LocalEditorBrowserRenderingPropertyCommitMode | undefined,
+    source,
+  };
 }
 
 function readInspectorCommitMode(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorCommitMode {
   return (input.dataset.serializedCommitMode as LocalEditorBrowserInspectorCommitMode | undefined) ?? 'live';
 }
 
+function readRenderingCommitMode(input: HTMLInputElement | HTMLTextAreaElement): LocalEditorBrowserRenderingPropertyCommitMode {
+  return (input.dataset.renderingCommitMode as LocalEditorBrowserRenderingPropertyCommitMode | undefined) ?? 'live';
+}
+
 function readInspectorImmediateSource(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorEditSource {
   if (input instanceof HTMLSelectElement) return 'select';
   if (input.type === 'checkbox') return 'toggle';
   if (input.type === 'color') return 'color';
+  return 'input';
+}
+
+function readRenderingImmediateSource(input: HTMLInputElement | HTMLTextAreaElement): LocalEditorBrowserRenderingPropertyEditSource {
+  if (input instanceof HTMLInputElement && input.type === 'checkbox') return 'toggle';
+  if (input instanceof HTMLInputElement && input.type === 'color') return 'color';
+  if (input instanceof HTMLTextAreaElement) return 'list';
   return 'input';
 }
 
@@ -1161,9 +1208,13 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const workbench = createLocalEditorWorkbench(doc);
   const hierarchyPanel = createWorkbenchPanelContent(doc);
   const assetPanel = workbench.bottomDock;
+  const rightDockTabs = doc.createElement('div');
   const inspectorPanel = createWorkbenchPanelContent(doc);
+  const renderingPanel = createWorkbenchPanelContent(doc);
   workbench.leftDock.appendChild(hierarchyPanel);
+  workbench.rightDock.appendChild(rightDockTabs);
   workbench.rightDock.appendChild(inspectorPanel);
+  workbench.rightDock.appendChild(renderingPanel);
   root.appendChild(workbench.root);
   tooltipSurfaces.add(workbench.root);
   const workbenchLayoutController = createLocalEditorWorkbenchLayoutController(doc, workbench);
@@ -1447,17 +1498,17 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneUtilityActions.appendChild(gridToggleButton);
   sceneUtilityActions.appendChild(themeToggleButton);
   sceneUtilityActions.appendChild(sceneHelpButton);
-  const mainCameraPreviewGroup = doc.createElement('div');
-  mainCameraPreviewGroup.style.cssText = [
+  const cameraPreviewGroup = doc.createElement('div');
+  cameraPreviewGroup.style.cssText = [
     'display:flex',
     'align-items:center',
     'gap:4px',
     'padding-left:8px',
     'border-left:1px solid var(--fps-editor-divider)',
   ].join(';');
-  const mainCameraPreviewButton = createToolbarIconButton(doc, '从 Main Camera 查看场景', 'camera');
-  mainCameraPreviewButton.dataset.mainCameraPreviewToggle = 'true';
-  mainCameraPreviewGroup.appendChild(mainCameraPreviewButton);
+  const sceneCameraButton = createToolbarIconButton(doc, '从 Main Camera 查看场景', 'camera');
+  sceneCameraButton.dataset.sceneCameraPreviewToggle = 'true';
+  cameraPreviewGroup.appendChild(sceneCameraButton);
   const viewportToolsGroup = doc.createElement('div');
   viewportToolsGroup.style.cssText = [
     'display:flex',
@@ -1562,7 +1613,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneToolOverlay.appendChild(actionGroup);
   sceneToolOverlay.appendChild(viewportToolsGroup);
   sceneToolOverlay.appendChild(sceneUtilityActions);
-  sceneToolOverlay.appendChild(mainCameraPreviewGroup);
+  sceneToolOverlay.appendChild(cameraPreviewGroup);
   sceneToolOverlay.appendChild(editorStatusButton);
   sceneToolOverlay.appendChild(toolbarOverflowButton);
   workbench.sceneHeader.appendChild(sceneToolOverlay);
@@ -1846,14 +1897,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     actionGroup,
     viewportToolsGroup,
     sceneUtilityActions,
-    mainCameraPreviewGroup,
+    cameraPreviewGroup,
     editorStatusButton,
     toolbarOverflowButton,
   ];
   const toolbarOverflowItems: ToolbarOverflowItem[] = [
     { id: 'editor-status', element: editorStatusButton, kind: 'group' },
     { id: 'scene-utilities', element: sceneUtilityActions, kind: 'group' },
-    { id: 'main-camera-preview', element: mainCameraPreviewGroup, kind: 'group' },
+    { id: 'camera-preview', element: cameraPreviewGroup, kind: 'group' },
     { id: 'viewport-tools', element: viewportToolsGroup, kind: 'group' },
     { id: 'transform-actions', element: actionGroup, kind: 'group' },
     { id: 'placement', element: placementGroup, kind: 'group' },
@@ -2048,9 +2099,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const visible = currentState?.grid?.visible ?? true;
     callbacks.onGridVisibleChange?.(!visible);
   });
-  mainCameraPreviewButton.addEventListener('click', () => {
-    const enabled = currentState?.mainCameraPreview?.enabled ?? false;
-    callbacks.onMainCameraPreviewToggle?.(!enabled);
+  sceneCameraButton.addEventListener('click', () => {
+    const enabled = currentState?.sceneCameraPreview?.enabled ?? false;
+    callbacks.onSceneCameraPreviewToggle?.(!enabled);
   });
   const toggleCoordinateAxesProjection = (event: Event): void => {
     event.preventDefault();
@@ -2209,6 +2260,23 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     }
   });
 
+  workbench.rightDock.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const openTabButton = target?.closest<HTMLButtonElement>('[data-editor-open-right-dock-tab]');
+    const openTab = openTabButton?.dataset.editorOpenRightDockTab as LocalEditorRightDockTab | undefined;
+    if (openTab === 'inspector' || openTab === 'rendering') {
+      panelRegistry.setRightDockTab(openTab);
+      if (currentState) render(currentState);
+      return;
+    }
+    const tabButton = target?.closest<HTMLButtonElement>('[data-editor-right-dock-tab]');
+    const tab = tabButton?.dataset.editorRightDockTab as LocalEditorRightDockTab | undefined;
+    if (tab === 'inspector' || tab === 'rendering') {
+      panelRegistry.setRightDockTab(tab);
+      if (currentState) render(currentState);
+    }
+  });
+
   const hierarchyController = createLocalEditorHierarchyController<TDocument>({
     doc,
     panel: hierarchyPanel,
@@ -2241,7 +2309,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (input?.type === 'checkbox' || input?.type === 'color') return;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
     if (readInspectorCommitMode(input) !== 'live') return;
-    const propertyInput = createInspectorPropertyInput(input, 'input', 'live');
+    const propertyInput = createInspectorPropertyInput(input, 'input');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
@@ -2253,28 +2321,61 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (input instanceof HTMLInputElement && (input.type === 'text' || input.type === 'number')) {
       if (readInspectorCommitMode(input) !== 'change') return;
     }
-    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input), 'final');
+    const propertyInput = createInspectorPropertyInput(input, readInspectorImmediateSource(input));
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
   });
 
   inspectorPanel.addEventListener('focusout', (event) => {
     const input = event.target instanceof HTMLInputElement ? event.target : null;
     if (!input?.dataset.serializedPath || !input.dataset.serializedTargetId) return;
-    if (hasPendingInspectorNumberValue(input, 'final')) {
-      if (currentState) render(currentState);
-      return;
-    }
-    const commitMode = readInspectorCommitMode(input);
-    if (commitMode === 'live' && hasPendingInspectorNumberValue(input, 'live')) {
-      const propertyInput = createInspectorPropertyInput(input, 'input', 'final');
-      if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
-      else if (currentState) render(currentState);
-      return;
-    }
-    if (commitMode !== 'blur') return;
-    const propertyInput = createInspectorPropertyInput(input, 'input', 'final');
+    if (readInspectorCommitMode(input) !== 'blur') return;
+    const propertyInput = createInspectorPropertyInput(input, 'input');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
-    else if (currentState) render(currentState);
+  });
+
+  renderingPanel.addEventListener('input', (event) => {
+    const input = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      ? event.target
+      : null;
+    if (!input?.dataset.editorRenderingProperty) return;
+    if (input instanceof HTMLInputElement && (input.type === 'checkbox' || input.type === 'color')) return;
+    if (readRenderingCommitMode(input) !== 'live') return;
+    const propertyInput = createRenderingPropertyInput(input, input instanceof HTMLTextAreaElement ? 'list' : 'input');
+    if (propertyInput) callbacks.onRenderingPropertyChange?.(propertyInput);
+  });
+
+  renderingPanel.addEventListener('change', (event) => {
+    const input = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      ? event.target
+      : null;
+    if (!input?.dataset.editorRenderingProperty) return;
+    if ((input instanceof HTMLInputElement && (input.type === 'text' || input.type === 'number')) || input instanceof HTMLTextAreaElement) {
+      if (readRenderingCommitMode(input) !== 'change') return;
+    }
+    const propertyInput = createRenderingPropertyInput(input, readRenderingImmediateSource(input));
+    if (propertyInput) callbacks.onRenderingPropertyChange?.(propertyInput);
+  });
+
+  renderingPanel.addEventListener('focusout', (event) => {
+    const input = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      ? event.target
+      : null;
+    if (!input?.dataset.editorRenderingProperty) return;
+    if (readRenderingCommitMode(input) !== 'blur') return;
+    const propertyInput = createRenderingPropertyInput(input, input instanceof HTMLTextAreaElement ? 'list' : 'input');
+    if (propertyInput) callbacks.onRenderingPropertyChange?.(propertyInput);
+  });
+
+  renderingPanel.addEventListener('click', (event) => {
+    const target = event.target instanceof Element
+      ? event.target.closest('[data-editor-rendering-action]')
+      : null;
+    if (!(target instanceof HTMLButtonElement)) return;
+    if (target.disabled) return;
+    const actionId = target.dataset.editorRenderingAction;
+    if (!actionId) return;
+    event.preventDefault();
+    callbacks.onRenderingAction?.({ actionId });
   });
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -2351,7 +2452,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   };
   doc.addEventListener('keydown', onKeyDown);
 
-  function captureEditableFocus(doc: Document): { selector: string; value: string | null; preserveValue?: boolean } | null {
+  function captureEditableFocus(doc: Document): { selector: string; value: string | null } | null {
     const active = doc.activeElement instanceof HTMLInputElement ? doc.activeElement : null;
     if (!active) return null;
     if (active.dataset.editorHierarchyRenameInput) {
@@ -2367,7 +2468,6 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
           `[data-serialized-target-id="${cssEscape(active.dataset.serializedTargetId)}"]`,
         ].join(''),
         value: active.value,
-        preserveValue: hasPendingInspectorNumberValue(active),
       };
     }
     if (active.dataset.editorInspectorSearch != null) {
@@ -2382,15 +2482,11 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     return null;
   }
 
-  function restoreEditableFocus(
-    doc: Document,
-    snapshot: { selector: string; value: string | null; preserveValue?: boolean } | null,
-  ): void {
+  function restoreEditableFocus(doc: Document, snapshot: { selector: string; value: string | null } | null): void {
     if (!snapshot) return;
     const input = doc.querySelector<HTMLInputElement>(snapshot.selector);
     if (!input) return;
     input.focus({ preventScroll: true });
-    if (snapshot.value != null && snapshot.preserveValue) input.value = snapshot.value;
     if (snapshot.value != null && input.value === snapshot.value) {
       const position = input.value.length;
       try {
@@ -2436,7 +2532,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (!inEditor || disabled) contextMenu.close();
     hostChrome.style.display = !inEditor && localTestActionsEnabled ? 'flex' : 'none';
     enterEditorButton.disabled = disabled;
-    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, mainCameraPreviewButton, gridToggleButton]) {
+    for (const button of [saveButton, saveAndRunButton, discardRunButton, undoButton, redoButton, sceneHelpButton, sceneCameraButton, gridToggleButton]) {
       button.style.display = 'inline-flex';
       button.disabled = disabled;
     }
@@ -2447,26 +2543,25 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     inputRouter.setModalOpen(inEditor && helpOpen);
     const transformTool = state.transformTool ?? null;
     workbench.root.style.display = inEditor ? '' : 'none';
-    if (inEditor) workbenchLayoutController.refresh();
     sceneToolOverlay.style.display = inEditor ? 'flex' : 'none';
     if (!inEditor) closeSnapSettingsPopover();
     if (!inEditor) closePlacementSettingsPopover();
     if (!inEditor) closeTransformActionPopover();
     if (!inEditor) closeOverlaySettingsPopover();
-    const mainCameraPreview = state.mainCameraPreview ?? { enabled: false, available: false };
-    mainCameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
-    mainCameraPreviewButton.disabled = disabled || !mainCameraPreview.available;
-    const mainCameraPreviewTooltip = mainCameraPreview.available
+    const sceneCameraPreview = state.sceneCameraPreview ?? { enabled: false, available: false };
+    cameraPreviewGroup.style.display = inEditor ? 'flex' : 'none';
+    sceneCameraButton.disabled = disabled || !sceneCameraPreview.available;
+    const sceneCameraTooltip = sceneCameraPreview.available
       ? '从 Main Camera 查看当前场景'
       : '当前场景没有可预览的 Main Camera';
-    setToolbarButtonTooltip(mainCameraPreviewButton, mainCameraPreviewTooltip);
-    LocalEditorShared.applyButtonActiveState(mainCameraPreviewButton, mainCameraPreview.enabled);
+    setToolbarButtonTooltip(sceneCameraButton, sceneCameraTooltip);
+    LocalEditorShared.applyButtonActiveState(sceneCameraButton, sceneCameraPreview.enabled);
     const viewportTools = state.viewportTools ?? null;
-    const viewportControlsDisabled = disabled || mainCameraPreview.enabled;
-    const viewportControlsTooltip = mainCameraPreview.enabled
+    const viewportControlsDisabled = disabled || sceneCameraPreview.enabled;
+    const viewportControlsTooltip = sceneCameraPreview.enabled
       ? '当前为 Main Camera 预览，请关闭后再使用视口工具'
       : '';
-    const viewportProjectionTooltip = mainCameraPreview.enabled
+    const viewportProjectionTooltip = sceneCameraPreview.enabled
       ? '当前为 Main Camera 预览，投影由 Main Camera 决定；关闭预览后可切换编辑视口投影'
       : '';
     viewportToolsGroup.style.display = inEditor ? 'flex' : 'none';
@@ -2620,12 +2715,21 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     scheduleToolbarOverflowLayout();
     if (!inEditor) return;
     const hierarchyDescriptor = panelRegistry.getActivePanel('left');
-    const inspectorDescriptor = panelRegistry.getActivePanel('right');
+    const rightDescriptor = panelRegistry.getActivePanel('right');
+    const activeRightTab = panelRegistry.getRightDockTab();
     hierarchyPanel.dataset.editorPanelId = hierarchyDescriptor?.id ?? 'hierarchy';
-    inspectorPanel.dataset.editorPanelId = inspectorDescriptor?.id ?? 'inspector';
+    inspectorPanel.dataset.editorPanelId = activeRightTab === 'inspector' ? rightDescriptor?.id ?? 'inspector' : 'inspector';
+    renderingPanel.dataset.editorPanelId = activeRightTab === 'rendering' ? rightDescriptor?.id ?? 'rendering' : 'rendering';
+    inspectorPanel.style.display = activeRightTab === 'inspector' ? '' : 'none';
+    renderingPanel.style.display = activeRightTab === 'rendering' ? '' : 'none';
     hierarchyController.render(state);
     LocalEditorPanels.renderWorkbenchBottomDockPanel(doc, assetPanel, state, panelRegistry.getBottomDockTab(), panelRegistry.getPanels('bottom'));
-    LocalEditorPanels.renderInspectorPanel(doc, inspectorPanel, state, inspectorFilter, options.inspector);
+    LocalEditorPanels.renderWorkbenchRightDockTabs(doc, rightDockTabs, activeRightTab, panelRegistry.getPanels('right'));
+    if (activeRightTab === 'inspector') {
+      LocalEditorPanels.renderInspectorPanel(doc, inspectorPanel, state, inspectorFilter, options.inspector);
+    } else {
+      LocalEditorPanels.renderRenderingPanel(doc, renderingPanel, state);
+    }
     restoreEditableFocus(doc, focusSnapshot);
   };
 
@@ -2634,10 +2738,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       render(state);
     },
     updateSceneFrameStats(stats) {
-      renderSceneFrameRateOverlay(
-        sceneFrameRateOverlay,
-        currentState?.mode === 'editor' ? stats : null,
-      );
+      renderSceneFrameRateOverlay(sceneFrameRateOverlay, currentState?.mode === 'editor' ? stats : null);
     },
     setTheme(theme) {
       setActiveTheme(theme);
@@ -2665,6 +2766,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       overlaySettingsPopover.remove();
       spatialOverlay.root.remove();
       measurementOverlay.root.remove();
+      sceneFrameRateOverlay.root.remove();
       boxSelectionOverlay.remove();
       shortcutHelpPanel.remove();
       hierarchyController.dispose();

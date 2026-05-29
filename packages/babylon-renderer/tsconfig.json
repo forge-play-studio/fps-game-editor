@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "../../.tsbuildinfo/babylon-renderer.tsbuildinfo"
+  },
+  "include": [
+    "src/**/*.ts"
+  ]
+}

@@ -12,14 +12,23 @@ import type {
   LocalEditorBrowserInspectorObject,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserInspectorSection,
+  LocalEditorBrowserRenderingPanelState,
+  LocalEditorBrowserRenderingProperty,
+  LocalEditorBrowserRenderingPropertyControlKind,
+  LocalEditorBrowserRenderingSystem,
   LocalEditorBrowserSceneGraphDropIntent,
   LocalEditorBrowserSerializedMultiObject,
   LocalEditorBrowserSerializedObject,
   LocalEditorBrowserSerializedProperty,
   LocalEditorBrowserUiState,
+  LocalEditorRightDockTab,
   LocalEditorWorkbenchPanelDescriptor,
 } from './local-editor-ui-types';
-import { createLocalEditorIcon, type LocalEditorIconName } from './local-editor-ui-icons';
+import {
+  createLocalEditorIcon,
+  isLocalEditorIconName,
+  type LocalEditorIconName,
+} from './local-editor-ui-icons';
 import {
   createBadge,
   createAssetList,
@@ -35,9 +44,14 @@ import {
 } from './local-editor-ui-primitives';
 import { clearElement, toTitle } from './local-editor-ui-shared';
 
-const DOCK_TAB_ICONS: Record<LocalEditorBottomDockTab, LocalEditorIconName> = {
+const BOTTOM_DOCK_TAB_ICONS: Record<LocalEditorBottomDockTab, LocalEditorIconName> = {
   assets: 'asset',
   history: 'history',
+};
+
+const RIGHT_DOCK_TAB_ICONS: Record<LocalEditorRightDockTab, LocalEditorIconName> = {
+  inspector: 'inspector',
+  rendering: 'world',
 };
 
 export interface LocalEditorBrowserInspectorRenderOptions<TDocument = unknown> {
@@ -144,7 +158,7 @@ export function renderWorkbenchBottomDockPanel<TDocument>(
         { id: 'history', title: '历史', area: 'bottom' },
       ] satisfies Array<LocalEditorWorkbenchPanelDescriptor & { id: LocalEditorBottomDockTab }>;
   for (const tabPanel of dockTabs) {
-    const button = createDockTab(doc, tabPanel.title, activeTab === tabPanel.id, DOCK_TAB_ICONS[tabPanel.id]);
+    const button = createDockTab(doc, tabPanel.title, activeTab === tabPanel.id, BOTTOM_DOCK_TAB_ICONS[tabPanel.id]);
     button.dataset.editorDockTab = tabPanel.id;
     tabHeader.appendChild(button);
   }
@@ -175,7 +189,7 @@ function appendDockTabs(
   };
   for (const tab of ['assets', 'history'] as const) {
     const active = activeTab === tab;
-    const button = createDockTab(doc, labels[tab], active, DOCK_TAB_ICONS[tab]);
+    const button = createDockTab(doc, labels[tab], active, BOTTOM_DOCK_TAB_ICONS[tab]);
     button.dataset.editorDockTab = tab;
     button.style.border = '0';
     button.style.borderBottom = `2px solid ${active ? 'var(--fps-editor-accent-strong)' : 'transparent'}`;
@@ -185,6 +199,354 @@ function appendDockTabs(
     tabs.appendChild(button);
   }
   panel.appendChild(tabs);
+}
+
+export function renderWorkbenchRightDockTabs(
+  doc: Document,
+  panel: HTMLElement,
+  activeTab: LocalEditorRightDockTab,
+  panels: LocalEditorWorkbenchPanelDescriptor[] = [],
+): void {
+  clearElement(panel);
+  panel.style.cssText = [
+    'height:35px',
+    'display:flex',
+    'align-items:stretch',
+    'border-bottom:1px solid var(--fps-editor-divider)',
+    'background:var(--fps-editor-chrome-dark)',
+    'flex:0 0 auto',
+  ].join(';');
+  const dockTabs = panels.length > 0
+    ? panels.filter((panelDescriptor): panelDescriptor is LocalEditorWorkbenchPanelDescriptor & { id: LocalEditorRightDockTab } => (
+        panelDescriptor.id === 'inspector' || panelDescriptor.id === 'rendering'
+      ))
+    : [
+        { id: 'inspector', title: '检查器', area: 'right' },
+        { id: 'rendering', title: '渲染', area: 'right' },
+      ] satisfies Array<LocalEditorWorkbenchPanelDescriptor & { id: LocalEditorRightDockTab }>;
+  for (const tabPanel of dockTabs) {
+    const button = createDockTab(doc, tabPanel.title, activeTab === tabPanel.id, RIGHT_DOCK_TAB_ICONS[tabPanel.id]);
+    button.dataset.editorRightDockTab = tabPanel.id;
+    tabHeaderButtonStyle(button);
+    panel.appendChild(button);
+  }
+}
+
+export function renderRenderingPanel<TDocument>(
+  doc: Document,
+  panel: HTMLElement,
+  state: LocalEditorBrowserUiState<TDocument>,
+): void {
+  clearElement(panel);
+  const rendering = state.renderingPanel ?? null;
+  panel.appendChild(createPanelHeader(doc, rendering?.title ?? 'Rendering', createRenderingPanelActions(doc, rendering), 'world'));
+  if (!rendering || rendering.sections.length === 0) {
+    panel.appendChild(createEmptyState(doc, '当前项目没有提供渲染设置。'));
+    return;
+  }
+  if (rendering.dirty || rendering.status) {
+    const status = doc.createElement('div');
+    status.style.cssText = [
+      'display:flex',
+      'align-items:center',
+      'gap:6px',
+      'margin:0 0 8px',
+      'min-height:20px',
+    ].join(';');
+    if (rendering.dirty) status.appendChild(createBadge(doc, 'UNSAVED', { compact: true, tone: 'warning' }));
+    if (rendering.status) {
+      const message = doc.createElement('span');
+      message.textContent = rendering.status;
+      message.style.cssText = [
+        `color:${rendering.statusTone === 'error' ? 'var(--fps-editor-danger-text)' : rendering.statusTone === 'warning' ? 'var(--fps-editor-warn)' : 'var(--fps-editor-muted)'}`,
+        'font-size:11px',
+        'font-weight:800',
+        'min-width:0',
+        'overflow:hidden',
+        'text-overflow:ellipsis',
+        'white-space:nowrap',
+      ].join(';');
+      status.appendChild(message);
+    }
+    panel.appendChild(status);
+  }
+  if (rendering.summary) {
+    const summary = doc.createElement('div');
+    summary.textContent = rendering.summary;
+    summary.style.cssText = [
+      'margin:0 0 8px',
+      'color:var(--fps-editor-muted)',
+      'font-size:11px',
+      'line-height:1.45',
+    ].join(';');
+    panel.appendChild(summary);
+  }
+  for (const section of rendering.sections) {
+    panel.appendChild(createRenderingSectionBlock(doc, section));
+  }
+}
+
+function createRenderingPanelActions(
+  doc: Document,
+  rendering: LocalEditorBrowserRenderingPanelState | null,
+): HTMLButtonElement[] {
+  return (rendering?.actions ?? []).map(action => {
+    const icon = action.icon && isLocalEditorIconName(action.icon) ? action.icon : 'world';
+    const button = createToolbarButton(doc, action.label, icon);
+    button.type = 'button';
+    button.dataset.editorRenderingAction = action.id;
+    button.disabled = action.disabled === true;
+    button.title = action.tooltip ?? action.label;
+    button.dataset.editorTooltip = button.title;
+    button.style.padding = '3px 7px';
+    button.style.fontSize = '11px';
+    return button;
+  });
+}
+
+function tabHeaderButtonStyle(button: HTMLButtonElement): void {
+  button.style.borderTop = '0';
+  button.style.borderLeft = '0';
+  button.style.borderRadius = '0';
+  button.style.minWidth = '0';
+}
+
+function createRenderingSectionBlock(
+  doc: Document,
+  section: LocalEditorBrowserRenderingPanelState['sections'][number],
+): HTMLElement {
+  const block = doc.createElement('section');
+  block.dataset.editorRenderingSection = section.id;
+  block.style.cssText = [
+    'margin:0 0 10px',
+    'padding:8px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-panel-soft)',
+  ].join(';');
+  const header = doc.createElement('div');
+  header.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin:0 0 8px';
+  const title = doc.createElement('div');
+  title.style.cssText = 'min-width:0';
+  const heading = doc.createElement('h3');
+  heading.textContent = section.title;
+  heading.style.cssText = 'margin:0;color:var(--fps-editor-text-strong);font-size:12px;font-weight:900';
+  title.appendChild(heading);
+  if (section.summary) {
+    const summary = doc.createElement('div');
+    summary.textContent = section.summary;
+    summary.style.cssText = 'margin-top:3px;color:var(--fps-editor-muted);font-size:11px;line-height:1.35';
+    title.appendChild(summary);
+  }
+  header.appendChild(title);
+  header.appendChild(createBadge(doc, `${section.systems.length}`, { compact: true }));
+  block.appendChild(header);
+
+  const list = doc.createElement('div');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:8px';
+  for (const system of section.systems) {
+    list.appendChild(createRenderingSystemBlock(doc, section.id, system));
+  }
+  block.appendChild(list);
+  return block;
+}
+
+function createRenderingSystemBlock(
+  doc: Document,
+  sectionId: string,
+  system: LocalEditorBrowserRenderingSystem,
+): HTMLElement {
+  const block = createListItemBlock(doc);
+  block.dataset.editorRenderingSystem = system.id;
+  block.dataset.editorRenderingSystemKind = system.kind;
+  const header = doc.createElement('div');
+  header.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin:0 0 8px';
+  const title = doc.createElement('div');
+  title.style.cssText = 'min-width:0';
+  const label = doc.createElement('div');
+  label.textContent = system.label;
+  label.style.cssText = 'color:var(--fps-editor-text-strong);font-size:12px;font-weight:900;line-height:1.25';
+  title.appendChild(label);
+  if (system.summary) {
+    const summary = doc.createElement('div');
+    summary.textContent = system.summary;
+    summary.style.cssText = 'margin-top:3px;color:var(--fps-editor-muted);font-size:11px;line-height:1.35';
+    title.appendChild(summary);
+  }
+  header.appendChild(title);
+  const badges = doc.createElement('div');
+  badges.style.cssText = 'display:flex;align-items:center;gap:4px;flex:0 0 auto';
+  if (system.active != null) badges.appendChild(createBadge(doc, system.active ? 'ON' : 'OFF', { compact: true, tone: system.active ? 'success' : 'default' }));
+  if (system.readOnly) badges.appendChild(createBadge(doc, 'READONLY', { compact: true }));
+  if (system.status) badges.appendChild(createBadge(doc, system.status, { compact: true, tone: system.active === false ? 'warning' : 'default' }));
+  header.appendChild(badges);
+  block.appendChild(header);
+
+  const propertyGrid = doc.createElement('div');
+  propertyGrid.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+  for (const property of system.properties) {
+    propertyGrid.appendChild(createRenderingPropertyRow(doc, sectionId, system.id, property, system.readOnly === true));
+  }
+  block.appendChild(propertyGrid);
+  return block;
+}
+
+function createRenderingPropertyRow(
+  doc: Document,
+  sectionId: string,
+  systemId: string,
+  property: LocalEditorBrowserRenderingProperty,
+  systemReadOnly: boolean,
+): HTMLElement {
+  const inspectorProperty = createInspectorPropertyFromRenderingProperty(property, systemReadOnly);
+  const control = createRenderingPropertyControl(doc, sectionId, systemId, property, inspectorProperty);
+  const access = getInspectorPropertyAccess(inspectorProperty);
+  const effect = getInspectorPropertyEffect(inspectorProperty);
+  const row = createPropertyRow(doc, inspectorProperty.label, control);
+  row.dataset.editorInspectorAccess = access;
+  row.dataset.editorInspectorEffect = effect;
+  row.title = createInspectorStatusTitle(access, effect, inspectorProperty.tooltip ?? inspectorProperty.disabledReason);
+  row.dataset.editorTooltip = row.title;
+  const label = row.firstElementChild as HTMLElement | null;
+  if (label) label.style.cssText = createInspectorPropertyLabelStyle(access, effect);
+  return row;
+}
+
+function createRenderingPropertyControl(
+  doc: Document,
+  sectionId: string,
+  systemId: string,
+  property: LocalEditorBrowserRenderingProperty,
+  inspectorProperty: LocalEditorBrowserInspectorProperty,
+): HTMLElement {
+  const target = createRenderingInspectorTarget(systemId);
+  if (isInspectorPropertyEditable(inspectorProperty) && property.control === 'string-list') {
+    return createRenderingStringListControl(doc, sectionId, systemId, property, inspectorProperty);
+  }
+  let control = renderInspectorControl(
+    doc,
+    builtinInspectorControlRegistrations as readonly LocalEditorBrowserInspectorControlRegistration[],
+    target,
+    inspectorProperty,
+  );
+  bindRenderedInspectorControlsToRendering(control, sectionId, systemId, property);
+  if (property.unit && isInspectorPropertyEditable(inspectorProperty) && property.control === 'number') {
+    const wrapper = doc.createElement('div');
+    wrapper.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0';
+    control.style.minWidth = '0';
+    control.style.flex = '1 1 auto';
+    wrapper.appendChild(control);
+    wrapper.appendChild(createPropertyUnitLabel(doc, property.unit));
+    return wrapper;
+  }
+  return control;
+}
+
+function bindRenderingControl(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  sectionId: string,
+  systemId: string,
+  property: LocalEditorBrowserRenderingProperty,
+  control: LocalEditorBrowserRenderingPropertyControlKind,
+): void {
+  element.dataset.editorRenderingProperty = 'true';
+  element.dataset.renderingSectionId = sectionId;
+  element.dataset.renderingSystemId = systemId;
+  element.dataset.renderingPath = property.path;
+  element.dataset.renderingControl = control;
+  element.dataset.renderingValueType = property.valueType;
+  element.dataset.renderingCommitMode = property.commitMode ?? (control === 'string-list' ? 'blur' : 'live');
+  if (property.disabled) {
+    element.disabled = true;
+    element.title = property.disabledReason ?? '';
+  }
+}
+
+function createInspectorPropertyFromRenderingProperty(
+  property: LocalEditorBrowserRenderingProperty,
+  systemReadOnly: boolean,
+): LocalEditorBrowserInspectorProperty {
+  const readOnly = systemReadOnly || property.readOnly === true || property.control === 'readonly' || property.disabled === true;
+  return {
+    path: property.path,
+    label: property.label,
+    valueType: property.valueType === 'string-list' ? 'string' : property.valueType,
+    control: property.control === 'string-list'
+      ? readOnly ? 'readonly' : 'string'
+      : property.control,
+    value: property.value,
+    readOnly,
+    persistence: readOnly ? 'readonly' : 'document',
+    commitMode: property.commitMode ?? (property.control === 'string-list' ? 'blur' : 'live'),
+    tooltip: property.tooltip,
+    effect: property.disabled ? 'unsupported' : undefined,
+    disabledReason: property.disabledReason,
+    placeholder: property.placeholder,
+    min: property.min,
+    max: property.max,
+    step: property.step,
+    tags: property.tags,
+  };
+}
+
+function createRenderingInspectorTarget(systemId: string): LocalEditorBrowserInspectorObject {
+  return {
+    targetIds: [systemId],
+    activeId: systemId,
+    selection: {
+      targetIds: [systemId],
+      activeId: systemId,
+      targetKind: 'rendering-system',
+    },
+    sections: [],
+  };
+}
+
+function bindRenderedInspectorControlsToRendering(
+  control: HTMLElement,
+  sectionId: string,
+  systemId: string,
+  property: LocalEditorBrowserRenderingProperty,
+): void {
+  const fields = control.matches('input, textarea, select')
+    ? [control]
+    : Array.from(control.querySelectorAll('input, textarea, select'));
+  for (const field of fields) {
+    if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) continue;
+    bindRenderingControl(field, sectionId, systemId, property, property.control);
+  }
+}
+
+function createRenderingStringListControl(
+  doc: Document,
+  sectionId: string,
+  systemId: string,
+  property: LocalEditorBrowserRenderingProperty,
+  inspectorProperty: LocalEditorBrowserInspectorProperty,
+): HTMLTextAreaElement {
+  const input = doc.createElement('textarea');
+  input.value = Array.isArray(property.value) ? property.value.map(String).join('\n') : String(property.value ?? '');
+  input.placeholder = property.placeholder ?? 'One pattern per line';
+  input.rows = 3;
+  input.style.cssText = [
+    createInspectorInputStyle(),
+    'height:auto',
+    'min-height:66px',
+    'resize:vertical',
+    'padding:6px 8px',
+    'line-height:1.35',
+  ].join(';');
+  input.title = inspectorProperty.tooltip ?? inspectorProperty.label;
+  input.dataset.editorTooltip = input.title;
+  bindRenderingControl(input, sectionId, systemId, property, 'string-list');
+  return input;
+}
+
+function createPropertyUnitLabel(doc: Document, unit: string): HTMLElement {
+  const label = doc.createElement('span');
+  label.textContent = unit;
+  label.style.cssText = 'flex:0 0 auto;color:var(--fps-editor-muted);font-size:10px;font-weight:800';
+  return label;
 }
 
 function createHeadingLabel(doc: Document, text: string): HTMLSpanElement {
@@ -849,6 +1211,13 @@ const builtinInspectorControlRegistrations: readonly LocalEditorBrowserInspector
     render: ({ doc, target, property }) => createInspectorColorControl(doc, target, property),
   },
   {
+    id: 'builtin.open-right-dock-tab',
+    order: 90,
+    control: 'custom',
+    customControl: 'open-right-dock-tab',
+    render: ({ doc, property }) => createInspectorOpenRightDockTabControl(doc, property),
+  },
+  {
     id: 'builtin.asset',
     order: 100,
     control: 'asset',
@@ -930,7 +1299,8 @@ function renderInspectorControl<TDocument>(
   target: LocalEditorBrowserInspectorObject<TDocument>,
   property: LocalEditorBrowserInspectorProperty<TDocument>,
 ): HTMLElement {
-  if (!isInspectorPropertyEditable(property)) return createInspectorReadonlyControl(doc, target, property);
+  const canRenderCustomAction = property.control === 'custom' && !!property.customControl;
+  if (!isInspectorPropertyEditable(property) && !canRenderCustomAction) return createInspectorReadonlyControl(doc, target, property);
   const context: LocalEditorBrowserInspectorControlRenderContext<TDocument> = {
     doc,
     target,
@@ -941,6 +1311,7 @@ function renderInspectorControl<TDocument>(
   };
   const registration = resolveLocalEditorBrowserInspectorControlRegistration(registrations, context);
   if (registration) return registration.render(context);
+  if (!isInspectorPropertyEditable(property)) return createInspectorReadonlyControl(doc, target, property);
   return createInspectorReadonlyControl(doc, target, property);
 }
 
@@ -1293,6 +1664,28 @@ function createInspectorColorControl<TDocument>(
   return input;
 }
 
+function createInspectorOpenRightDockTabControl<TDocument>(
+  doc: Document,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): HTMLButtonElement {
+  const targetTabOption = readInspectorControlOptionString(property, 'targetTab');
+  const targetTab: LocalEditorRightDockTab = targetTabOption === 'inspector' ? 'inspector' : 'rendering';
+  const label = readInspectorControlOptionString(property, 'label')
+    || (typeof property.value === 'string' ? property.value : property.label);
+  const button = createToolbarButton(doc, label, RIGHT_DOCK_TAB_ICONS[targetTab]);
+  button.type = 'button';
+  button.dataset.editorOpenRightDockTab = targetTab;
+  button.title = property.tooltip ?? label;
+  button.dataset.editorTooltip = button.title;
+  button.style.cssText = [
+    button.style.cssText,
+    'width:100%',
+    'justify-content:center',
+    'height:28px',
+  ].filter(Boolean).join(';');
+  return button;
+}
+
 function createInspectorReadonlyControl<TDocument>(
   doc: Document,
   _target: LocalEditorBrowserInspectorObject<TDocument>,
@@ -1506,6 +1899,21 @@ export function formatLocalEditorBrowserInspectorNumberValue(value: number): str
   const rounded = Math.round(value * 1000) / 1000;
   if (Object.is(rounded, -0)) return '0';
   return rounded.toFixed(3).replace(/\.?0+$/, '');
+}
+
+export function parseLocalEditorBrowserInspectorNumberValue(
+  value: string,
+  mode: 'live' | 'final',
+): number | null {
+  const trimmed = value.trim();
+  if (trimmed === '') return mode === 'final' ? 0 : null;
+  if (mode === 'live' && !isCompleteInspectorNumberInput(trimmed)) return null;
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isCompleteInspectorNumberInput(value: string): boolean {
+  return /^[+-]?(?:\d+|\d*\.\d+)(?:[eE][+-]?\d+)?$/.test(value);
 }
 
 function formatInspectorEditableValue<TDocument>(

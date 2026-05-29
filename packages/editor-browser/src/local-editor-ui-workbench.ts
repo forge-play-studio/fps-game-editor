@@ -75,6 +75,7 @@ export const LOCAL_EDITOR_WORKBENCH_REGIONS = [
 export const LOCAL_EDITOR_WORKBENCH_PANELS = [
   { id: 'hierarchy', title: '层级', area: 'left', toolbar: 'scene-graph' },
   { id: 'inspector', title: '检查器', area: 'right' },
+  { id: 'rendering', title: '渲染', area: 'right' },
   { id: 'assets', title: '资产', area: 'bottom', contextMenu: 'asset-browser' },
   { id: 'history', title: '历史', area: 'bottom' },
 ] satisfies LocalEditorWorkbenchPanelDescriptor[];

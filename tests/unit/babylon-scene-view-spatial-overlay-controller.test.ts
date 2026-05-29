@@ -49,7 +49,16 @@ function createProjectionOptions(scale = 24, canvasRect = { left: 10, top: 20, w
 }
 
 describe('Babylon scene view spatial overlay state', () => {
-  it('keeps spatial overlay inactive with default editor settings', () => {
+  it('defaults all viewport spatial overlay settings off', () => {
+    expect(DEFAULT_EDITOR_VIEWPORT_OVERLAY_SETTINGS).toEqual({
+      bounds: false,
+      dimensions: false,
+      edgeLengths: false,
+      anchor: false,
+    });
+  });
+
+  it('returns an inactive overlay state when all settings are off', () => {
     const state = createEditorViewportSpatialOverlayState(createProjectionOptions(), {
       nodeId: 'box-1',
       bounds: {
@@ -79,9 +88,9 @@ describe('Babylon scene view spatial overlay state', () => {
       },
       anchor: { x: 1, y: 0, z: 2 },
       settings: {
-        ...DEFAULT_EDITOR_VIEWPORT_OVERLAY_SETTINGS,
         bounds: true,
         dimensions: true,
+        edgeLengths: false,
         anchor: true,
       },
     });

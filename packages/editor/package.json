@@ -26,6 +26,7 @@
     "prepack": "node ../../scripts/prepare-single-package.mjs"
   },
   "dependencies": {
+    "@fps-games/babylon-renderer": "0.1.2-beta.2",
     "@fps-games/editor-babylon": "0.1.2-beta.2",
     "@fps-games/editor-browser": "0.1.2-beta.2",
     "@fps-games/editor-core": "0.1.2-beta.2",
@@ -33,6 +34,7 @@
     "@fps-games/editor-protocol": "0.1.2-beta.2"
   },
   "bundleDependencies": [
+    "@fps-games/babylon-renderer",
     "@fps-games/editor-babylon",
     "@fps-games/editor-browser",
     "@fps-games/editor-core",

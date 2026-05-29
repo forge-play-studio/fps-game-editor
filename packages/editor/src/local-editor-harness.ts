@@ -78,6 +78,9 @@ import {
   type LocalEditorBrowserHierarchyContextActionRegistration,
   type LocalEditorBrowserHierarchySelectionInput,
   type LocalEditorBrowserInspectorOptions,
+  type LocalEditorBrowserRenderingPanelState,
+  type LocalEditorBrowserRenderingActionInput,
+  type LocalEditorBrowserRenderingPropertyChangeInput,
   type LocalEditorBrowserUiPropertyInput,
   type LocalEditorBrowserUiHierarchyItem,
   type LocalEditorBrowserUiState,
@@ -89,11 +92,12 @@ import {
   createBabylonEditorProjection,
   createBabylonEditorWorld,
   createBabylonProjectionSelectionController,
-  createBabylonMainCameraPreviewController,
+  createBabylonSceneCameraPreviewController,
   createBabylonSceneViewCameraController,
   createBabylonSceneViewInputController,
   createBabylonSceneViewMeasurementController,
   createBabylonSceneViewSpatialOverlayController,
+  createBabylonEditorShadowPreviewController,
   createBabylonTransformGizmoController,
   focusEditorViewportSelection,
   type BabylonEditorProjection,
@@ -103,18 +107,22 @@ import {
   type BabylonSceneViewInputController,
   type BabylonSceneViewMeasurementController,
   type BabylonSceneViewSpatialOverlayController,
+  type BabylonEditorShadowPreviewController,
+  type BabylonEditorShadowPreviewOptions,
   type BabylonEditorProjectionImportContext,
   type BabylonEditorProjectionImportResult,
   type BabylonEditorProjectionNode,
-  type BabylonMainCameraPreviewController,
-  type BabylonMainCameraPreviewRig,
+  type BabylonSceneCameraPreviewController,
+  type BabylonSceneCameraPreviewRig,
   type BabylonEditorGridController,
+  type BabylonEditorGridColorOptions,
   type BabylonTransformGizmoCommit,
   type BabylonTransformGizmoBlockEvent,
   type BabylonTransformGizmoController,
   type BabylonTransformGizmoDuplicateDragInput,
   type BabylonTransformGizmoDuplicateDragResult,
   type BabylonEditorWorld,
+  type BabylonEditorWorldAppearanceOptions,
   type BabylonEditorSkyOptions,
   type BabylonRuntimeGlobal,
 } from '@fps-games/editor-babylon';
@@ -198,6 +206,24 @@ export interface LocalEditorHarnessMultiPropertyInput<TDocument = unknown> {
   commitMode?: InspectorCommitMode;
   persistence?: InspectorPersistenceMode;
   source?: InspectorEditPayload['source'];
+}
+
+export interface LocalEditorHarnessRenderingPropertyInput<TDocument = unknown>
+  extends LocalEditorBrowserRenderingPropertyChangeInput {
+  document: TDocument;
+}
+
+export interface LocalEditorHarnessRenderingActionInput<TDocument = unknown>
+  extends LocalEditorBrowserRenderingActionInput {
+  document: TDocument;
+}
+
+export interface LocalEditorHarnessRenderingPropertyChangeResult {
+  changed?: boolean;
+  status?: string;
+  statusTone?: LocalEditorBrowserUiState['statusTone'];
+  statusDetails?: string;
+  refreshWorldRendering?: boolean;
 }
 
 export interface LocalEditorHarnessRuntimeInspectorContext<TDocument = unknown> {
@@ -386,7 +412,16 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   getHierarchyItems(document: TDocument): LocalEditorBrowserUiHierarchyItem[];
   getProjectionNodes(document: TDocument): BabylonEditorProjectionNode[];
   getProjectionNode(document: TDocument, id: string): BabylonEditorProjectionNode | null;
-  getMainCameraPreviewRig?(document: TDocument): BabylonMainCameraPreviewRig | null;
+  getSceneCameraPreviewRig?(document: TDocument): BabylonSceneCameraPreviewRig | null;
+  getWorldAppearance?(document: TDocument): LocalEditorHarnessWorldAppearance | null;
+  getWorldRendering?(document: TDocument): LocalEditorHarnessWorldRendering | null;
+  getRenderingPanelState?(document: TDocument): LocalEditorBrowserRenderingPanelState | null;
+  onRenderingAction?(input: LocalEditorHarnessRenderingActionInput<TDocument>): LocalEditorMaybePromise<
+    boolean | void | LocalEditorHarnessRenderingPropertyChangeResult
+  >;
+  onRenderingPropertyChange?(input: LocalEditorHarnessRenderingPropertyInput<TDocument>): LocalEditorMaybePromise<
+    boolean | void | LocalEditorHarnessRenderingPropertyChangeResult
+  >;
   isSelectable?(document: TDocument, id: string): boolean;
   isLocked?(document: TDocument, id: string): boolean;
   createPatchFromAsset(asset: TAsset, input?: LocalEditorHarnessAssetPatchInput<TDocument, TAsset>): { patch: TPatch; label?: string };
@@ -441,6 +476,16 @@ export interface LocalEditorHarnessWorldAdapter<TAsset = LocalEditorHarnessAsset
   resolveAssetId?(asset: TAsset): string;
 }
 
+export interface LocalEditorHarnessWorldAppearance {
+  clearColor?: BabylonEditorWorldAppearanceOptions['clearColor'];
+  sky?: BabylonEditorSkyOptions | false;
+  grid?: BabylonEditorGridColorOptions;
+}
+
+export interface LocalEditorHarnessWorldRendering {
+  shadowPreview?: BabylonEditorShadowPreviewOptions | null;
+}
+
 export type LocalEditorHarnessGridController = BabylonEditorGridController;
 
 export interface LocalEditorHarnessGridContext {
@@ -462,6 +507,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     cameraRadius?: number;
     clearColor?: { r: number; g: number; b: number; a: number };
     sky?: BabylonEditorSkyOptions | false;
+    grid?: BabylonEditorGridColorOptions;
     useRightHandedSystem?: boolean;
     coordinateAxes?: boolean;
   };
@@ -478,10 +524,6 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
 }
 
 export interface LocalEditorHarness<TDocument = unknown> {
-  /**
-   * Refreshes editor UI state only. Babylon scene frames are owned by the
-   * viewport render coordinator via requestFrame/invalidate/reveal paths.
-   */
   render(): void;
   notifyViewportRevealed(reason?: string): void;
   setTheme?(theme: LocalEditorThemeName): void;
@@ -510,15 +552,21 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   grid: LocalEditorHarnessGridController | null;
   gridVisible: boolean;
   projection: BabylonEditorProjection | null;
+  shadowPreview: BabylonEditorShadowPreviewController | null;
   gizmo: BabylonTransformGizmoController | null;
-  mainCameraPreview: BabylonMainCameraPreviewController | null;
-  mainCameraPreviewEnabled: boolean;
+  sceneCameraPreview: BabylonSceneCameraPreviewController | null;
+  sceneCameraPreviewEnabled: boolean;
   sceneViewInput: BabylonSceneViewInputController | null;
   sceneViewCamera: BabylonSceneViewCameraController | null;
   sceneViewInteraction: LocalEditorSceneViewInteractionRuntime | null;
   sceneViewMeasurement: BabylonSceneViewMeasurementController | null;
   sceneViewSpatialOverlay: BabylonSceneViewSpatialOverlayController | null;
   selectionController: BabylonProjectionSelectionController | null;
+  sceneRenderScheduler: LocalEditorSceneRenderScheduler | null;
+  viewportRenderCoordinator: LocalEditorViewportRenderCoordinator | null;
+  sceneFrameStats: LocalEditorSceneRenderStats | null;
+  worldAppearanceKey: string;
+  worldRenderingKey: string;
   boxSelection: BabylonProjectionSelectionBox | null;
   transformTool: EditorTransformTool;
   transformSpace: EditorTransformSpace;
@@ -536,9 +584,6 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
     assetId: string;
     asset: TAsset;
   } | null;
-  sceneRenderScheduler: LocalEditorSceneRenderScheduler | null;
-  viewportRenderCoordinator: LocalEditorViewportRenderCoordinator | null;
-  sceneFrameStats: LocalEditorSceneRenderStats | null;
   resizeHandler: (() => void) | null;
   status: string;
   statusTone: LocalEditorBrowserUiState<TDocument>['statusTone'];
@@ -564,15 +609,21 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     grid: null,
     gridVisible: true,
     projection: null,
+    shadowPreview: null,
     gizmo: null,
-    mainCameraPreview: null,
-    mainCameraPreviewEnabled: false,
+    sceneCameraPreview: null,
+    sceneCameraPreviewEnabled: false,
     sceneViewInput: null,
     sceneViewCamera: null,
     sceneViewInteraction: null,
     sceneViewMeasurement: null,
     sceneViewSpatialOverlay: null,
     selectionController: null,
+    sceneRenderScheduler: null,
+    viewportRenderCoordinator: null,
+    sceneFrameStats: null,
+    worldAppearanceKey: '',
+    worldRenderingKey: '',
     boxSelection: null,
     transformTool: 'select',
     transformSpace: 'world',
@@ -583,9 +634,6 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     viewportSpatialOverlay: createEmptyEditorViewportSpatialOverlayState(),
     duplicateDrag: null,
     armedPlacement: null,
-    sceneRenderScheduler: null,
-    viewportRenderCoordinator: null,
-    sceneFrameStats: null,
     resizeHandler: null,
     status: 'Game running',
     statusTone: 'default',
@@ -677,25 +725,41 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         const patched = patchSerializedProperty(state, options, input);
         if (patched || state.status !== previousStatus) harness.render();
       },
+      onRenderingPropertyChange: options.documentAdapter.onRenderingPropertyChange
+        ? (input) => {
+            void applyRenderingPropertyChange(state, options, input)
+              .then((changed) => {
+                if (changed) harness.render();
+              });
+          }
+        : undefined,
+      onRenderingAction: options.documentAdapter.onRenderingAction
+        ? (input) => {
+            void applyRenderingAction(state, options, input)
+              .then((changed) => {
+                if (changed) harness.render();
+              });
+          }
+        : undefined,
       onTransformToolChange: (tool) => {
         state.transformTool = tool;
         state.transformConstraint = normalizeTransformConstraint(tool, state.transformConstraint);
         state.gizmo?.setTool(tool);
         state.gizmo?.setConstraint(state.transformConstraint);
-        requestEditorSceneFrame(state, 'transform-tool-change');
         harness.render();
+        requestEditorSceneFrame(state, 'transform-tool-change');
       },
       onTransformSpaceChange: (space) => {
         state.transformSpace = space;
         state.gizmo?.setSpace(space);
-        requestEditorSceneFrame(state, 'transform-space-change');
         harness.render();
+        requestEditorSceneFrame(state, 'transform-space-change');
       },
       onTransformConstraintChange: (constraint) => {
         state.transformConstraint = normalizeTransformConstraint(state.transformTool, constraint);
         state.gizmo?.setConstraint(state.transformConstraint);
-        requestEditorSceneFrame(state, 'transform-constraint-change');
         harness.render();
+        requestEditorSceneFrame(state, 'transform-constraint-change');
       },
       onTransformSnapEnabledChange: (enabled) => {
         state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, {
@@ -706,8 +770,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         });
         state.gizmo?.setOperationSettings(state.transformOperationSettings);
         state.status = enabled ? 'Transform snap enabled' : 'Transform snap disabled';
-        requestEditorSceneFrame(state, 'transform-operation-settings-change');
         harness.render();
+        requestEditorSceneFrame(state, 'transform-operation-settings-change');
       },
       onTransformSnapStepChange: (input) => {
         const value = normalizePositiveStep(input.value);
@@ -719,8 +783,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, { snap });
         state.gizmo?.setOperationSettings(state.transformOperationSettings);
         state.status = `Transform snap ${input.kind} step ${value}`;
-        requestEditorSceneFrame(state, 'transform-operation-settings-change');
         harness.render();
+        requestEditorSceneFrame(state, 'transform-operation-settings-change');
       },
       onPlacementModeChange: (mode) => {
         state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, {
@@ -729,8 +793,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         state.gizmo?.setOperationSettings(state.transformOperationSettings);
         if (state.transformOperationSettings.placementMode === 'off') clearArmedPlacement(state);
         state.status = `Placement mode: ${state.transformOperationSettings.placementMode}`;
-        requestEditorSceneFrame(state, 'placement-mode-change');
         harness.render();
+        requestEditorSceneFrame(state, 'placement-mode-change');
       },
       onTransformAction: (action) => {
         if (executeTransformAction(state, options, action)) harness.render();
@@ -750,8 +814,8 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       onViewportMeasurementClear: () => {
         if (clearViewportMeasurement(state)) harness.render();
       },
-      onMainCameraPreviewToggle: (enabled) => {
-        if (setMainCameraPreviewEnabled(state, options, enabled)) harness.render();
+      onSceneCameraPreviewToggle: (enabled) => {
+        if (setSceneCameraPreviewEnabled(state, options, enabled)) harness.render();
       },
       onGridVisibleChange: (visible) => {
         if (setGridVisible(state, visible)) harness.render();
@@ -764,22 +828,18 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       },
       onCancelActiveOperation: () => {
         cancelActiveOperation(state);
-        requestEditorSceneFrame(state, 'cancel-active-operation');
         harness.render();
       },
     },
   });
 
-  const renderUi = (): void => {
-    syncViewportCameraState(state);
-    syncViewportMeasurementState(state);
-    syncViewportSpatialOverlay(state);
-    ui.update(createUiState(state, options));
-  };
-
   harness = {
     render() {
-      renderUi();
+      syncSceneCameraPreview(state, options);
+      syncViewportCameraState(state);
+      syncViewportMeasurementState(state);
+      syncViewportSpatialOverlay(state);
+      ui.update(createUiState(state, options));
     },
     notifyViewportRevealed(reason = 'viewport-revealed') {
       state.viewportRenderCoordinator?.requestRevealFrame(reason);
@@ -1053,11 +1113,11 @@ function setViewportViewPreset<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   preset: EditorViewportViewPreset,
 ): boolean {
-  if (state.mainCameraPreviewEnabled) {
-    state.status = 'Viewport view unavailable during Main Camera preview';
+  if (state.sceneCameraPreviewEnabled) {
+    state.status = 'Viewport view unavailable during Scene Camera preview';
     state.statusTone = 'warning';
     state.statusToneStatus = state.status;
-    state.statusDetails = 'Disable Main Camera preview before switching editor viewport views.';
+    state.statusDetails = 'Disable Scene Camera preview before switching editor viewport views.';
     return true;
   }
   const nextPreset = normalizeViewportViewPreset(preset);
@@ -1075,7 +1135,7 @@ function setViewportViewPreset<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
-  requestEditorSceneFrame(state, 'viewport-view-preset-change');
+  requestEditorSceneFrame(state, 'viewport-view-preset');
   return true;
 }
 
@@ -1083,11 +1143,11 @@ function setViewportProjectionMode<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   mode: EditorViewportProjectionMode,
 ): boolean {
-  if (state.mainCameraPreviewEnabled) {
-    state.status = 'Viewport projection unavailable during Main Camera preview';
+  if (state.sceneCameraPreviewEnabled) {
+    state.status = 'Viewport projection unavailable during Scene Camera preview';
     state.statusTone = 'warning';
     state.statusToneStatus = state.status;
-    state.statusDetails = 'Disable Main Camera preview before switching editor viewport projection.';
+    state.statusDetails = 'Disable Scene Camera preview before switching editor viewport projection.';
     return true;
   }
   const nextMode = normalizeViewportProjectionMode(mode);
@@ -1102,7 +1162,7 @@ function setViewportProjectionMode<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
-  requestEditorSceneFrame(state, 'viewport-projection-mode-change');
+  requestEditorSceneFrame(state, 'viewport-projection-mode');
   return true;
 }
 
@@ -1158,6 +1218,7 @@ function setViewportUtilityTool<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
+  requestEditorSceneFrame(state, 'viewport-utility-tool');
   return true;
 }
 
@@ -1173,6 +1234,7 @@ function clearViewportMeasurement<TDocument, TPatch, TAsset>(
   state.statusTone = 'default';
   state.statusToneStatus = state.status;
   state.statusDetails = '';
+  requestEditorSceneFrame(state, 'viewport-measurement-clear');
   return true;
 }
 
@@ -1296,18 +1358,27 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   updateSceneFrameStats: (stats: LocalEditorSceneRenderStats | null) => void,
 ): Promise<void> {
   disposeEditorWorld(state);
+  const render = (reason = 'editor-world-update'): void => {
+    renderUi();
+    requestEditorSceneFrame(state, reason);
+  };
   const canvas = options.worldAdapter.getCanvas();
   if (!canvas) throw new Error('Editor canvas not found');
   const babylon = await options.worldAdapter.loadBabylon();
   const engine = options.worldAdapter.createEngine(babylon, canvas);
+  const document = state.session?.getState().workingDocument;
+  const initialAppearance = resolveLocalEditorWorldAppearance(options, document);
+  const initialAppearanceKey = serializeLocalEditorWorldAppearance(initialAppearance);
+  const initialRendering = resolveLocalEditorWorldRendering(options, document);
+  const initialRenderingKey = serializeLocalEditorWorldRendering(initialRendering);
   const world = createBabylonEditorWorld({
     engine,
     canvas,
     babylon,
     cameraTarget: options.world?.cameraTarget,
     cameraRadius: options.world?.cameraRadius,
-    clearColor: options.world?.clearColor,
-    sky: options.world?.sky,
+    clearColor: initialAppearance.clearColor,
+    sky: initialAppearance.sky,
     useRightHandedSystem: options.world?.useRightHandedSystem,
     enableDefaultCameraControls: false,
   });
@@ -1334,6 +1405,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     getCamera: () => world.scene?.activeCamera ?? world.camera ?? null,
     getEditorCamera: () => world.camera ?? null,
   }) ?? null;
+  if (initialAppearance.grid) grid?.setColors(initialAppearance.grid);
   grid?.setVisible(state.gridVisible);
   const projection = createBabylonEditorProjection({
     babylon,
@@ -1357,10 +1429,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       state.status = event.targetIds.length > 1
         ? `Dragging ${event.duplicate ? 'duplicate ' : ''}${event.tool} ${event.targetIds.length} objects`
         : `Dragging ${event.duplicate ? 'duplicate ' : ''}${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
-      renderUi();
+      render();
     },
     onDragUpdate() {
-      renderUi();
+      render();
     },
     onDragEnd(event) {
       sceneViewInteraction.endGizmoDrag();
@@ -1371,14 +1443,13 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     onDragCancel(event) {
       sceneViewInteraction.endGizmoDrag();
       if (event.duplicate && cancelDuplicateDrag(state, options)) {
-        renderUi();
+        render();
         return;
       }
-      requestEditorSceneFrame(state, 'gizmo-drag-cancel');
       state.status = event.targetIds.length > 1
         ? `Canceled ${event.tool} ${event.targetIds.length} objects`
         : `Canceled ${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
-      renderUi();
+      render();
     },
     onDragBlocked(event) {
       sceneViewInteraction.endGizmoDrag();
@@ -1405,14 +1476,14 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     isLocked: (nodeId) => isDocumentNodeLocked(state, options, nodeId),
     isOperationBlocked: () => state.gizmo?.getState().dragPhase === 'dragging',
     onSelectionCommand(command) {
-      if (dispatchSelectionCommand(state, options, command)) renderUi();
+      if (dispatchSelectionCommand(state, options, command)) render();
     },
     onFocusIntent(nodeId) {
-      if (focusProjectionNode(state, nodeId)) renderUi();
+      if (focusProjectionNode(state, nodeId)) render();
     },
     onBoxSelectionChange(box) {
       state.boxSelection = box;
-      renderUi();
+      render();
     },
   });
   const sceneViewMeasurement = createBabylonSceneViewMeasurementController({
@@ -1430,7 +1501,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     onPointerIntentStart(event) {
       sceneViewInteraction.beginPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
-        if (handleViewportMeasurementStart(state, event.originalEvent)) renderUi();
+        if (handleViewportMeasurementStart(state, event.originalEvent)) render();
         return;
       }
       if (event.state.intent === 'gizmo-drag') {
@@ -1438,94 +1509,85 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
         return;
       }
       if (event.state.intent === 'placement') {
-        if (previewArmedPlacement(state, event.originalEvent)) renderUi();
+        if (previewArmedPlacement(state, event.originalEvent)) render();
         return;
       }
       if (event.state.intent === 'view-plane-move') {
-        if (gizmo.beginViewPlaneMove(event.originalEvent)) renderUi();
+        if (gizmo.beginViewPlaneMove(event.originalEvent)) render();
         return;
       }
       if (event.state.intent === 'selection-click' || event.state.intent === 'box-select') {
         selectionController.beginPointerSelection(event.originalEvent);
-        requestEditorSceneFrame(state, `pointer-${event.state.intent}-start`);
+        requestEditorSceneFrame(state, 'viewport-pointer-selection-start');
       }
     },
     onPointerIntentMove(event) {
       if (event.state.intent === 'measurement') {
-        if (handleViewportMeasurementMove(state, event.originalEvent)) renderUi();
+        if (handleViewportMeasurementMove(state, event.originalEvent)) render();
         return;
       }
       if (event.state.intent === 'placement') {
-        if (previewArmedPlacement(state, event.originalEvent)) renderUi();
+        if (previewArmedPlacement(state, event.originalEvent)) render();
         return;
       }
       if (event.state.intent === 'view-plane-move') {
-        if (gizmo.updateViewPlaneMove(event.originalEvent)) renderUi();
+        if (gizmo.updateViewPlaneMove(event.originalEvent)) render();
         return;
       }
-      if (!state.mainCameraPreviewEnabled && state.sceneViewCamera?.handlePointerIntentMove(event)) {
-        renderUi();
+      if (!state.sceneCameraPreviewEnabled && state.sceneViewCamera?.handlePointerIntentMove(event)) {
+        render();
         return;
       }
       if (event.state.intent === 'selection-click' || event.state.intent === 'box-select') {
         selectionController.updatePointerSelection(event.originalEvent, event.state.intent);
+        requestEditorSceneFrame(state, 'viewport-pointer-selection-update');
       }
-      requestEditorSceneFrame(state, `pointer-${event.state.intent}`);
     },
     onPointerIntentEnd(event) {
       sceneViewInteraction.endPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
-        if (handleViewportMeasurementEnd(state)) renderUi();
+        if (handleViewportMeasurementEnd(state)) render();
         return;
       }
       if (event.state.intent === 'placement') {
-        if (commitArmedPlacement(state, options, event.originalEvent)) renderUi();
+        if (commitArmedPlacement(state, options, event.originalEvent)) render();
         return;
       }
       if (event.state.intent === 'view-plane-move') {
-        if (gizmo.endViewPlaneMove(event.originalEvent)) {
-          requestEditorSceneFrame(state, 'view-plane-move-end');
-          renderUi();
-        }
+        if (gizmo.endViewPlaneMove(event.originalEvent)) render();
         return;
       }
       if (event.state.intent === 'selection-click' || event.state.intent === 'box-select') {
         selectionController.endPointerSelection(event.originalEvent, event.state.intent);
+        requestEditorSceneFrame(state, 'viewport-pointer-selection-end');
       }
-      requestEditorSceneFrame(state, `pointer-${event.state.intent}-end`);
     },
     onPointerIntentCancel(event) {
       sceneViewInteraction.cancelPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
-        renderUi();
+        render();
         return;
       }
       if (event.state.intent === 'placement') {
         state.gizmo?.setPlacementMarker(null);
-        requestEditorSceneFrame(state, 'placement-marker-clear');
-        renderUi();
+        render();
         return;
       }
       if (event.state.intent === 'view-plane-move') {
         gizmo.cancelDrag();
-        requestEditorSceneFrame(state, 'view-plane-move-cancel');
-        renderUi();
+        render();
         return;
       }
       if (event.state.intent === 'selection-click' || event.state.intent === 'box-select') {
         selectionController.cancelBoxSelection();
-        renderUi();
+        render();
       }
-      requestEditorSceneFrame(state, `pointer-${event.state.intent}-cancel`);
     },
     onDoubleClick(event) {
       selectionController.handleDoubleClick(event);
     },
     onWheel(event) {
-      if (!state.mainCameraPreviewEnabled && state.sceneViewCamera?.handleWheel(event)) {
-        requestEditorSceneFrame(state, 'camera-wheel');
-        renderUi();
-      }
+      if (!state.sceneCameraPreviewEnabled && state.sceneViewCamera?.handleWheel(event)) render();
     },
     onMovementKeysChange(event) {
       sceneViewInteraction.updateMovementKeys(event.pressedMovementKeys);
@@ -1538,7 +1600,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     camera: world.camera,
     input: sceneViewInput,
   });
-  const mainCameraPreview = createBabylonMainCameraPreviewController({
+  const sceneCameraPreview = createBabylonSceneCameraPreviewController({
     babylon,
     scene: world.scene,
     editorCamera: world.camera,
@@ -1547,13 +1609,17 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     babylon,
     scene: world.scene,
   });
-  const document = state.session?.getState().workingDocument;
   if (document) {
     projection.projectNodes(options.documentAdapter.getProjectionNodes(document));
     const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
     projection.syncSelection(selection);
     gizmo.setSelection(selection);
   }
+  const shadowPreview = createBabylonEditorShadowPreviewController({
+    scene: world.scene,
+    projection,
+    options: initialRendering.shadowPreview,
+  });
   const resize = () => {
     engine.resize?.();
     viewportRenderCoordinator.requestFrame('resize');
@@ -1564,8 +1630,9 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   state.world = world;
   state.grid = grid;
   state.projection = projection;
+  state.shadowPreview = shadowPreview;
   state.gizmo = gizmo;
-  state.mainCameraPreview = mainCameraPreview;
+  state.sceneCameraPreview = sceneCameraPreview;
   state.sceneViewInput = sceneViewInput;
   state.sceneViewCamera = sceneViewCamera;
   state.sceneViewMeasurement = sceneViewMeasurement;
@@ -1574,8 +1641,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   state.sceneRenderScheduler = sceneRenderScheduler;
   state.viewportRenderCoordinator = viewportRenderCoordinator;
   state.sceneFrameStats = sceneRenderScheduler.getStats();
+  state.worldAppearanceKey = initialAppearanceKey;
+  state.worldRenderingKey = initialRenderingKey;
   state.resizeHandler = resize;
-  await sceneRenderScheduler.waitForNextFrame('editor-world-created');
+  viewportRenderCoordinator.requestFrame('editor-world-created');
 }
 
 function disposeEditorWorld<TDocument, TPatch, TAsset>(
@@ -1583,18 +1652,13 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
 ): void {
   state.sceneViewInteraction?.dispose();
   state.sceneViewInteraction = null;
-  state.viewportRenderCoordinator?.dispose();
-  state.viewportRenderCoordinator = null;
-  state.sceneRenderScheduler?.dispose();
-  state.sceneRenderScheduler = null;
-  state.sceneFrameStats = null;
   if (state.resizeHandler) {
     window.removeEventListener('resize', state.resizeHandler);
     state.resizeHandler = null;
   }
-  state.mainCameraPreview?.dispose();
-  state.mainCameraPreview = null;
-  state.mainCameraPreviewEnabled = false;
+  state.sceneCameraPreview?.dispose();
+  state.sceneCameraPreview = null;
+  state.sceneCameraPreviewEnabled = false;
   state.sceneViewCamera?.dispose();
   state.sceneViewCamera = null;
   state.sceneViewMeasurement?.dispose();
@@ -1605,6 +1669,11 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
   state.sceneViewInput = null;
   state.selectionController?.dispose();
   state.selectionController = null;
+  state.viewportRenderCoordinator?.dispose();
+  state.viewportRenderCoordinator = null;
+  state.sceneRenderScheduler?.dispose();
+  state.sceneRenderScheduler = null;
+  state.sceneFrameStats = null;
   state.boxSelection = null;
   state.viewportSpatialOverlay = createEmptyEditorViewportSpatialOverlayState();
   state.viewportMeasurement = createEmptyViewportMeasurement();
@@ -1614,10 +1683,13 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
   };
   state.gizmo?.dispose();
   state.gizmo = null;
+  state.shadowPreview?.dispose();
+  state.shadowPreview = null;
   state.projection?.dispose();
   state.projection = null;
   state.grid?.dispose();
   state.grid = null;
+  state.engine?.stopRenderLoop?.();
   state.world?.dispose();
   state.engine?.dispose?.();
   state.babylon = null;
@@ -1634,12 +1706,12 @@ function requestEditorSceneFrame<TDocument, TPatch, TAsset>(
 
 async function runExclusive<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
-  renderUi: () => void,
+  render: () => void,
   action: () => Promise<unknown>,
 ): Promise<void> {
   if (state.busy) return;
   state.busy = true;
-  renderUi();
+  render();
   try {
     await action();
   } catch (error) {
@@ -1650,7 +1722,7 @@ async function runExclusive<TDocument, TPatch, TAsset>(
     console.error('[LocalEditorHarness] action failed', error);
   } finally {
     state.busy = false;
-    renderUi();
+    render();
   }
 }
 
@@ -2238,10 +2310,92 @@ function invalidateEditorScene<TDocument, TPatch, TAsset>(
   reason: string,
   options?: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
 ): void {
-  if (options && state.mainCameraPreviewEnabled) {
-    syncMainCameraPreview(state, options);
+  if (options && state.sceneCameraPreviewEnabled) {
+    syncSceneCameraPreview(state, options);
   }
   state.viewportRenderCoordinator?.invalidateScene(reason);
+}
+
+function syncEditorWorldAppearanceFromDocument<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  reason: string,
+): void {
+  const appearance = resolveLocalEditorWorldAppearance(options, document);
+  const key = serializeLocalEditorWorldAppearance(appearance);
+  if (key === state.worldAppearanceKey) return;
+  state.worldAppearanceKey = key;
+  state.world?.setAppearance({
+    clearColor: appearance.clearColor,
+    sky: appearance.sky,
+  });
+  state.grid?.setColors(appearance.grid ?? {});
+  requestEditorSceneFrame(state, reason);
+}
+
+function syncEditorWorldRenderingFromDocument<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument,
+  reason: string,
+  refreshProjection = false,
+): void {
+  const rendering = resolveLocalEditorWorldRendering(options, document);
+  const key = serializeLocalEditorWorldRendering(rendering);
+  if (key === state.worldRenderingKey) {
+    if (refreshProjection) state.shadowPreview?.refresh();
+    return;
+  }
+  state.worldRenderingKey = key;
+  state.shadowPreview?.setOptions(rendering.shadowPreview);
+  requestEditorSceneFrame(state, reason);
+}
+
+function resolveLocalEditorWorldAppearance<TDocument, TPatch, TAsset>(
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument | undefined,
+): LocalEditorHarnessWorldAppearance {
+  const documentAppearance = document
+    ? options.documentAdapter.getWorldAppearance?.(document) ?? null
+    : null;
+  return {
+    clearColor: documentAppearance?.clearColor ?? options.world?.clearColor,
+    sky: hasEditorWorldAppearanceSky(documentAppearance) ? documentAppearance.sky : options.world?.sky,
+    grid: documentAppearance?.grid ?? options.world?.grid,
+  };
+}
+
+function resolveLocalEditorWorldRendering<TDocument, TPatch, TAsset>(
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  document: TDocument | undefined,
+): LocalEditorHarnessWorldRendering {
+  const documentRendering = document
+    ? options.documentAdapter.getWorldRendering?.(document) ?? null
+    : null;
+  return {
+    shadowPreview: documentRendering?.shadowPreview ?? null,
+  };
+}
+
+function hasEditorWorldAppearanceSky(
+  appearance: LocalEditorHarnessWorldAppearance | null,
+): appearance is LocalEditorHarnessWorldAppearance & Pick<Required<LocalEditorHarnessWorldAppearance>, 'sky'> {
+  return !!appearance && Object.prototype.hasOwnProperty.call(appearance, 'sky');
+}
+
+function serializeLocalEditorWorldAppearance(appearance: LocalEditorHarnessWorldAppearance): string {
+  return JSON.stringify({
+    clearColor: appearance.clearColor ?? null,
+    sky: hasEditorWorldAppearanceSky(appearance) ? appearance.sky : null,
+    grid: appearance.grid ?? null,
+  });
+}
+
+function serializeLocalEditorWorldRendering(rendering: LocalEditorHarnessWorldRendering): string {
+  return JSON.stringify({
+    shadowPreview: rendering.shadowPreview ?? null,
+  });
 }
 
 function executeTransformAction<TDocument, TPatch, TAsset>(
@@ -2371,7 +2525,6 @@ function armAssetPlacement<TDocument, TPatch, TAsset>(
   if (!asset) return false;
   state.armedPlacement = { assetId, asset };
   state.gizmo?.setPlacementMarker(null);
-  requestEditorSceneFrame(state, 'placement-arm-change');
   state.status = `Placement armed: ${formatAssetLabel(asset, assetId)} (${state.transformOperationSettings.placementMode})`;
   return true;
 }
@@ -2411,7 +2564,6 @@ function commitArmedPlacement<TDocument, TPatch, TAsset>(
   if (!armed || !hit) {
     state.gizmo?.setPlacementMarker(null);
     state.status = 'Placement rejected: no hit';
-    requestEditorSceneFrame(state, 'placement-marker-clear');
     return true;
   }
   const patch = options.documentAdapter.createPlacedAssetPatch?.({
@@ -2467,10 +2619,8 @@ function pickArmedPlacementHit<TDocument, TPatch, TAsset>(
 function clearArmedPlacement<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
 ): void {
-  const hadArmedPlacement = !!state.armedPlacement;
   state.armedPlacement = null;
   state.gizmo?.setPlacementMarker(null);
-  if (hadArmedPlacement) requestEditorSceneFrame(state, 'placement-clear');
 }
 
 function addAssetToDocument<TDocument, TPatch, TAsset>(
@@ -2526,7 +2676,7 @@ function addAssetToDocument<TDocument, TPatch, TAsset>(
     if (projectedNode) {
       state.projection?.projectNode(projectedNode);
       if (selectionResult) syncSelectionToProjection(state, selectionResult.selection);
-      invalidateEditorScene(state, 'projection-project-node', options);
+      invalidateEditorScene(state, 'projection-project-node');
     }
   }
   return {
@@ -2607,6 +2757,95 @@ function patchSerializedProperty<TDocument, TPatch, TAsset>(
   state.summary = summarizeDocument(options, result.workingDocument, state.session.getSource());
   state.status = patch.label ?? `Patched ${payload.path}`;
   return true;
+}
+
+async function applyRenderingPropertyChange<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  input: LocalEditorBrowserRenderingPropertyChangeInput,
+): Promise<boolean> {
+  if (state.mode !== 'editor') return false;
+  if (!state.session || !options.documentAdapter.onRenderingPropertyChange) return false;
+  const document = state.session.getState().workingDocument;
+  try {
+    const result = await options.documentAdapter.onRenderingPropertyChange({
+      document,
+      sectionId: input.sectionId,
+      systemId: input.systemId,
+      path: input.path,
+      value: input.value,
+      control: input.control,
+      valueType: input.valueType,
+      commitMode: input.commitMode,
+      source: input.source,
+    });
+    const resultObject = typeof result === 'object' && result != null ? result : null;
+    const changed = result === true || resultObject?.changed === true || resultObject?.refreshWorldRendering === true;
+    if (resultObject?.status) {
+      state.status = resultObject.status;
+      state.statusTone = resultObject.statusTone ?? 'default';
+      state.statusToneStatus = state.status;
+      state.statusDetails = resultObject.statusDetails ?? '';
+    } else if (changed) {
+      state.status = `Updated rendering: ${input.path}`;
+      state.statusTone = 'success';
+      state.statusToneStatus = state.status;
+      state.statusDetails = '';
+    }
+    if (changed) {
+      syncEditorWorldRenderingFromDocument(state, options, document, 'rendering-panel-change', true);
+      requestEditorSceneFrame(state, 'rendering-panel-change');
+    }
+    return changed || !!resultObject?.status;
+  } catch (error) {
+    state.status = error instanceof Error ? error.message : String(error);
+    state.statusTone = 'error';
+    state.statusToneStatus = state.status;
+    state.statusDetails = state.status;
+    console.error('[LocalEditorHarness] rendering property change failed', error);
+    return true;
+  }
+}
+
+async function applyRenderingAction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  input: LocalEditorBrowserRenderingActionInput,
+): Promise<boolean> {
+  if (state.mode !== 'editor') return false;
+  if (!state.session || !options.documentAdapter.onRenderingAction) return false;
+  const document = state.session.getState().workingDocument;
+  try {
+    const result = await options.documentAdapter.onRenderingAction({
+      document,
+      actionId: input.actionId,
+    });
+    const resultObject = typeof result === 'object' && result != null ? result : null;
+    const changed = result === true || resultObject?.changed === true || resultObject?.refreshWorldRendering === true;
+    if (resultObject?.status) {
+      state.status = resultObject.status;
+      state.statusTone = resultObject.statusTone ?? 'default';
+      state.statusToneStatus = state.status;
+      state.statusDetails = resultObject.statusDetails ?? '';
+    } else if (changed) {
+      state.status = `Rendering action: ${input.actionId}`;
+      state.statusTone = 'success';
+      state.statusToneStatus = state.status;
+      state.statusDetails = '';
+    }
+    if (changed) {
+      syncEditorWorldRenderingFromDocument(state, options, document, 'rendering-panel-action', true);
+      requestEditorSceneFrame(state, 'rendering-panel-action');
+    }
+    return changed || !!resultObject?.status;
+  } catch (error) {
+    state.status = error instanceof Error ? error.message : String(error);
+    state.statusTone = 'error';
+    state.statusToneStatus = state.status;
+    state.statusDetails = state.status;
+    console.error('[LocalEditorHarness] rendering action failed', error);
+    return true;
+  }
 }
 
 function createInspectorEditTransaction<TDocument, TPatch, TAsset>(
@@ -2989,7 +3228,9 @@ function rebuildProjectionFromDocument<TDocument, TPatch, TAsset>(
   state.projection?.rebuild(options.documentAdapter.getProjectionNodes(document));
   const sanitized = sanitizeSelection(state, options, document, selection);
   syncSelectionToProjection(state, sanitized ?? selection);
-  invalidateEditorScene(state, 'projection-rebuild', options);
+  syncEditorWorldAppearanceFromDocument(state, options, document, 'world-appearance-rebuild');
+  syncEditorWorldRenderingFromDocument(state, options, document, 'world-rendering-rebuild', true);
+  invalidateEditorScene(state, 'projection-rebuild');
 }
 
 function syncProjectionForDispatchResult<TDocument, TPatch, TAsset>(
@@ -3009,8 +3250,12 @@ function syncProjectionForDispatchResult<TDocument, TPatch, TAsset>(
     const sanitized = result.workingDocument ? sanitizeSelection(state, options, result.workingDocument, selection) : null;
     syncSelectionToProjection(state, sanitized ?? selection);
   }
+  if (result.documentChanged && result.workingDocument) {
+    syncEditorWorldAppearanceFromDocument(state, options, result.workingDocument, 'world-appearance-dispatch-result');
+    syncEditorWorldRenderingFromDocument(state, options, result.workingDocument, 'world-rendering-dispatch-result', true);
+  }
   if (result.documentChanged || result.selectionChanged) {
-    invalidateEditorScene(state, 'projection-dispatch-result', options);
+    invalidateEditorScene(state, 'projection-dispatch-result');
   }
 }
 
@@ -3026,7 +3271,9 @@ function syncProjectionForChangedIds<TDocument, TPatch, TAsset>(
   }
   const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
   syncSelectionToProjection(state, selection);
-  invalidateEditorScene(state, 'projection-sync-changed-ids', options);
+  syncEditorWorldAppearanceFromDocument(state, options, document, 'world-appearance-sync-changed-ids');
+  syncEditorWorldRenderingFromDocument(state, options, document, 'world-rendering-sync-changed-ids', true);
+  invalidateEditorScene(state, 'projection-sync-changed-ids');
 }
 
 function reprojectProjectionForChangedIds<TDocument, TPatch, TAsset>(
@@ -3040,33 +3287,34 @@ function reprojectProjectionForChangedIds<TDocument, TPatch, TAsset>(
     if (projectedNode) state.projection?.projectNode(projectedNode);
   }
   syncCurrentSelectionToSceneArtifacts(state);
+  syncEditorWorldAppearanceFromDocument(state, options, document, 'world-appearance-reproject-changed-ids');
+  syncEditorWorldRenderingFromDocument(state, options, document, 'world-rendering-reproject-changed-ids', true);
   invalidateEditorScene(state, 'projection-reproject-changed-ids', options);
 }
 
-function setMainCameraPreviewEnabled<TDocument, TPatch, TAsset>(
+function setSceneCameraPreviewEnabled<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
   enabled: boolean,
 ): boolean {
   if (!enabled) {
-    state.mainCameraPreviewEnabled = false;
-    state.mainCameraPreview?.setActive(false);
-    state.status = 'Main Camera preview disabled';
-    requestEditorSceneFrame(state, 'main-camera-preview-toggle');
+    state.sceneCameraPreviewEnabled = false;
+    state.sceneCameraPreview?.setActive(false);
+    state.status = 'Scene Camera preview disabled';
+    requestEditorSceneFrame(state, 'scene-camera-preview-toggle');
     return true;
   }
-  state.mainCameraPreviewEnabled = true;
-  if (!syncMainCameraPreview(state, options)) {
-    state.mainCameraPreviewEnabled = false;
-    state.status = 'Main Camera preview unavailable';
+  state.sceneCameraPreviewEnabled = true;
+  if (!syncSceneCameraPreview(state, options)) {
+    state.sceneCameraPreviewEnabled = false;
+    state.status = 'Scene Camera preview unavailable';
     state.statusTone = 'warning';
     state.statusToneStatus = state.status;
     state.statusDetails = 'The current document did not provide a Main Camera preview rig.';
-    requestEditorSceneFrame(state, 'main-camera-preview-toggle');
     return true;
   }
-  state.status = 'Main Camera preview enabled';
-  requestEditorSceneFrame(state, 'main-camera-preview-toggle');
+  state.status = 'Scene Camera preview enabled';
+  requestEditorSceneFrame(state, 'scene-camera-preview-toggle');
   return true;
 }
 
@@ -3086,18 +3334,18 @@ function setGridVisible<TDocument, TPatch, TAsset>(
   return true;
 }
 
-function syncMainCameraPreview<TDocument, TPatch, TAsset>(
+function syncSceneCameraPreview<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
 ): boolean {
-  const controller = state.mainCameraPreview;
+  const controller = state.sceneCameraPreview;
   if (!controller) return false;
-  if (!state.mainCameraPreviewEnabled) {
+  if (!state.sceneCameraPreviewEnabled) {
     controller.setActive(false);
     return false;
   }
   const document = state.session?.getState().workingDocument ?? null;
-  const rig = document ? options.documentAdapter.getMainCameraPreviewRig?.(document) ?? null : null;
+  const rig = document ? options.documentAdapter.getSceneCameraPreviewRig?.(document) ?? null : null;
   if (!rig) {
     controller.setActive(false);
     return false;
@@ -3151,12 +3399,12 @@ function syncViewportMeasurementState<TDocument, TPatch, TAsset>(
   if (measurement) state.viewportMeasurement = measurement;
 }
 
-function hasMainCameraPreviewRig<TDocument, TPatch, TAsset>(
+function hasSceneCameraPreviewRig<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
 ): boolean {
   const document = state.session?.getState().workingDocument ?? null;
-  return !!document && !!options.documentAdapter.getMainCameraPreviewRig?.(document);
+  return !!document && !!options.documentAdapter.getSceneCameraPreviewRig?.(document);
 }
 
 function createUiState<TDocument, TPatch, TAsset>(
@@ -3210,6 +3458,7 @@ function createUiState<TDocument, TPatch, TAsset>(
     serializedMultiObject,
     inspectorObject,
     inspectorMultiObject,
+    renderingPanel: document ? options.documentAdapter.getRenderingPanelState?.(document) ?? null : null,
     boxSelection: state.boxSelection,
     coordinateAxes: options.world?.coordinateAxes === false
       ? null
@@ -3234,9 +3483,9 @@ function createUiState<TDocument, TPatch, TAsset>(
     sceneFrameStats: state.sceneFrameStats
       ? { ...state.sceneFrameStats, activeReasons: [...state.sceneFrameStats.activeReasons] }
       : null,
-    mainCameraPreview: {
-      enabled: state.mainCameraPreviewEnabled,
-      available: hasMainCameraPreviewRig(state, options),
+    sceneCameraPreview: {
+      enabled: state.sceneCameraPreviewEnabled,
+      available: hasSceneCameraPreviewRig(state, options),
     },
     grid: {
       visible: state.gridVisible,
@@ -3276,7 +3525,7 @@ function createSceneViewCoordinateAxesState<TDocument, TPatch, TAsset>(
 
   return {
     projectionMode: readSceneViewFreeCameraProjectionMode(state, camera),
-    projectionToggleDisabled: state.mainCameraPreviewEnabled,
+    projectionToggleDisabled: state.sceneCameraPreviewEnabled,
     axes: [
       createSceneViewCoordinateAxis('x', 'X', '#ff4b70', { x: 1, y: 0, z: 0 }, right, up, forward),
       createSceneViewCoordinateAxis('y', 'Y', '#75ff42', { x: 0, y: 1, z: 0 }, right, up, forward),

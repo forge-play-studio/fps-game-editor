@@ -246,6 +246,91 @@ export interface LocalEditorBrowserAuthoringSource {
   };
 }
 
+export type LocalEditorBrowserRenderingPropertyValueType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'color'
+  | 'string-list'
+  | 'unknown';
+
+export type LocalEditorBrowserRenderingPropertyControlKind =
+  | 'readonly'
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'color'
+  | 'string-list';
+
+export type LocalEditorBrowserRenderingPropertyCommitMode = 'live' | 'blur' | 'change' | 'immediate';
+
+export type LocalEditorBrowserRenderingPropertyEditSource =
+  | 'input'
+  | 'toggle'
+  | 'color'
+  | 'list';
+
+export type LocalEditorBrowserRenderingSystemKind =
+  | 'planar-shadow'
+  | 'csm-shadow'
+  | 'legacy-shadow'
+  | 'custom';
+
+export interface LocalEditorBrowserRenderingProperty {
+  path: string;
+  label: string;
+  valueType: LocalEditorBrowserRenderingPropertyValueType;
+  control: LocalEditorBrowserRenderingPropertyControlKind;
+  value: unknown;
+  readOnly?: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
+  tooltip?: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  placeholder?: string;
+  commitMode?: LocalEditorBrowserRenderingPropertyCommitMode;
+  tags?: readonly string[];
+}
+
+export interface LocalEditorBrowserRenderingSystem {
+  id: string;
+  label: string;
+  kind: LocalEditorBrowserRenderingSystemKind;
+  active?: boolean;
+  readOnly?: boolean;
+  summary?: string;
+  status?: string;
+  properties: LocalEditorBrowserRenderingProperty[];
+}
+
+export interface LocalEditorBrowserRenderingSection {
+  id: string;
+  title: string;
+  summary?: string;
+  systems: LocalEditorBrowserRenderingSystem[];
+}
+
+export interface LocalEditorBrowserRenderingPanelState {
+  title?: string;
+  summary?: string;
+  dirty?: boolean;
+  status?: string;
+  statusTone?: 'default' | 'success' | 'warning' | 'error';
+  actions?: LocalEditorBrowserRenderingPanelAction[];
+  sections: LocalEditorBrowserRenderingSection[];
+}
+
+export interface LocalEditorBrowserRenderingPanelAction {
+  id: string;
+  label: string;
+  icon?: 'undo' | 'save' | 'world' | 'status';
+  disabled?: boolean;
+  tooltip?: string;
+}
+
 export interface LocalEditorBrowserUiState<TDocument = unknown> {
   mode: 'game' | 'editor';
   busy: boolean;
@@ -268,6 +353,7 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   serializedMultiObject?: LocalEditorBrowserSerializedMultiObject<TDocument> | null;
   inspectorObject?: LocalEditorBrowserInspectorObject<TDocument> | null;
   inspectorMultiObject?: LocalEditorBrowserInspectorObject<TDocument> | null;
+  renderingPanel?: LocalEditorBrowserRenderingPanelState | null;
   boxSelection?: {
     active: boolean;
     left: number;
@@ -282,7 +368,7 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   viewportMeasurement?: LocalEditorBrowserViewportMeasurementState | null;
   viewportSpatialOverlay?: LocalEditorBrowserViewportSpatialOverlayState | null;
   sceneFrameStats?: LocalEditorBrowserSceneFrameStats | null;
-  mainCameraPreview?: {
+  sceneCameraPreview?: {
     enabled: boolean;
     available: boolean;
   } | null;
@@ -335,6 +421,21 @@ export interface LocalEditorBrowserUiPropertyInput {
   commitMode?: LocalEditorBrowserInspectorCommitMode;
   persistence?: LocalEditorBrowserInspectorPersistenceMode;
   source?: LocalEditorBrowserInspectorEditSource;
+}
+
+export interface LocalEditorBrowserRenderingPropertyChangeInput {
+  sectionId: string;
+  systemId: string;
+  path: string;
+  value: unknown;
+  control?: LocalEditorBrowserRenderingPropertyControlKind;
+  valueType?: LocalEditorBrowserRenderingPropertyValueType;
+  commitMode?: LocalEditorBrowserRenderingPropertyCommitMode;
+  source?: LocalEditorBrowserRenderingPropertyEditSource;
+}
+
+export interface LocalEditorBrowserRenderingActionInput {
+  actionId: string;
 }
 
 export type LocalEditorBrowserInspectorConflictStrategy = 'error' | 'ignore' | 'replace';
@@ -499,6 +600,8 @@ export interface LocalEditorBrowserUiCallbacks {
   onCreateFromAsset?: (assetId: string) => void;
   onAssetFilterChange?: (value: string) => void;
   onPropertyInput?: (input: LocalEditorBrowserUiPropertyInput) => void;
+  onRenderingPropertyChange?: (input: LocalEditorBrowserRenderingPropertyChangeInput) => void;
+  onRenderingAction?: (input: LocalEditorBrowserRenderingActionInput) => void;
   onTransformToolChange?: (tool: LocalEditorBrowserTransformTool) => void;
   onTransformSpaceChange?: (space: LocalEditorBrowserTransformSpace) => void;
   onTransformConstraintChange?: (constraint: LocalEditorBrowserTransformConstraint) => void;
@@ -511,7 +614,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onViewportOverlaySettingsChange?: (settings: LocalEditorBrowserViewportOverlaySettings) => void;
   onViewportUtilityToolChange?: (tool: LocalEditorBrowserViewportUtilityTool) => void;
   onViewportMeasurementClear?: () => void;
-  onMainCameraPreviewToggle?: (enabled: boolean) => void;
+  onSceneCameraPreviewToggle?: (enabled: boolean) => void;
   onGridVisibleChange?: (visible: boolean) => void;
   onFocusSelection?: () => void;
   onCancelEditorIntent?: () => void;
@@ -557,9 +660,11 @@ export interface LocalEditorThemeController {
 
 export type LocalEditorBottomDockTab = 'assets' | 'history';
 
+export type LocalEditorRightDockTab = 'inspector' | 'rendering';
+
 export type LocalEditorWorkbenchDockArea = 'left' | 'right' | 'bottom';
 
-export type LocalEditorWorkbenchPanelId = 'hierarchy' | 'inspector' | LocalEditorBottomDockTab;
+export type LocalEditorWorkbenchPanelId = 'hierarchy' | LocalEditorRightDockTab | LocalEditorBottomDockTab;
 
 export type LocalEditorWorkbenchRegionId = 'top-app-bar' | 'left-dock' | 'scene-view' | 'scene-header' | 'right-dock' | 'bottom-dock';
 
