@@ -3968,7 +3968,7 @@ function findAssetByResolvedId<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
   assetId: string,
-): TAsset | undefined {
+): TAsset | null {
   let selected: { asset: TAsset; item: LocalEditorBrowserUiAssetItem } | null = null;
   for (const asset of state.assets) {
     if (resolveAssetId(options, asset) !== assetId) continue;
@@ -3977,7 +3977,7 @@ function findAssetByResolvedId<TDocument, TPatch, TAsset>(
       selected = { asset, item };
     }
   }
-  return selected?.asset;
+  return selected?.asset ?? null;
 }
 
 function toBrowserAssetItem<TDocument, TPatch, TAsset>(
