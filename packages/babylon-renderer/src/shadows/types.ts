@@ -13,9 +13,12 @@ export interface PlanarShadowColorRGBA {
   a: number;
 }
 
+export type PlanarShadowPlaneHeightMode = 'fixed' | 'receiver';
+
 export interface PlanarShadowPlaneOptions {
   normal: PlanarShadowVec3;
   height: number;
+  heightMode?: PlanarShadowPlaneHeightMode;
   bias: number;
 }
 
@@ -25,6 +28,10 @@ export interface PlanarShadowAppearanceOptions {
 
 export interface PlanarShadowDirectionOptions {
   mode: 'follow-light';
+}
+
+export interface PlanarShadowProjectionOptions {
+  footprintScale?: number;
 }
 
 export interface PlanarShadowStencilOptions {
@@ -50,6 +57,7 @@ export interface PlanarShadowOptions {
   plane: PlanarShadowPlaneOptions;
   appearance: PlanarShadowAppearanceOptions;
   direction?: PlanarShadowDirectionOptions;
+  projection?: PlanarShadowProjectionOptions;
   stencil?: PlanarShadowStencilOptions;
   casters?: PlanarShadowCasterOptions;
   receivers?: PlanarShadowReceiverOptions;
@@ -61,6 +69,7 @@ export interface ResolvedPlanarShadowOptions {
   plane: PlanarShadowPlaneOptions;
   appearance: PlanarShadowAppearanceOptions;
   direction: PlanarShadowDirectionOptions;
+  projection: Required<PlanarShadowProjectionOptions>;
   stencil: Required<PlanarShadowStencilOptions>;
   casters: Required<Pick<PlanarShadowCasterOptions, 'autoDetectAll' | 'includePatterns' | 'excludePatterns' | 'rootBoundaryPatterns' | 'minVolume'>>;
   receivers: Required<PlanarShadowReceiverOptions>;
@@ -99,13 +108,17 @@ export const DEFAULT_PLANAR_SHADOW_OPTIONS: ResolvedPlanarShadowOptions = {
   enabled: true,
   plane: {
     normal: { x: 0, y: 1, z: 0 },
-    height: 0.05,
+    height: 0,
+    heightMode: 'receiver',
     bias: 0.4,
   },
   appearance: {
     color: { r: 0, g: 0, b: 0, a: 0.35 },
   },
   direction: { mode: 'follow-light' },
+  projection: {
+    footprintScale: 1,
+  },
   stencil: {
     enabled: false,
     receiverRenderingGroup: 0,

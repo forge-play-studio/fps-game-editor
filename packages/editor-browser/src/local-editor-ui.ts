@@ -76,6 +76,11 @@ import type {
   LocalEditorBrowserInspectorPersistenceMode,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserRenderingPropertyChangeInput,
+  LocalEditorBrowserRenderingPropertyCommitMode,
+  LocalEditorBrowserRenderingPropertyControlKind,
+  LocalEditorBrowserRenderingPropertyEditSource,
+  LocalEditorBrowserRenderingPropertyValueType,
   LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserTransformAction,
   LocalEditorBrowserTransformSpace,
@@ -91,6 +96,7 @@ import type {
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
+  LocalEditorRightDockTab,
   LocalEditorThemeController,
 } from './local-editor-ui-types';
 
@@ -157,6 +163,17 @@ export type {
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserInspectorSection,
   LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserRenderingPanelState,
+  LocalEditorBrowserRenderingActionInput,
+  LocalEditorBrowserRenderingProperty,
+  LocalEditorBrowserRenderingPropertyChangeInput,
+  LocalEditorBrowserRenderingPropertyCommitMode,
+  LocalEditorBrowserRenderingPropertyControlKind,
+  LocalEditorBrowserRenderingPropertyEditSource,
+  LocalEditorBrowserRenderingPropertyValueType,
+  LocalEditorBrowserRenderingSection,
+  LocalEditorBrowserRenderingSystem,
+  LocalEditorBrowserRenderingSystemKind,
   LocalEditorBrowserPrimitiveShape,
   LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
@@ -189,6 +206,7 @@ export type {
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
+  LocalEditorRightDockTab,
   LocalEditorThemeController,
   LocalEditorContextAction,
   LocalEditorContextMenuItem,
@@ -383,14 +401,70 @@ function createInspectorPropertyInput(
   };
 }
 
+function readRenderingInputValue(input: HTMLInputElement | HTMLTextAreaElement): unknown {
+  const control = input.dataset.renderingControl;
+  const valueType = input.dataset.renderingValueType;
+  if (input instanceof HTMLInputElement && input.type === 'checkbox') return input.checked;
+  if (input instanceof HTMLInputElement && input.type === 'color') {
+    const value = input.value.replace('#', '');
+    const numeric = Number.parseInt(value, 16);
+    if (!Number.isFinite(numeric)) return null;
+    return {
+      r: ((numeric >> 16) & 255) / 255,
+      g: ((numeric >> 8) & 255) / 255,
+      b: (numeric & 255) / 255,
+    };
+  }
+  if (control === 'number' || valueType === 'number') return Number(input.value);
+  if (control === 'string-list' || valueType === 'string-list') {
+    return input.value
+      .split(/\r?\n/)
+      .map(value => value.trim())
+      .filter(Boolean);
+  }
+  if (control === 'boolean' || valueType === 'boolean') return input.value === 'true';
+  return input.value;
+}
+
+function createRenderingPropertyInput(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  source: LocalEditorBrowserRenderingPropertyEditSource,
+): LocalEditorBrowserRenderingPropertyChangeInput | null {
+  const sectionId = input.dataset.renderingSectionId;
+  const systemId = input.dataset.renderingSystemId;
+  const path = input.dataset.renderingPath;
+  if (!sectionId || !systemId || !path) return null;
+  return {
+    sectionId,
+    systemId,
+    path,
+    value: readRenderingInputValue(input),
+    control: input.dataset.renderingControl as LocalEditorBrowserRenderingPropertyControlKind | undefined,
+    valueType: input.dataset.renderingValueType as LocalEditorBrowserRenderingPropertyValueType | undefined,
+    commitMode: input.dataset.renderingCommitMode as LocalEditorBrowserRenderingPropertyCommitMode | undefined,
+    source,
+  };
+}
+
 function readInspectorCommitMode(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorCommitMode {
   return (input.dataset.serializedCommitMode as LocalEditorBrowserInspectorCommitMode | undefined) ?? 'live';
+}
+
+function readRenderingCommitMode(input: HTMLInputElement | HTMLTextAreaElement): LocalEditorBrowserRenderingPropertyCommitMode {
+  return (input.dataset.renderingCommitMode as LocalEditorBrowserRenderingPropertyCommitMode | undefined) ?? 'live';
 }
 
 function readInspectorImmediateSource(input: HTMLInputElement | HTMLSelectElement): LocalEditorBrowserInspectorEditSource {
   if (input instanceof HTMLSelectElement) return 'select';
   if (input.type === 'checkbox') return 'toggle';
   if (input.type === 'color') return 'color';
+  return 'input';
+}
+
+function readRenderingImmediateSource(input: HTMLInputElement | HTMLTextAreaElement): LocalEditorBrowserRenderingPropertyEditSource {
+  if (input instanceof HTMLInputElement && input.type === 'checkbox') return 'toggle';
+  if (input instanceof HTMLInputElement && input.type === 'color') return 'color';
+  if (input instanceof HTMLTextAreaElement) return 'list';
   return 'input';
 }
 
@@ -1101,9 +1175,13 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const workbench = createLocalEditorWorkbench(doc);
   const hierarchyPanel = createWorkbenchPanelContent(doc);
   const assetPanel = workbench.bottomDock;
+  const rightDockTabs = doc.createElement('div');
   const inspectorPanel = createWorkbenchPanelContent(doc);
+  const renderingPanel = createWorkbenchPanelContent(doc);
   workbench.leftDock.appendChild(hierarchyPanel);
+  workbench.rightDock.appendChild(rightDockTabs);
   workbench.rightDock.appendChild(inspectorPanel);
+  workbench.rightDock.appendChild(renderingPanel);
   root.appendChild(workbench.root);
   tooltipSurfaces.add(workbench.root);
   const workbenchLayoutController = createLocalEditorWorkbenchLayoutController(doc, workbench);
@@ -2149,6 +2227,23 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     }
   });
 
+  workbench.rightDock.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const openTabButton = target?.closest<HTMLButtonElement>('[data-editor-open-right-dock-tab]');
+    const openTab = openTabButton?.dataset.editorOpenRightDockTab as LocalEditorRightDockTab | undefined;
+    if (openTab === 'inspector' || openTab === 'rendering') {
+      panelRegistry.setRightDockTab(openTab);
+      if (currentState) render(currentState);
+      return;
+    }
+    const tabButton = target?.closest<HTMLButtonElement>('[data-editor-right-dock-tab]');
+    const tab = tabButton?.dataset.editorRightDockTab as LocalEditorRightDockTab | undefined;
+    if (tab === 'inspector' || tab === 'rendering') {
+      panelRegistry.setRightDockTab(tab);
+      if (currentState) render(currentState);
+    }
+  });
+
   const hierarchyController = createLocalEditorHierarchyController<TDocument>({
     doc,
     panel: hierarchyPanel,
@@ -2203,6 +2298,51 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (readInspectorCommitMode(input) !== 'blur') return;
     const propertyInput = createInspectorPropertyInput(input, 'input');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
+  });
+
+  renderingPanel.addEventListener('input', (event) => {
+    const input = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      ? event.target
+      : null;
+    if (!input?.dataset.editorRenderingProperty) return;
+    if (input instanceof HTMLInputElement && (input.type === 'checkbox' || input.type === 'color')) return;
+    if (readRenderingCommitMode(input) !== 'live') return;
+    const propertyInput = createRenderingPropertyInput(input, input instanceof HTMLTextAreaElement ? 'list' : 'input');
+    if (propertyInput) callbacks.onRenderingPropertyChange?.(propertyInput);
+  });
+
+  renderingPanel.addEventListener('change', (event) => {
+    const input = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      ? event.target
+      : null;
+    if (!input?.dataset.editorRenderingProperty) return;
+    if ((input instanceof HTMLInputElement && (input.type === 'text' || input.type === 'number')) || input instanceof HTMLTextAreaElement) {
+      if (readRenderingCommitMode(input) !== 'change') return;
+    }
+    const propertyInput = createRenderingPropertyInput(input, readRenderingImmediateSource(input));
+    if (propertyInput) callbacks.onRenderingPropertyChange?.(propertyInput);
+  });
+
+  renderingPanel.addEventListener('focusout', (event) => {
+    const input = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      ? event.target
+      : null;
+    if (!input?.dataset.editorRenderingProperty) return;
+    if (readRenderingCommitMode(input) !== 'blur') return;
+    const propertyInput = createRenderingPropertyInput(input, input instanceof HTMLTextAreaElement ? 'list' : 'input');
+    if (propertyInput) callbacks.onRenderingPropertyChange?.(propertyInput);
+  });
+
+  renderingPanel.addEventListener('click', (event) => {
+    const target = event.target instanceof Element
+      ? event.target.closest('[data-editor-rendering-action]')
+      : null;
+    if (!(target instanceof HTMLButtonElement)) return;
+    if (target.disabled) return;
+    const actionId = target.dataset.editorRenderingAction;
+    if (!actionId) return;
+    event.preventDefault();
+    callbacks.onRenderingAction?.({ actionId });
   });
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -2539,12 +2679,21 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     scheduleToolbarOverflowLayout();
     if (!inEditor) return;
     const hierarchyDescriptor = panelRegistry.getActivePanel('left');
-    const inspectorDescriptor = panelRegistry.getActivePanel('right');
+    const rightDescriptor = panelRegistry.getActivePanel('right');
+    const activeRightTab = panelRegistry.getRightDockTab();
     hierarchyPanel.dataset.editorPanelId = hierarchyDescriptor?.id ?? 'hierarchy';
-    inspectorPanel.dataset.editorPanelId = inspectorDescriptor?.id ?? 'inspector';
+    inspectorPanel.dataset.editorPanelId = activeRightTab === 'inspector' ? rightDescriptor?.id ?? 'inspector' : 'inspector';
+    renderingPanel.dataset.editorPanelId = activeRightTab === 'rendering' ? rightDescriptor?.id ?? 'rendering' : 'rendering';
+    inspectorPanel.style.display = activeRightTab === 'inspector' ? '' : 'none';
+    renderingPanel.style.display = activeRightTab === 'rendering' ? '' : 'none';
     hierarchyController.render(state);
     LocalEditorPanels.renderWorkbenchBottomDockPanel(doc, assetPanel, state, panelRegistry.getBottomDockTab(), panelRegistry.getPanels('bottom'));
-    LocalEditorPanels.renderInspectorPanel(doc, inspectorPanel, state, inspectorFilter, options.inspector);
+    LocalEditorPanels.renderWorkbenchRightDockTabs(doc, rightDockTabs, activeRightTab, panelRegistry.getPanels('right'));
+    if (activeRightTab === 'inspector') {
+      LocalEditorPanels.renderInspectorPanel(doc, inspectorPanel, state, inspectorFilter, options.inspector);
+    } else {
+      LocalEditorPanels.renderRenderingPanel(doc, renderingPanel, state);
+    }
     restoreEditableFocus(doc, focusSnapshot);
   };
 

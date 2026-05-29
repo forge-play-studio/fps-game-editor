@@ -1,12 +1,15 @@
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
-import { Color4 } from '@babylonjs/core/Maths/math.color';
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import type { Observer } from '@babylonjs/core/Misc/observable';
 import type { Scene } from '@babylonjs/core/scene';
 import {
@@ -44,6 +47,22 @@ type MaterialLike = {
   stencil?: StencilStateLike;
 };
 
+type PlanarShadowMeshPair =
+  | { mode: 'projected-mesh'; source: Mesh | InstancedMesh; shadow: Mesh }
+  | { mode: 'flat-hull'; source: Mesh | InstancedMesh; shadow: Mesh };
+
+type PlanarShadowHullGeometry = {
+  positions: number[];
+  indices: number[];
+  normals: number[];
+};
+
+type PlanarShadowHullPoint = {
+  x: number;
+  y: number;
+  point: Vector3;
+};
+
 export function createPlanarShadowSystem(
   scene: Scene,
   directionalLight: DirectionalLight,
@@ -55,6 +74,7 @@ export function createPlanarShadowSystem(
 class BabylonPlanarShadowSystem implements PlanarShadowSystem {
   private options: ResolvedPlanarShadowOptions;
   private baseMaterial: ShaderMaterial | null = null;
+  private flatMaterial: StandardMaterial | null = null;
   private readonly materials = new Set<ShaderMaterial>();
   private readonly casters = new Map<AbstractMesh, PlanarShadowCasterInfo>();
   private readonly receivers = new Map<AbstractMesh, PlanarShadowReceiverInfo>();
@@ -63,6 +83,8 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
   private meshAddedObserver: Observer<AbstractMesh> | null = null;
   private initialized = false;
   private casterPatterns: string[] = [];
+  private resolvedPlaneNormal = Vector3.Up();
+  private resolvedPlaneHeight = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -94,21 +116,7 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
 
   removeCaster(mesh: AbstractMesh): void {
     const root = this.findCasterRoot(mesh);
-    const info = this.casters.get(root);
-    if (!info) return;
-    const observer = this.syncObservers.get(root);
-    if (observer) {
-      this.scene.onBeforeRenderObservable.remove(observer);
-      this.syncObservers.delete(root);
-    }
-    for (const shadowMesh of info.shadow.getChildMeshes(false)) {
-      if (shadowMesh instanceof Mesh && shadowMesh.material && shadowMesh.material !== this.baseMaterial) {
-        this.materials.delete(shadowMesh.material as ShaderMaterial);
-        shadowMesh.material.dispose();
-      }
-    }
-    info.shadow.dispose();
-    this.casters.delete(root);
+    this.disposeCaster(root);
   }
 
   addReceiver(mesh: AbstractMesh): void {
@@ -167,6 +175,7 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
 
   refresh(): void {
     if (!this.initialized) return;
+    this.pruneDisposedCasters();
     this.refreshReceivers();
     for (const mesh of this.scene.meshes) this.tryAutoAddCaster(mesh);
     if (this.options.casters.autoDetectAll || this.casterPatterns.length > 0 || this.options.receivers.patterns.length > 0) {
@@ -176,11 +185,16 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
 
   setOptions(options: Partial<PlanarShadowOptions>): void {
     const wasEnabled = this.options.enabled;
+    const requiredUniqueMaterials = this.requiresPerShadowMaterial();
     this.options = resolvePlanarShadowOptions(options, this.options);
     this.casterPatterns = [...this.options.casters.includePatterns];
+    const requiresUniqueMaterials = this.requiresPerShadowMaterial();
     if (!wasEnabled && this.options.enabled) this.initialize();
     else if (wasEnabled && !this.options.enabled) this.dispose();
-    else this.refresh();
+    else {
+      if (requiredUniqueMaterials !== requiresUniqueMaterials) this.rebuildCasters();
+      this.refresh();
+    }
   }
 
   getOptions(): ResolvedPlanarShadowOptions {
@@ -208,11 +222,13 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
       this.scene.onBeforeRenderObservable.remove(observer);
       this.syncObservers.delete(mesh);
     }
-    for (const mesh of [...this.casters.keys()]) this.removeCaster(mesh);
+    for (const mesh of [...this.casters.keys()]) this.disposeCaster(mesh);
     for (const mesh of [...this.receivers.keys()]) this.removeReceiver(mesh);
     for (const material of this.materials) material.dispose();
     this.materials.clear();
     this.baseMaterial = null;
+    this.flatMaterial?.dispose();
+    this.flatMaterial = null;
     this.initialized = false;
   }
 
@@ -241,6 +257,9 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
     material.depthFunction = Constants.LEQUAL;
     material.needAlphaBlending = () => true;
     material.alphaMode = Constants.ALPHA_COMBINE;
+    material.onBindObservable.add((mesh) => {
+      if (mesh instanceof AbstractMesh) this.bindShadowProjectionUniforms(material, mesh);
+    });
 
     if (usesBones) {
       let lastBoundTexture: unknown = null;
@@ -286,6 +305,37 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
     return material;
   }
 
+  private getFlatShadowMaterial(): StandardMaterial {
+    if (this.flatMaterial) return this.flatMaterial;
+    const material = new StandardMaterial(`fps.planarShadow.flat`, this.scene);
+    material.backFaceCulling = false;
+    material.disableLighting = true;
+    material.disableDepthWrite = true;
+    material.diffuseColor = Color3.Black();
+    material.emissiveColor = Color3.Black();
+    material.alpha = clamp01(this.options.appearance.color.a);
+    material.alphaMode = Constants.ALPHA_COMBINE;
+
+    if (this.options.stencil.enabled && material.stencil) {
+      const stencil = material.stencil;
+      stencil.enabled = true;
+      stencil.func = Constants.EQUAL;
+      stencil.funcRef = 1;
+      stencil.funcMask = 0xff;
+      stencil.mask = 0xff;
+      stencil.opStencilDepthPass = Constants.INCR;
+      stencil.opStencilFail = Constants.KEEP;
+      stencil.opDepthFail = Constants.KEEP;
+      stencil.backFunc = stencil.func;
+      stencil.backOpStencilDepthPass = stencil.opStencilDepthPass;
+      stencil.backOpStencilFail = stencil.opStencilFail;
+      stencil.backOpDepthFail = stencil.opDepthFail;
+    }
+
+    this.flatMaterial = material;
+    return material;
+  }
+
   private updateUniforms(): void {
     if (this.materials.size === 0) return;
     const planeNormal = new Vector3(
@@ -293,6 +343,9 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
       this.options.plane.normal.y,
       this.options.plane.normal.z,
     ).normalize();
+    const planeHeight = this.resolvePlaneHeight(planeNormal);
+    this.resolvedPlaneNormal = planeNormal;
+    this.resolvedPlaneHeight = planeHeight;
     const lightDir = this.resolveShadowDirection();
     const shadowColor = new Color4(
       clamp01(this.options.appearance.color.r),
@@ -304,10 +357,56 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
     for (const material of this.materials) {
       material.setVector3('u_lightDir', lightDir);
       material.setVector3('u_planeNormal', planeNormal);
-      material.setFloat('u_planeHeight', this.options.plane.height);
+      material.setVector3('u_shadowCenter', new Vector3(0, planeHeight, 0));
+      material.setFloat('u_planeHeight', planeHeight);
       material.setFloat('u_planeBias', this.options.plane.bias);
+      material.setFloat('u_footprintScale', this.options.projection.footprintScale);
       material.setColor4('u_shadowColor', shadowColor);
     }
+
+    if (this.flatMaterial) {
+      const color = new Color3(shadowColor.r, shadowColor.g, shadowColor.b);
+      this.flatMaterial.diffuseColor = color;
+      this.flatMaterial.emissiveColor = color;
+      this.flatMaterial.alpha = shadowColor.a;
+    }
+  }
+
+  private bindShadowProjectionUniforms(material: ShaderMaterial, mesh: AbstractMesh): void {
+    mesh.computeWorldMatrix(true);
+    const center = mesh.getBoundingInfo()?.boundingBox.centerWorld.clone() ?? Vector3.Zero();
+    const offset = Vector3.Dot(this.resolvedPlaneNormal, center) - this.resolvedPlaneHeight;
+    const projectedCenter = center.subtract(this.resolvedPlaneNormal.scale(offset));
+    material.setVector3('u_shadowCenter', projectedCenter);
+  }
+
+  private requiresPerShadowMaterial(): boolean {
+    return Math.abs(this.options.projection.footprintScale - 1) > 1e-6;
+  }
+
+  private resolvePlaneHeight(planeNormal: Vector3): number {
+    const fallbackHeight = this.options.plane.height;
+    if (this.options.plane.heightMode !== 'receiver') return fallbackHeight;
+
+    let totalHeight = 0;
+    let receiverCount = 0;
+    for (const mesh of this.receivers.keys()) {
+      if (isDisposedNode(mesh)) continue;
+      mesh.computeWorldMatrix(true);
+      const vectorsWorld = mesh.getBoundingInfo()?.boundingBox?.vectorsWorld;
+      if (!vectorsWorld || vectorsWorld.length === 0) continue;
+
+      let receiverSurfaceHeight = -Infinity;
+      for (const point of vectorsWorld) {
+        const height = Vector3.Dot(planeNormal, point);
+        if (Number.isFinite(height)) receiverSurfaceHeight = Math.max(receiverSurfaceHeight, height);
+      }
+      if (!Number.isFinite(receiverSurfaceHeight)) continue;
+      totalHeight += receiverSurfaceHeight;
+      receiverCount += 1;
+    }
+
+    return receiverCount > 0 ? totalHeight / receiverCount : fallbackHeight;
   }
 
   private resolveShadowDirection(): Vector3 {
@@ -324,6 +423,43 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
     for (const mesh of this.scene.meshes) {
       if (this.matchesReceiver(mesh)) this.addReceiver(mesh);
     }
+  }
+
+  private pruneDisposedCasters(): void {
+    for (const [root, info] of [...this.casters]) {
+      if (isDisposedNode(root) || isDisposedNode(info.shadow)) {
+        this.disposeCaster(root);
+      }
+    }
+  }
+
+  private disposeCaster(root: AbstractMesh): void {
+    const info = this.casters.get(root);
+    if (!info) return;
+    const observer = this.syncObservers.get(root);
+    if (observer) {
+      this.scene.onBeforeRenderObservable.remove(observer);
+      this.syncObservers.delete(root);
+    }
+    for (const shadowMesh of info.shadow.getChildMeshes(false)) {
+      if (
+        shadowMesh instanceof Mesh
+        && shadowMesh.material
+        && shadowMesh.material !== this.baseMaterial
+        && shadowMesh.material !== this.flatMaterial
+      ) {
+        this.materials.delete(shadowMesh.material as ShaderMaterial);
+        shadowMesh.material.dispose();
+      }
+    }
+    info.shadow.dispose();
+    this.casters.delete(root);
+  }
+
+  private rebuildCasters(): void {
+    const roots = [...this.casters.keys()].filter((root) => !isDisposedNode(root));
+    for (const root of roots) this.disposeCaster(root);
+    for (const root of roots) this.addCaster(root);
   }
 
   private tryAutoAddCaster(mesh: AbstractMesh): void {
@@ -352,26 +488,32 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
     if (validMeshes.length === 0) return null;
     const shadowRoot = new TransformNode(`${root.name}_planarShadowRoot`, this.scene) as unknown as AbstractMesh;
     let hasSkeleton = false;
-    const pairs: Array<{ source: Mesh | InstancedMesh; shadow: Mesh }> = [];
+    const pairs: PlanarShadowMeshPair[] = [];
     let sharedSkeleton: unknown = null;
     let sharedMaterial: ShaderMaterial | null = null;
 
     for (const mesh of validMeshes) {
       if (!(mesh instanceof Mesh) && !(mesh instanceof InstancedMesh)) continue;
       const geometrySource = mesh instanceof InstancedMesh ? mesh.sourceMesh : mesh;
-      const material: ShaderMaterial | null = geometrySource.skeleton
-        ? this.resolveSkeletonShadowMaterial(geometrySource, sharedSkeleton, sharedMaterial)
-        : this.baseMaterial;
+
       if (geometrySource.skeleton) {
+        const material = this.resolveShadowMaterial(geometrySource, sharedSkeleton, sharedMaterial);
         hasSkeleton = true;
         sharedSkeleton = geometrySource.skeleton;
         sharedMaterial = material;
+        if (!material) continue;
+        const shadowMesh = this.createProjectedShadowMesh(mesh, material);
+        if (shadowMesh) {
+          shadowMesh.parent = shadowRoot;
+          pairs.push({ mode: 'projected-mesh', source: mesh, shadow: shadowMesh });
+        }
+        continue;
       }
-      if (!material) continue;
-      const shadowMesh = this.createShadowMesh(mesh, material);
+
+      const shadowMesh = this.createHullShadowMesh(mesh);
       if (shadowMesh) {
         shadowMesh.parent = shadowRoot;
-        pairs.push({ source: mesh, shadow: shadowMesh });
+        pairs.push({ mode: 'flat-hull', source: mesh, shadow: shadowMesh });
       }
     }
 
@@ -384,11 +526,15 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
       if (shadowRoot.isDisposed()) return;
       for (const pair of pairs) {
         if (pair.source.isDisposed() || pair.shadow.isDisposed()) continue;
-        pair.source.computeWorldMatrix(true).decompose(
-          pair.shadow.scaling,
-          pair.shadow.rotationQuaternion!,
-          pair.shadow.position,
-        );
+        if (pair.mode === 'flat-hull') {
+          this.updateHullShadowMesh(pair.source, pair.shadow);
+        } else {
+          pair.source.computeWorldMatrix(true).decompose(
+            pair.shadow.scaling,
+            pair.shadow.rotationQuaternion!,
+            pair.shadow.position,
+          );
+        }
       }
     };
     sync();
@@ -416,7 +562,28 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
     return material;
   }
 
-  private createShadowMesh(source: Mesh | InstancedMesh, material: ShaderMaterial): Mesh | null {
+  private resolveShadowMaterial(
+    geometrySource: Mesh,
+    sharedSkeleton: unknown,
+    sharedMaterial: ShaderMaterial | null,
+  ): ShaderMaterial | null {
+    if (this.requiresPerShadowMaterial()) {
+      const material = geometrySource.skeleton
+        ? this.createShadowMaterial(getPlanarShadowSkeletonDefines(
+          geometrySource.skeleton?.bones.length ?? 0,
+          !!this.scene.getEngine().getCaps().textureFloat && (geometrySource.skeleton?.bones.length ?? 0) > 4,
+          geometrySource.isVerticesDataPresent('matricesIndicesExtra'),
+        ))
+        : this.createShadowMaterial();
+      this.materials.add(material);
+      return material;
+    }
+    return geometrySource.skeleton
+      ? this.resolveSkeletonShadowMaterial(geometrySource, sharedSkeleton, sharedMaterial)
+      : this.baseMaterial;
+  }
+
+  private createProjectedShadowMesh(source: Mesh | InstancedMesh, material: ShaderMaterial): Mesh | null {
     const geometrySource = source instanceof InstancedMesh ? source.sourceMesh : source;
     const shadowMesh = geometrySource.clone(`${source.name}_planarShadow`, null, true, false) as Mesh | null;
     if (!shadowMesh) return null;
@@ -440,6 +607,45 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
     return shadowMesh;
   }
 
+  private createHullShadowMesh(source: Mesh | InstancedMesh): Mesh | null {
+    const shadowMesh = new Mesh(`${source.name}_planarShadow`, this.scene);
+    shadowMesh.material = this.getFlatShadowMaterial();
+    shadowMesh.isPickable = false;
+    shadowMesh.receiveShadows = false;
+    shadowMesh.renderingGroupId = this.options.stencil.shadowRenderingGroup;
+    shadowMesh.alphaIndex = PLANAR_SHADOW_ALPHA_INDEX;
+    shadowMesh.renderOutline = false;
+    shadowMesh.renderOverlay = false;
+    shadowMesh.metadata = {
+      ...(shadowMesh.metadata && typeof shadowMesh.metadata === 'object' ? shadowMesh.metadata : {}),
+      disablePlanarShadow: true,
+      planarShadowInternal: true,
+    };
+    this.updateHullShadowMesh(source, shadowMesh);
+    return shadowMesh;
+  }
+
+  private updateHullShadowMesh(source: Mesh | InstancedMesh, shadowMesh: Mesh): void {
+    const geometry = buildPlanarShadowHullGeometry(source, {
+      lightDir: this.resolveShadowDirection(),
+      planeNormal: this.resolvedPlaneNormal,
+      planeHeight: this.resolvedPlaneHeight,
+      planeBias: this.options.plane.bias,
+      footprintScale: this.options.projection.footprintScale,
+    });
+    if (!geometry) {
+      shadowMesh.isVisible = false;
+      return;
+    }
+
+    const vertexData = new VertexData();
+    vertexData.positions = geometry.positions;
+    vertexData.indices = geometry.indices;
+    vertexData.normals = geometry.normals;
+    vertexData.applyToMesh(shadowMesh, true);
+    shadowMesh.isVisible = true;
+  }
+
   private isValidShadowSource(mesh: AbstractMesh): boolean {
     if (!(mesh instanceof Mesh) && !(mesh instanceof InstancedMesh)) return false;
     if (mesh instanceof Mesh && !mesh.geometry) return false;
@@ -447,6 +653,7 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
     if (!mesh.isVisible || !mesh.isEnabled()) return false;
     if (hasDisablePlanarShadowMetadata(mesh)) return false;
     if (this.matchesExcludePattern(mesh) || this.hasExcludedAncestor(mesh)) return false;
+    if (this.matchesReceiverPattern(mesh)) return false;
     mesh.computeWorldMatrix(true);
     const size = mesh.getBoundingInfo()?.boundingBox.extendSizeWorld;
     if (!size) return true;
@@ -478,7 +685,11 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
       && !hasDisablePlanarShadowMetadata(mesh)
       && !this.matchesExcludePattern(mesh)
       && !this.hasExcludedAncestor(mesh)
-      && this.options.receivers.patterns.some((pattern) => nodeOrAncestorNameIncludes(mesh, pattern));
+      && this.matchesReceiverPattern(mesh);
+  }
+
+  private matchesReceiverPattern(mesh: AbstractMesh): boolean {
+    return this.options.receivers.patterns.some((pattern) => nodeOrAncestorNameIncludes(mesh, pattern));
   }
 
   private matchesExcludePattern(node: { name?: string }): boolean {
@@ -508,17 +719,154 @@ class BabylonPlanarShadowSystem implements PlanarShadowSystem {
   }
 }
 
+function buildPlanarShadowHullGeometry(
+  source: Mesh | InstancedMesh,
+  options: {
+    lightDir: Vector3;
+    planeNormal: Vector3;
+    planeHeight: number;
+    planeBias: number;
+    footprintScale: number;
+  },
+): PlanarShadowHullGeometry | null {
+  const geometrySource = source instanceof InstancedMesh ? source.sourceMesh : source;
+  const positions = geometrySource.getVerticesData(VertexBuffer.PositionKind);
+  if (!positions || positions.length < 9) return null;
+
+  const planeNormal = options.planeNormal.clone().normalize();
+  const lightDir = options.lightDir.clone().normalize();
+  const denom = Vector3.Dot(planeNormal, lightDir);
+  if (Math.abs(denom) < 1e-5) return null;
+
+  source.computeWorldMatrix(true);
+  const worldMatrix = source.getWorldMatrix();
+  const projectedPoints: Vector3[] = [];
+  for (let index = 0; index < positions.length; index += 3) {
+    const localPoint = new Vector3(
+      Number(positions[index]),
+      Number(positions[index + 1]),
+      Number(positions[index + 2]),
+    );
+    const worldPoint = Vector3.TransformCoordinates(localPoint, worldMatrix);
+    const t = (options.planeHeight - Vector3.Dot(planeNormal, worldPoint)) / denom;
+    if (t < -1e-4) continue;
+    const projectedPoint = worldPoint.add(lightDir.scale(Math.max(0, t)));
+    projectedPoints.push(projectedPoint);
+  }
+  if (projectedPoints.length < 3) return null;
+
+  const scaleCenter = averageVector3(projectedPoints);
+  const footprintScale = Number.isFinite(options.footprintScale) ? Math.max(0, options.footprintScale) : 1;
+  const biasedPoints = projectedPoints.map((point) => {
+    const scaled = footprintScale === 1
+      ? point
+      : scaleCenter.add(point.subtract(scaleCenter).scale(footprintScale));
+    return scaled.add(planeNormal.scale(options.planeBias * 0.002));
+  });
+
+  const basis = buildPlaneBasis(planeNormal);
+  const points2d = dedupeHullPoints(biasedPoints.map((point) => ({
+    x: Vector3.Dot(point, basis.tangent),
+    y: Vector3.Dot(point, basis.bitangent),
+    point,
+  })));
+  if (points2d.length < 3) return null;
+
+  const hull = buildConvexHull(points2d);
+  if (hull.length < 3) return null;
+
+  const center = averageVector3(hull.map((point) => point.point));
+  const positionsOut = [center.x, center.y, center.z];
+  const normalsOut = [planeNormal.x, planeNormal.y, planeNormal.z];
+  for (const hullPoint of hull) {
+    positionsOut.push(hullPoint.point.x, hullPoint.point.y, hullPoint.point.z);
+    normalsOut.push(planeNormal.x, planeNormal.y, planeNormal.z);
+  }
+
+  const indicesOut: number[] = [];
+  for (let index = 1; index <= hull.length; index += 1) {
+    indicesOut.push(0, index, index === hull.length ? 1 : index + 1);
+  }
+
+  return {
+    positions: positionsOut,
+    indices: indicesOut,
+    normals: normalsOut,
+  };
+}
+
+function buildPlaneBasis(normal: Vector3): { tangent: Vector3; bitangent: Vector3 } {
+  const seed = Math.abs(Vector3.Dot(normal, Vector3.Up())) > 0.95
+    ? Vector3.Right()
+    : Vector3.Up();
+  const tangent = Vector3.Cross(seed, normal).normalize();
+  const bitangent = Vector3.Cross(normal, tangent).normalize();
+  return { tangent, bitangent };
+}
+
+function dedupeHullPoints(points: PlanarShadowHullPoint[]): PlanarShadowHullPoint[] {
+  const seen = new Map<string, PlanarShadowHullPoint>();
+  for (const point of points) {
+    const key = `${Math.round(point.x * 100000)}:${Math.round(point.y * 100000)}`;
+    if (!seen.has(key)) seen.set(key, point);
+  }
+  return [...seen.values()];
+}
+
+function buildConvexHull(points: PlanarShadowHullPoint[]): PlanarShadowHullPoint[] {
+  const sorted = [...points].sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
+  const lower: PlanarShadowHullPoint[] = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && hullCross(lower[lower.length - 2], lower[lower.length - 1], point) <= 1e-7) {
+      lower.pop();
+    }
+    lower.push(point);
+  }
+
+  const upper: PlanarShadowHullPoint[] = [];
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const point = sorted[index];
+    while (upper.length >= 2 && hullCross(upper[upper.length - 2], upper[upper.length - 1], point) <= 1e-7) {
+      upper.pop();
+    }
+    upper.push(point);
+  }
+
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function hullCross(origin: PlanarShadowHullPoint, a: PlanarShadowHullPoint, b: PlanarShadowHullPoint): number {
+  return (a.x - origin.x) * (b.y - origin.y) - (a.y - origin.y) * (b.x - origin.x);
+}
+
+function averageVector3(points: Vector3[]): Vector3 {
+  const total = points.reduce((sum, point) => sum.addInPlace(point), Vector3.Zero());
+  return total.scale(1 / points.length);
+}
+
 function resolvePlanarShadowOptions(
   override: Partial<PlanarShadowOptions>,
   base: ResolvedPlanarShadowOptions = DEFAULT_PLANAR_SHADOW_OPTIONS,
 ): ResolvedPlanarShadowOptions {
   return {
     enabled: override.enabled ?? base.enabled,
-    plane: { ...base.plane, ...override.plane },
+    plane: {
+      ...base.plane,
+      ...override.plane,
+      heightMode: readPlaneHeightMode(override.plane?.heightMode, base.plane.heightMode),
+    },
     appearance: {
       color: { ...base.appearance.color, ...override.appearance?.color },
     },
     direction: { mode: 'follow-light' },
+    projection: {
+      footprintScale: readNonNegativeFiniteNumber(
+        override.projection?.footprintScale,
+        base.projection.footprintScale,
+      ),
+    },
     stencil: {
       enabled: override.stencil?.enabled ?? base.stencil.enabled,
       receiverRenderingGroup: override.stencil?.receiverRenderingGroup ?? base.stencil.receiverRenderingGroup,
@@ -542,6 +890,17 @@ function resolvePlanarShadowOptions(
 
 function cloneResolvedOptions(options: ResolvedPlanarShadowOptions): ResolvedPlanarShadowOptions {
   return resolvePlanarShadowOptions(options);
+}
+
+function readPlaneHeightMode(
+  value: PlanarShadowOptions['plane']['heightMode'] | undefined,
+  fallback: PlanarShadowOptions['plane']['heightMode'] | undefined,
+): NonNullable<PlanarShadowOptions['plane']['heightMode']> {
+  return value === 'fixed' || value === 'receiver'
+    ? value
+    : fallback === 'fixed' || fallback === 'receiver'
+      ? fallback
+      : 'receiver';
 }
 
 function collectNodeMeshes(root: AbstractMesh): AbstractMesh[] {
@@ -576,6 +935,14 @@ function hasDisablePlanarShadowMetadata(node: { metadata?: unknown }): boolean {
     && typeof metadata === 'object'
     && ((metadata as { disablePlanarShadow?: unknown }).disablePlanarShadow === true
       || (metadata as { planarShadowInternal?: unknown }).planarShadowInternal === true);
+}
+
+function isDisposedNode(node: { isDisposed?: () => boolean }): boolean {
+  return typeof node.isDisposed === 'function' && node.isDisposed();
+}
+
+function readNonNegativeFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 function readMeshMaterial(mesh: AbstractMesh): MaterialLike | null {

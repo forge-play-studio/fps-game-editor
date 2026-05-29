@@ -1,5 +1,6 @@
 import type {
   LocalEditorBottomDockTab,
+  LocalEditorRightDockTab,
   LocalEditorWorkbenchDockArea,
   LocalEditorWorkbenchLayout,
   LocalEditorWorkbenchPanelDescriptor,
@@ -11,6 +12,8 @@ export interface LocalEditorPanelRegistry {
   getPanels(area: LocalEditorWorkbenchDockArea): LocalEditorWorkbenchPanelDescriptor[];
   getActivePanel(area: LocalEditorWorkbenchDockArea): LocalEditorWorkbenchPanelDescriptor | null;
   setActivePanel(area: LocalEditorWorkbenchDockArea, id: LocalEditorWorkbenchPanelId): void;
+  getRightDockTab(): LocalEditorRightDockTab;
+  setRightDockTab(tab: LocalEditorRightDockTab): void;
   getBottomDockTab(): LocalEditorBottomDockTab;
   setBottomDockTab(tab: LocalEditorBottomDockTab): void;
 }
@@ -37,6 +40,13 @@ export function createLocalEditorPanelRegistry(layout: LocalEditorWorkbenchLayou
     setActivePanel(area, id) {
       if (!canActivate(area, id)) return;
       layout.activeTabs[area] = id;
+    },
+    getRightDockTab() {
+      const activeId = layout.activeTabs.right;
+      return activeId === 'rendering' ? 'rendering' : 'inspector';
+    },
+    setRightDockTab(tab) {
+      layout.activeTabs.right = tab;
     },
     getBottomDockTab() {
       const activeId = layout.activeTabs.bottom;

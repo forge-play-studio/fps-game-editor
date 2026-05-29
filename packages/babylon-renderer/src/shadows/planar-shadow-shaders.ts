@@ -30,8 +30,10 @@ uniform mat4 world;
 uniform mat4 viewProjection;
 uniform vec3 u_lightDir;
 uniform vec3 u_planeNormal;
+uniform vec3 u_shadowCenter;
 uniform float u_planeHeight;
 uniform float u_planeBias;
+uniform float u_footprintScale;
 
 varying float v_t;
 
@@ -50,6 +52,17 @@ mat4 readMatrixFromRawSampler(sampler2D smp, float index) {
 #endif
 
 void main() {
+  #ifdef FLAT_SHADOW
+  vec3 projPos = (world * vec4(position, 1.0)).xyz;
+  v_t = 1.0;
+
+  vec4 clipPos = viewProjection * vec4(projPos, 1.0);
+  clipPos.z -= u_planeBias * 2e-4 * clipPos.w;
+
+  gl_Position = clipPos;
+  return;
+  #endif
+
   #ifdef BONE
   #ifdef BONETEXTURE
   mat4 m0 = readMatrixFromRawSampler(boneSampler, matricesIndices.x);
@@ -104,6 +117,7 @@ void main() {
   v_t = t;
 
   vec3 projPos = worldPos + u_lightDir * t;
+  projPos = u_shadowCenter + (projPos - u_shadowCenter) * u_footprintScale;
   projPos += u_planeNormal * (u_planeBias * 0.002);
 
   vec4 clipPos = viewProjection * vec4(projPos, 1.0);
@@ -142,8 +156,10 @@ export function getPlanarShadowShaderUniforms(): string[] {
     'viewProjection',
     'u_lightDir',
     'u_planeNormal',
+    'u_shadowCenter',
     'u_planeHeight',
     'u_planeBias',
+    'u_footprintScale',
     'u_shadowColor',
     'mBones',
     'boneTextureWidth',

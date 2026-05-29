@@ -78,6 +78,9 @@ import {
   type LocalEditorBrowserHierarchyContextActionRegistration,
   type LocalEditorBrowserHierarchySelectionInput,
   type LocalEditorBrowserInspectorOptions,
+  type LocalEditorBrowserRenderingPanelState,
+  type LocalEditorBrowserRenderingActionInput,
+  type LocalEditorBrowserRenderingPropertyChangeInput,
   type LocalEditorBrowserUiPropertyInput,
   type LocalEditorBrowserUiHierarchyItem,
   type LocalEditorBrowserUiState,
@@ -198,6 +201,24 @@ export interface LocalEditorHarnessMultiPropertyInput<TDocument = unknown> {
   commitMode?: InspectorCommitMode;
   persistence?: InspectorPersistenceMode;
   source?: InspectorEditPayload['source'];
+}
+
+export interface LocalEditorHarnessRenderingPropertyInput<TDocument = unknown>
+  extends LocalEditorBrowserRenderingPropertyChangeInput {
+  document: TDocument;
+}
+
+export interface LocalEditorHarnessRenderingActionInput<TDocument = unknown>
+  extends LocalEditorBrowserRenderingActionInput {
+  document: TDocument;
+}
+
+export interface LocalEditorHarnessRenderingPropertyChangeResult {
+  changed?: boolean;
+  status?: string;
+  statusTone?: LocalEditorBrowserUiState['statusTone'];
+  statusDetails?: string;
+  refreshWorldRendering?: boolean;
 }
 
 export interface LocalEditorHarnessRuntimeInspectorContext<TDocument = unknown> {
@@ -389,6 +410,13 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   getSceneCameraPreviewRig?(document: TDocument): BabylonSceneCameraPreviewRig | null;
   getWorldAppearance?(document: TDocument): LocalEditorHarnessWorldAppearance | null;
   getWorldRendering?(document: TDocument): LocalEditorHarnessWorldRendering | null;
+  getRenderingPanelState?(document: TDocument): LocalEditorBrowserRenderingPanelState | null;
+  onRenderingAction?(input: LocalEditorHarnessRenderingActionInput<TDocument>): LocalEditorMaybePromise<
+    boolean | void | LocalEditorHarnessRenderingPropertyChangeResult
+  >;
+  onRenderingPropertyChange?(input: LocalEditorHarnessRenderingPropertyInput<TDocument>): LocalEditorMaybePromise<
+    boolean | void | LocalEditorHarnessRenderingPropertyChangeResult
+  >;
   isSelectable?(document: TDocument, id: string): boolean;
   isLocked?(document: TDocument, id: string): boolean;
   createPatchFromAsset(asset: TAsset, input?: LocalEditorHarnessAssetPatchInput<TDocument, TAsset>): { patch: TPatch; label?: string };
@@ -681,6 +709,22 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
         const patched = patchSerializedProperty(state, options, input);
         if (patched || state.status !== previousStatus) harness.render();
       },
+      onRenderingPropertyChange: options.documentAdapter.onRenderingPropertyChange
+        ? (input) => {
+            void applyRenderingPropertyChange(state, options, input)
+              .then((changed) => {
+                if (changed) harness.render();
+              });
+          }
+        : undefined,
+      onRenderingAction: options.documentAdapter.onRenderingAction
+        ? (input) => {
+            void applyRenderingAction(state, options, input)
+              .then((changed) => {
+                if (changed) harness.render();
+              });
+          }
+        : undefined,
       onTransformToolChange: (tool) => {
         state.transformTool = tool;
         state.transformConstraint = normalizeTransformConstraint(tool, state.transformConstraint);
@@ -2698,6 +2742,95 @@ function patchSerializedProperty<TDocument, TPatch, TAsset>(
   return true;
 }
 
+async function applyRenderingPropertyChange<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  input: LocalEditorBrowserRenderingPropertyChangeInput,
+): Promise<boolean> {
+  if (state.mode !== 'editor') return false;
+  if (!state.session || !options.documentAdapter.onRenderingPropertyChange) return false;
+  const document = state.session.getState().workingDocument;
+  try {
+    const result = await options.documentAdapter.onRenderingPropertyChange({
+      document,
+      sectionId: input.sectionId,
+      systemId: input.systemId,
+      path: input.path,
+      value: input.value,
+      control: input.control,
+      valueType: input.valueType,
+      commitMode: input.commitMode,
+      source: input.source,
+    });
+    const resultObject = typeof result === 'object' && result != null ? result : null;
+    const changed = result === true || resultObject?.changed === true || resultObject?.refreshWorldRendering === true;
+    if (resultObject?.status) {
+      state.status = resultObject.status;
+      state.statusTone = resultObject.statusTone ?? 'default';
+      state.statusToneStatus = state.status;
+      state.statusDetails = resultObject.statusDetails ?? '';
+    } else if (changed) {
+      state.status = `Updated rendering: ${input.path}`;
+      state.statusTone = 'success';
+      state.statusToneStatus = state.status;
+      state.statusDetails = '';
+    }
+    if (changed) {
+      syncEditorWorldRenderingFromDocument(state, options, document, 'rendering-panel-change', true);
+      requestEditorSceneFrame(state, 'rendering-panel-change');
+    }
+    return changed || !!resultObject?.status;
+  } catch (error) {
+    state.status = error instanceof Error ? error.message : String(error);
+    state.statusTone = 'error';
+    state.statusToneStatus = state.status;
+    state.statusDetails = state.status;
+    console.error('[LocalEditorHarness] rendering property change failed', error);
+    return true;
+  }
+}
+
+async function applyRenderingAction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  input: LocalEditorBrowserRenderingActionInput,
+): Promise<boolean> {
+  if (state.mode !== 'editor') return false;
+  if (!state.session || !options.documentAdapter.onRenderingAction) return false;
+  const document = state.session.getState().workingDocument;
+  try {
+    const result = await options.documentAdapter.onRenderingAction({
+      document,
+      actionId: input.actionId,
+    });
+    const resultObject = typeof result === 'object' && result != null ? result : null;
+    const changed = result === true || resultObject?.changed === true || resultObject?.refreshWorldRendering === true;
+    if (resultObject?.status) {
+      state.status = resultObject.status;
+      state.statusTone = resultObject.statusTone ?? 'default';
+      state.statusToneStatus = state.status;
+      state.statusDetails = resultObject.statusDetails ?? '';
+    } else if (changed) {
+      state.status = `Rendering action: ${input.actionId}`;
+      state.statusTone = 'success';
+      state.statusToneStatus = state.status;
+      state.statusDetails = '';
+    }
+    if (changed) {
+      syncEditorWorldRenderingFromDocument(state, options, document, 'rendering-panel-action', true);
+      requestEditorSceneFrame(state, 'rendering-panel-action');
+    }
+    return changed || !!resultObject?.status;
+  } catch (error) {
+    state.status = error instanceof Error ? error.message : String(error);
+    state.statusTone = 'error';
+    state.statusToneStatus = state.status;
+    state.statusDetails = state.status;
+    console.error('[LocalEditorHarness] rendering action failed', error);
+    return true;
+  }
+}
+
 function createInspectorEditTransaction<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -3294,6 +3427,7 @@ function createUiState<TDocument, TPatch, TAsset>(
     serializedMultiObject,
     inspectorObject,
     inspectorMultiObject,
+    renderingPanel: document ? options.documentAdapter.getRenderingPanelState?.(document) ?? null : null,
     boxSelection: state.boxSelection,
     coordinateAxes: options.world?.coordinateAxes === false
       ? null
