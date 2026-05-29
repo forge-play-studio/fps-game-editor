@@ -4,6 +4,53 @@ import { createBabylonEditorProjection } from '../../packages/editor-babylon/src
 import { createBabylonSceneCameraPreviewController } from '../../packages/editor-babylon/src/scene-camera-preview';
 
 describe('Babylon editor projection runtime helpers', () => {
+  it('creates primitive projection materials from artist material kind', () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+    });
+
+    const pbrNode = projection.projectNode({
+      id: 'pbr_plane',
+      primitive: { shape: 'plane' },
+      artistMaterialKind: 'pbr',
+      artistMaterialProfile: {
+        metallic: 0.7,
+        roughness: 0.2,
+      },
+    });
+    const pbrMaterial = pbrNode?.outlineMeshes[0]?.material;
+    expect(pbrMaterial).toBeInstanceOf(BABYLON.PBRMaterial);
+    expect(pbrMaterial?.metallic).toBeCloseTo(0.7);
+    expect(pbrMaterial?.roughness).toBeCloseTo(0.2);
+
+    const standardNode = projection.projectNode({
+      id: 'standard_box',
+      primitive: { shape: 'cube' },
+      artistMaterialKind: 'standard',
+      artistMaterialProfile: {
+        baseColor: {
+          color: { r: 1, g: 0.25, b: 0.125 },
+        },
+        metallic: 0.7,
+        roughness: 0.2,
+      },
+    });
+    const standardMaterial = standardNode?.outlineMeshes[0]?.material;
+    expect(standardMaterial).toBeInstanceOf(BABYLON.StandardMaterial);
+    expect(standardMaterial?.diffuseColor.r).toBeCloseTo(1);
+    expect(standardMaterial?.diffuseColor.g).toBeCloseTo(0.25);
+    expect(standardMaterial?.diffuseColor.b).toBeCloseTo(0.125);
+    expect('metallic' in standardMaterial).toBe(false);
+    expect((standardMaterial as any)?.roughness).not.toBeCloseTo(0.2);
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
   it('renders the MVP root helper as a sphere with a Root label', () => {
     const { babylon, scene } = createFakeRootProjectionRuntime();
     const projection = createBabylonEditorProjection({
@@ -237,6 +284,56 @@ describe('Babylon editor projection runtime helpers', () => {
 
     projection.removeNode('environment_light');
     expect(scene.lights.filter(light => light.name === 'environment_light.hemisphericLight')).toHaveLength(0);
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('detaches shared imported material before applying a slot material profile', async () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const sharedMaterial = new BABYLON.StandardMaterial('shared_slot_material', scene);
+    sharedMaterial.diffuseColor = new BABYLON.Color3(0.2, 0.3, 0.4);
+    const slotA = BABYLON.MeshBuilder.CreateBox('slot_a', { size: 1 }, scene);
+    const slotB = BABYLON.MeshBuilder.CreateBox('slot_b', { size: 1 }, scene);
+    slotA.material = sharedMaterial;
+    slotB.material = sharedMaterial;
+
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      importModel: async () => ({
+        meshes: [slotA, slotB],
+        transformNodes: [],
+        animationGroups: [],
+      }),
+    });
+
+    const projected = projection.projectNode({
+      id: 'asset_node',
+      name: 'Asset Node',
+      asset: { id: 'asset_box', sourceId: 'box' },
+      artistMaterialSlotProfiles: {
+        slot_a: {
+          baseColor: {
+            color: { r: 1, g: 0, b: 0 },
+          },
+        },
+      },
+    });
+
+    await projected?.loadPromise;
+
+    expect(slotA.material).toBeInstanceOf(BABYLON.StandardMaterial);
+    expect(slotA.material).not.toBe(sharedMaterial);
+    expect((slotA.material as BABYLON.StandardMaterial).diffuseColor.r).toBeCloseTo(1);
+    expect((slotA.material as BABYLON.StandardMaterial).diffuseColor.g).toBeCloseTo(0);
+    expect((slotA.material as BABYLON.StandardMaterial).diffuseColor.b).toBeCloseTo(0);
+    expect(slotB.material).toBe(sharedMaterial);
+    expect(sharedMaterial.diffuseColor.r).toBeCloseTo(0.2);
+    expect(sharedMaterial.diffuseColor.g).toBeCloseTo(0.3);
+    expect(sharedMaterial.diffuseColor.b).toBeCloseTo(0.4);
 
     projection.dispose();
     scene.dispose();

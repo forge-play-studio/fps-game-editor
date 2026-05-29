@@ -1,4 +1,11 @@
-import type { MaterialProp, MaterialRuntimeKind, MaterialValue, PersistentBinding } from '@fps-games/editor-protocol';
+import type {
+  ArtistMaterialProfile,
+  ColorRGB,
+  MaterialProp,
+  MaterialRuntimeKind,
+  MaterialValue,
+  PersistentBinding,
+} from '@fps-games/editor-protocol';
 import { getBabylonRuntime } from './runtime-globals';
 import type { BabylonRuntimeGlobal, CanonicalMaterialChange, RuntimeNode, RuntimeScene } from './types';
 
@@ -39,6 +46,14 @@ type AdaptMaterialPropertyChangeOptions = {
 
 type ApplyMaterialRuntimeOptions = {
   babylon?: BabylonRuntimeGlobal | null;
+};
+
+export type ApplyArtistMaterialProfileOptions = ApplyMaterialRuntimeOptions;
+
+type RuntimeColor = {
+  r: number;
+  g: number;
+  b: number;
 };
 
 const MATERIAL_SHARED_KEY_TO_PATH: Record<string, MaterialProp> = {
@@ -110,6 +125,10 @@ function isMaterialLike(value: any): boolean {
 
 function hasMaterial(value: any): value is RuntimeNode & { material: any } {
   return !!value && typeof value === 'object' && !!value.material;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }
 
 export function resolveMaterialRuntimeKind(material: any): MaterialRuntimeKind {
@@ -399,6 +418,221 @@ export function applyMaterialValueToRuntimeMaterial(
 
   writableMaterial[property] = value;
   return true;
+}
+
+export function applyArtistMaterialProfileToRuntimeMaterial(
+  material: unknown,
+  scene: RuntimeScene | null,
+  profile: ArtistMaterialProfile | null | undefined,
+  options: ApplyArtistMaterialProfileOptions = {},
+): boolean {
+  const writableMaterial = material as any;
+  if (!writableMaterial || typeof writableMaterial !== 'object' || !profile) return false;
+
+  let changed = false;
+  changed = applyArtistBaseColorProfile(writableMaterial, scene, profile, options) || changed;
+
+  const materialRuntimeKind = resolveMaterialRuntimeKind(writableMaterial);
+  if (materialRuntimeKind === 'pbr' && isFiniteNumber(profile.metallic)) {
+    changed = applyMaterialValueToRuntimeMaterial(
+      writableMaterial,
+      scene,
+      'material.metallic',
+      clamp01(profile.metallic),
+      options,
+    ) || changed;
+  }
+
+  if (materialRuntimeKind === 'pbr' && isFiniteNumber(profile.roughness)) {
+    changed = applyMaterialValueToRuntimeMaterial(
+      writableMaterial,
+      scene,
+      'material.roughness',
+      clamp01(profile.roughness),
+      options,
+    ) || changed;
+  }
+
+  changed = applyArtistEmissionProfile(writableMaterial, scene, profile, options) || changed;
+  return changed;
+}
+
+function applyArtistBaseColorProfile(
+  material: any,
+  scene: RuntimeScene | null,
+  profile: ArtistMaterialProfile,
+  options: ApplyArtistMaterialProfileOptions,
+): boolean {
+  const baseColor = profile.baseColor;
+  if (!baseColor) return false;
+  const hasBaseColorInput =
+    baseColor.color !== undefined
+    || baseColor.texture !== undefined
+    || baseColor.brightness !== undefined
+    || baseColor.saturation !== undefined
+    || baseColor.contrast !== undefined
+    || baseColor.hue !== undefined;
+  if (!hasBaseColorInput) return false;
+
+  let changed = false;
+  const textureUrl = typeof baseColor.texture?.url === 'string' ? baseColor.texture.url.trim() : '';
+  if (textureUrl) {
+    changed = applyMaterialValueToRuntimeMaterial(
+      material,
+      scene,
+      'material.albedoTexture.url',
+      textureUrl,
+      options,
+    ) || changed;
+  }
+
+  const sourceColor = readProfileColor(baseColor.color)
+    ?? readMaterialColor(material, 'albedoColor')
+    ?? readMaterialColor(material, 'diffuseColor');
+  if (!sourceColor) return changed;
+
+  const transformed = transformArtistBaseColor(sourceColor, baseColor);
+  return applyMaterialValueToRuntimeMaterial(material, scene, 'material.albedoColor', transformed, options) || changed;
+}
+
+function applyArtistEmissionProfile(
+  material: any,
+  scene: RuntimeScene | null,
+  profile: ArtistMaterialProfile,
+  options: ApplyArtistMaterialProfileOptions,
+): boolean {
+  const emission = profile.emission;
+  if (!emission) return false;
+
+  let changed = false;
+  const intensity = isFiniteNumber(emission.intensity) ? Math.max(0, emission.intensity) : 0;
+  const color = readProfileColor(emission.color)
+    ?? readMaterialColor(material, 'emissiveColor')
+    ?? { r: 1, g: 1, b: 1 };
+  const emissiveColor = {
+    r: color.r * intensity,
+    g: color.g * intensity,
+    b: color.b * intensity,
+  };
+
+  if (emission.color !== undefined || emission.intensity !== undefined) {
+    changed = applyMaterialValueToRuntimeMaterial(
+      material,
+      scene,
+      'material.emissiveColor',
+      emissiveColor,
+      options,
+    ) || changed;
+  }
+
+  const maskUrl = typeof emission.maskTexture?.url === 'string' ? emission.maskTexture.url.trim() : '';
+  if (!maskUrl) return changed;
+
+  const property = 'emissiveTexture' in material ? 'emissiveTexture' : null;
+  if (!property) return changed;
+  if (!scene) return changed;
+  const Texture = getBabylonRuntime(options.babylon)?.Texture;
+  if (!Texture) return changed;
+
+  const texture = new Texture(maskUrl, scene, false, false);
+  if ('level' in texture) {
+    texture.level = intensity;
+  }
+  material[property] = texture;
+  return true;
+}
+
+function readProfileColor(color: ColorRGB | null | undefined): RuntimeColor | null {
+  if (!color || !isFiniteNumber(color.r) || !isFiniteNumber(color.g) || !isFiniteNumber(color.b)) return null;
+  return { r: color.r, g: color.g, b: color.b };
+}
+
+function readMaterialColor(material: any, property: string): RuntimeColor | null {
+  const value = material?.[property];
+  if (!value || typeof value !== 'object') return null;
+  const r = isFiniteNumber(value.r) ? value.r : isFiniteNumber(value._r) ? value._r : null;
+  const g = isFiniteNumber(value.g) ? value.g : isFiniteNumber(value._g) ? value._g : null;
+  const b = isFiniteNumber(value.b) ? value.b : isFiniteNumber(value._b) ? value._b : null;
+  if (r == null || g == null || b == null) return null;
+  return { r, g, b };
+}
+
+function transformArtistBaseColor(
+  source: RuntimeColor,
+  baseColor: NonNullable<ArtistMaterialProfile['baseColor']>,
+): RuntimeColor {
+  const brightness = isFiniteNumber(baseColor.brightness) ? baseColor.brightness : 1;
+  const contrast = isFiniteNumber(baseColor.contrast) ? baseColor.contrast : 1;
+  const saturation = isFiniteNumber(baseColor.saturation) ? baseColor.saturation : 1;
+  const hue = isFiniteNumber(baseColor.hue) ? baseColor.hue : 0;
+
+  let r = clamp01(source.r * Math.max(0, brightness));
+  let g = clamp01(source.g * Math.max(0, brightness));
+  let b = clamp01(source.b * Math.max(0, brightness));
+
+  r = clamp01((r - 0.5) * contrast + 0.5);
+  g = clamp01((g - 0.5) * contrast + 0.5);
+  b = clamp01((b - 0.5) * contrast + 0.5);
+
+  const hsl = rgbToHsl(r, g, b);
+  hsl.h = normalizeHue(hsl.h + hue);
+  hsl.s = clamp01(hsl.s * Math.max(0, saturation));
+  return hslToRgb(hsl.h, hsl.s, hsl.l);
+}
+
+function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l };
+
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  switch (max) {
+    case r:
+      h = (g - b) / d + (g < b ? 6 : 0);
+      break;
+    case g:
+      h = (b - r) / d + 2;
+      break;
+    default:
+      h = (r - g) / d + 4;
+      break;
+  }
+  return { h: h * 60, s, l };
+}
+
+function hslToRgb(h: number, s: number, l: number): RuntimeColor {
+  if (s === 0) return { r: l, g: l, b: l };
+
+  const hueToRgb = (p: number, q: number, t: number): number => {
+    let nextT = t;
+    if (nextT < 0) nextT += 1;
+    if (nextT > 1) nextT -= 1;
+    if (nextT < 1 / 6) return p + (q - p) * 6 * nextT;
+    if (nextT < 1 / 2) return q;
+    if (nextT < 2 / 3) return p + (q - p) * (2 / 3 - nextT) * 6;
+    return p;
+  };
+
+  const normalizedHue = normalizeHue(h) / 360;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return {
+    r: clamp01(hueToRgb(p, q, normalizedHue + 1 / 3)),
+    g: clamp01(hueToRgb(p, q, normalizedHue)),
+    b: clamp01(hueToRgb(p, q, normalizedHue - 1 / 3)),
+  };
+}
+
+function normalizeHue(value: number): number {
+  const result = value % 360;
+  return result < 0 ? result + 360 : result;
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 export function resolveMaterialOwnerNode(rootNode: RuntimeNode | null, ownerNodePath: string): RuntimeNode | null {

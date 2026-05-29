@@ -160,6 +160,75 @@ export interface LocalEditorBrowserUiHierarchyItem {
   draggable?: boolean;
 }
 
+export interface LocalEditorBrowserAssetPreviewColor {
+  r: number;
+  g: number;
+  b: number;
+  a?: number;
+}
+
+export type LocalEditorBrowserAssetPreviewColorValue = string | LocalEditorBrowserAssetPreviewColor;
+
+export type LocalEditorBrowserAssetPreview =
+  | {
+    kind: 'image';
+    url: string;
+    alt?: string;
+    fit?: 'cover' | 'contain';
+  }
+  | {
+    kind: 'material-sphere';
+    baseColor?: LocalEditorBrowserAssetPreviewColorValue;
+    metallic?: number;
+    roughness?: number;
+    emissionColor?: LocalEditorBrowserAssetPreviewColorValue;
+    emissionIntensity?: number;
+    textureUrl?: string;
+  };
+
+export interface LocalEditorBrowserMaterialTextureRef {
+  url?: string;
+  textureAssetId?: string;
+}
+
+export interface LocalEditorBrowserMaterialBaseColorProfile {
+  color?: LocalEditorBrowserAssetPreviewColor;
+  texture?: LocalEditorBrowserMaterialTextureRef;
+  brightness?: number;
+  saturation?: number;
+  contrast?: number;
+  hue?: number;
+}
+
+export interface LocalEditorBrowserMaterialEmissionProfile {
+  color?: LocalEditorBrowserAssetPreviewColor;
+  intensity?: number;
+  maskTexture?: LocalEditorBrowserMaterialTextureRef;
+}
+
+export interface LocalEditorBrowserMaterialProfile {
+  baseColor?: LocalEditorBrowserMaterialBaseColorProfile;
+  metallic?: number;
+  roughness?: number;
+  emission?: LocalEditorBrowserMaterialEmissionProfile;
+}
+
+export interface LocalEditorBrowserMaterialAssetEditorData {
+  id: string;
+  name: string;
+  materialKind?: 'pbr' | 'standard' | string;
+  readonly?: boolean;
+  profile?: LocalEditorBrowserMaterialProfile;
+}
+
+export interface LocalEditorBrowserInspectorAssetPickerOption {
+  label: string;
+  value: string;
+  meta?: string;
+  kind?: string;
+  preview?: LocalEditorBrowserAssetPreview;
+}
+
 export interface LocalEditorBrowserUiAssetItem {
   id: string;
   label: string;
@@ -175,6 +244,8 @@ export interface LocalEditorBrowserUiAssetItem {
   origin?: string;
   dedupeKey?: string;
   placeable?: boolean;
+  preview?: LocalEditorBrowserAssetPreview;
+  material?: LocalEditorBrowserMaterialAssetEditorData;
   meta?: string;
   disabled?: boolean;
 }
@@ -341,6 +412,7 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   summary?: string;
   assetFilter: string;
   assets: LocalEditorBrowserUiAssetItem[];
+  selectedAssetId?: string | null;
   assetCountLabel?: string;
   hierarchy: LocalEditorBrowserUiHierarchyItem[];
   selectedIds: string[];
@@ -588,6 +660,15 @@ export type LocalEditorContextAction =
   | { region: 'hierarchy'; action: 'paste'; sourceIds: string[]; activeId?: string | null }
   | { region: 'hierarchy'; action: 'custom'; id: string; contextNodeId: string | null; targetIds: string[]; activeId: string | null; payload?: Record<string, unknown> };
 
+export interface LocalEditorBrowserAssetActionInput {
+  actionId: string;
+  assetId: string;
+  browserAssetId: string;
+  assetKind?: string;
+  fieldPath?: string;
+  value?: unknown;
+}
+
 export interface LocalEditorBrowserUiCallbacks {
   onEnterEditor?: () => void;
   onSaveScene?: () => void;
@@ -598,6 +679,8 @@ export interface LocalEditorBrowserUiCallbacks {
   onSelectHierarchyItem?: (input: LocalEditorBrowserHierarchySelectionInput) => void;
   onSelectionCommand?: (command: SelectionCommand) => void;
   onCreateFromAsset?: (assetId: string) => void;
+  onSelectAsset?: (assetId: string) => void;
+  onAssetAction?: (input: LocalEditorBrowserAssetActionInput) => void;
   onAssetFilterChange?: (value: string) => void;
   onPropertyInput?: (input: LocalEditorBrowserUiPropertyInput) => void;
   onRenderingPropertyChange?: (input: LocalEditorBrowserRenderingPropertyChangeInput) => void;
@@ -661,6 +744,8 @@ export interface LocalEditorThemeController {
 export type LocalEditorBottomDockTab = 'assets' | 'history';
 
 export type LocalEditorRightDockTab = 'inspector' | 'rendering';
+
+export type LocalEditorAssetBrowserTab = 'all' | 'models' | 'materials' | 'textures';
 
 export type LocalEditorWorkbenchDockArea = 'left' | 'right' | 'bottom';
 
