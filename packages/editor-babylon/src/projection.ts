@@ -4,11 +4,13 @@ import type {
   EditorTransformSnapshot,
   EditorTransformVec3,
 } from '@fps-games/editor-core';
+import type { ArtistMaterialProfile, SceneMaterialAssetKind } from '@fps-games/editor-protocol';
 import type {
   BabylonRuntimeGlobal,
   RuntimeCamera,
   RuntimeScene,
 } from './types';
+import { applyArtistMaterialProfileToRuntimeMaterial } from './material-property-adapter';
 
 export type BabylonEditorProjectionVec3 = EditorTransformVec3;
 export interface BabylonEditorProjectionVec2 {
@@ -103,6 +105,9 @@ export interface BabylonEditorProjectionNode {
   runtimeKind?: 'camera' | 'light';
   camera?: BabylonEditorProjectionCameraSettings;
   light?: BabylonEditorProjectionLightSettings;
+  artistMaterialKind?: SceneMaterialAssetKind;
+  artistMaterialProfile?: ArtistMaterialProfile;
+  artistMaterialSlotProfiles?: Record<string, ArtistMaterialProfile>;
 }
 
 export interface BabylonEditorProjectionImportResult {
@@ -532,6 +537,9 @@ function attachImportedProjectionResult(
     for (const mesh of result.meshes ?? []) {
       mesh.isPickable = true;
     }
+    projection.runtimeObjects.push(
+      ...applyProjectionArtistMaterialProfilesToMeshes(babylon, scene, node, modelRoot, result.meshes ?? []),
+    );
     for (const animationGroup of result.animationGroups ?? []) {
       animationGroup.stop?.();
     }
@@ -828,6 +836,7 @@ function createPrimitiveProjectionMesh(
 ): any | null {
   const MeshBuilder = (babylon as any).MeshBuilder;
   const StandardMaterial = (babylon as any).StandardMaterial;
+  const PBRMaterial = (babylon as any).PBRMaterial;
   const Color3 = requireBabylonCtor(babylon.Color3, 'Color3');
   if (!MeshBuilder || !StandardMaterial) return null;
   const shape = node.primitive?.shape;
@@ -840,16 +849,153 @@ function createPrimitiveProjectionMesh(
         ? MeshBuilder.CreateCapsule?.(name, { height: 2, radius: 0.5, tessellation: 24, subdivisions: 8 }, scene)
         : MeshBuilder.CreateBox?.(name, { size: 1 }, scene);
   if (!mesh) return null;
-  const material = new StandardMaterial(`${node.id}.primitive.material`, scene);
-  material.diffuseColor = new Color3(0.72, 0.74, 0.76);
-  material.specularColor = new Color3(0.12, 0.14, 0.16);
+  const material = node.artistMaterialKind === 'standard' || !PBRMaterial
+    ? new StandardMaterial(`${node.id}.primitive.material`, scene)
+    : new PBRMaterial(`${node.id}.primitive.material`, scene);
+  if ('albedoColor' in material) material.albedoColor = new Color3(0.72, 0.74, 0.76);
+  else material.diffuseColor = new Color3(0.72, 0.74, 0.76);
+  if ('specularColor' in material) material.specularColor = new Color3(0.12, 0.14, 0.16);
+  if ('metallic' in material) material.metallic = 0;
+  if ('roughness' in material) material.roughness = 1;
   if (shape === 'plane') material.backFaceCulling = false;
+  applyProjectionArtistMaterialProfile(babylon, scene, material, node.artistMaterialProfile);
   mesh.material = material;
   mesh.metadata = createProjectionMetadata(node.id, {
     runtimeKind: 'primitive',
     primitiveShape: shape,
   });
   return mesh;
+}
+
+function applyProjectionArtistMaterialProfilesToMeshes(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  node: BabylonEditorProjectionNode,
+  modelRoot: any,
+  meshes: any[],
+): unknown[] {
+  const slotProfiles = node.artistMaterialSlotProfiles ?? {};
+  const hasRootProfile = !!node.artistMaterialProfile;
+  const hasSlotProfiles = Object.keys(slotProfiles).length > 0;
+  if (!hasRootProfile && !hasSlotProfiles) return [];
+  const clonedMaterials: unknown[] = [];
+  const materials = new Set<unknown>();
+  if (hasRootProfile) {
+    for (const mesh of meshes) {
+      const material = mesh?.material;
+      if (material) materials.add(material);
+    }
+    for (const material of materials) {
+      applyProjectionArtistMaterialProfile(babylon, scene, material, node.artistMaterialProfile);
+    }
+  }
+  if (!hasSlotProfiles) return clonedMaterials;
+  const materialCounts = countProjectionMeshMaterials(meshes);
+  for (const mesh of meshes) {
+    const material = mesh?.material;
+    if (!material) continue;
+    const ownerNodePath = buildProjectionOwnerNodePath(mesh, modelRoot);
+    const slotProfile = resolveProjectionSlotProfile(slotProfiles, ownerNodePath);
+    if (!slotProfile) continue;
+    const slotMaterial = detachProjectionSlotMaterial(mesh, materialCounts, ownerNodePath);
+    if (!slotMaterial) continue;
+    if (slotMaterial !== material) clonedMaterials.push(slotMaterial);
+    applyProjectionArtistMaterialProfile(babylon, scene, slotMaterial, slotProfile);
+  }
+  return clonedMaterials;
+}
+
+function applyProjectionArtistMaterialProfile(
+  babylon: BabylonRuntimeGlobal,
+  scene: RuntimeScene,
+  material: unknown,
+  profile: ArtistMaterialProfile | null | undefined,
+): void {
+  if (!profile) return;
+  applyArtistMaterialProfileToRuntimeMaterial(material, scene, profile, { babylon });
+}
+
+function resolveProjectionSlotProfile(
+  slotProfiles: Record<string, ArtistMaterialProfile>,
+  ownerNodePath: string | null,
+): ArtistMaterialProfile | null {
+  if (ownerNodePath == null) return null;
+  const direct = slotProfiles[ownerNodePath];
+  if (direct) return direct;
+  const normalized = normalizeProjectionOwnerNodePath(ownerNodePath);
+  if (normalized !== ownerNodePath && slotProfiles[normalized]) return slotProfiles[normalized];
+  for (const [candidatePath, profile] of Object.entries(slotProfiles)) {
+    if (normalizeProjectionOwnerNodePath(candidatePath) === normalized) return profile;
+  }
+  return null;
+}
+
+function buildProjectionOwnerNodePath(node: any, rootNode: any): string | null {
+  if (!node || !rootNode || node === rootNode) return '';
+  const segments: string[] = [];
+  let current = node;
+  while (current && current !== rootNode) {
+    const segment = stableProjectionNodeSegment(current);
+    if (!segment) return null;
+    segments.push(segment);
+    current = current.parent ?? null;
+  }
+  if (current !== rootNode) return null;
+  return segments.reverse().join('/');
+}
+
+function stableProjectionNodeSegment(node: any): string | null {
+  const candidates = [node?.name, node?.id];
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function normalizeProjectionOwnerNodePath(path: string): string {
+  return path
+    .split('/')
+    .map(segment => segment.includes(':') ? segment.slice(segment.lastIndexOf(':') + 1) : segment)
+    .join('/');
+}
+
+function countProjectionMeshMaterials(meshes: any[]): Map<unknown, number> {
+  const counts = new Map<unknown, number>();
+  for (const mesh of meshes) {
+    const material = mesh?.material;
+    if (!material) continue;
+    counts.set(material, (counts.get(material) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function detachProjectionSlotMaterial(
+  mesh: any,
+  materialCounts: Map<unknown, number>,
+  ownerNodePath: string | null,
+): unknown | null {
+  const material = mesh?.material;
+  if (!material || typeof material !== 'object') return material;
+  const materialUseCount = materialCounts.get(material) ?? 0;
+  if (materialUseCount <= 1) return material;
+  const clone = typeof (material as any).clone === 'function'
+    ? (material as any).clone(createProjectionSlotMaterialName(material, ownerNodePath))
+    : null;
+  if (!clone) return null;
+  mesh.material = clone;
+  materialCounts.set(material, materialUseCount - 1);
+  materialCounts.set(clone, 1);
+  return clone;
+}
+
+function createProjectionSlotMaterialName(material: any, ownerNodePath: string | null): string {
+  const baseName = String(material?.name ?? material?.id ?? 'material');
+  const suffix = ownerNodePath?.trim()
+    ? ownerNodePath.replace(/[^a-zA-Z0-9_-]+/g, '_')
+    : 'root';
+  return `${baseName}.projectionSlot.${suffix}`;
 }
 
 function createFallbackProjectionMesh(

@@ -73,6 +73,7 @@ import {
 import {
   createLocalEditorBrowserUi,
   type LocalEditorBrowserUi,
+  type LocalEditorBrowserAssetActionInput,
   type LocalEditorBrowserUiAssetItem,
   type LocalEditorBrowserHierarchyContextActionContext,
   type LocalEditorBrowserHierarchyContextActionRegistration,
@@ -165,6 +166,7 @@ export interface LocalEditorHarnessAssetItem {
   displayName?: string;
   meta?: string;
   placeable?: boolean;
+  preview?: LocalEditorBrowserUiAssetItem['preview'];
   disabled?: boolean;
   raw?: unknown;
 }
@@ -399,6 +401,13 @@ export interface LocalEditorHarnessAssetCreationOptions {
   placement?: EditorTransformSnapshot;
 }
 
+export interface LocalEditorHarnessAssetActionPatchInput<TDocument, TAsset = LocalEditorHarnessAssetItem> extends LocalEditorBrowserAssetActionInput {
+  document: TDocument;
+  asset: TAsset | null;
+  activeId: string | null;
+  selectedIds: string[];
+}
+
 export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   cloneDocument?(document: TDocument): TDocument;
   compareDocuments?(left: TDocument, right: TDocument): boolean;
@@ -410,6 +419,7 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   getInspectorMultiObject?(document: TDocument, selectedIds: string[], activeId: string | null): InspectorObject<TDocument> | null;
   getRuntimeInspectorSections?(context: LocalEditorHarnessRuntimeInspectorContext<TDocument>): InspectorSection<TDocument>[];
   getHierarchyItems(document: TDocument): LocalEditorBrowserUiHierarchyItem[];
+  getBrowserAssetItems?(document: TDocument): LocalEditorBrowserUiAssetItem[];
   getProjectionNodes(document: TDocument): BabylonEditorProjectionNode[];
   getProjectionNode(document: TDocument, id: string): BabylonEditorProjectionNode | null;
   getSceneCameraPreviewRig?(document: TDocument): BabylonSceneCameraPreviewRig | null;
@@ -425,6 +435,7 @@ export interface LocalEditorHarnessDocumentAdapter<TDocument, TPatch, TAsset = L
   isSelectable?(document: TDocument, id: string): boolean;
   isLocked?(document: TDocument, id: string): boolean;
   createPatchFromAsset(asset: TAsset, input?: LocalEditorHarnessAssetPatchInput<TDocument, TAsset>): { patch: TPatch; label?: string };
+  createAssetActionPatch?(input: LocalEditorHarnessAssetActionPatchInput<TDocument, TAsset>): LocalEditorHarnessPatchResult<TPatch> | null;
   createPlacedAssetPatch?(input: LocalEditorHarnessPlacedAssetInput<TDocument, TAsset>): LocalEditorHarnessPlacedAssetPatch<TPatch> | null;
   findCreatedId?(beforeDocument: TDocument, afterDocument: TDocument): string | null;
   createSerializedPropertyPatch(input: LocalEditorHarnessPropertyInput<TDocument>): LocalEditorHarnessPatchResult<TPatch> | null;
@@ -546,6 +557,7 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   source: AuthoringSourceDescriptor | null;
   assets: TAsset[];
   assetFilter: string;
+  selectedAssetId: string | null;
   babylon: (BabylonRuntimeGlobal & Record<string, any>) | null;
   engine: any | null;
   world: BabylonEditorWorld | null;
@@ -603,6 +615,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     source: null,
     assets: [],
     assetFilter: '',
+    selectedAssetId: null,
     babylon: null,
     engine: null,
     world: null,
@@ -675,6 +688,12 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
       },
       onCreateFromAsset: (assetId) => {
         if (createAssetFromBrowserIntent(state, options, assetId)) harness.render();
+      },
+      onSelectAsset: (assetId) => {
+        if (selectBrowserAsset(state, assetId)) harness.render();
+      },
+      onAssetAction: (input) => {
+        if (handleBrowserAssetAction(state, options, input)) harness.render();
       },
       onSelectHierarchyItem: (input) => {
         if (selectItem(state, options, input)) harness.render();
@@ -2514,6 +2533,75 @@ function createAssetFromBrowserIntent<TDocument, TPatch, TAsset>(
   return armAssetPlacement(state, options, assetId);
 }
 
+function selectBrowserAsset<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  assetId: string,
+): boolean {
+  if (state.selectedAssetId === assetId) return false;
+  state.selectedAssetId = assetId;
+  state.status = `Selected asset ${assetId}`;
+  return true;
+}
+
+function handleBrowserAssetAction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  input: LocalEditorBrowserAssetActionInput,
+): boolean {
+  state.selectedAssetId = input.browserAssetId;
+  if (input.actionId === 'asset.add-to-scene') {
+    return addAssetToDocument(state, options, input.assetId).ok;
+  }
+  if (input.actionId === 'asset.place') {
+    if (state.transformOperationSettings.placementMode === 'off') {
+      state.transformOperationSettings = updateTransformOperationSettings(state.transformOperationSettings, {
+        placementMode: 'ground',
+      });
+      state.gizmo?.setOperationSettings(state.transformOperationSettings);
+    }
+    return armAssetPlacement(state, options, input.assetId);
+  }
+
+  const patched = patchBrowserAssetAction(state, options, input);
+  if (patched) return true;
+  state.status = `Asset action unavailable: ${input.actionId}`;
+  state.statusTone = 'warning';
+  state.statusToneStatus = state.status;
+  return true;
+}
+
+function patchBrowserAssetAction<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
+  input: LocalEditorBrowserAssetActionInput,
+): boolean {
+  const session = state.session;
+  const document = session?.getState().workingDocument ?? null;
+  if (!session || !document || !options.documentAdapter.createAssetActionPatch) return false;
+  const asset = findAssetByResolvedId(state, options, input.assetId);
+  const patch = options.documentAdapter.createAssetActionPatch({
+    ...input,
+    document,
+    asset,
+    activeId: session.getState().selection.activeId,
+    selectedIds: [...session.getState().selection.selectedIds],
+  });
+  if (!patch) return false;
+  const result = session.dispatch({
+    type: 'document.patch',
+    label: patch.label ?? `Asset action ${input.actionId}`,
+    patch: patch.patch,
+  });
+  state.summary = summarizeDocument(options, result.workingDocument, session.getSource());
+  state.status = patch.label ?? `Asset action ${input.actionId}`;
+  state.statusTone = 'success';
+  state.statusToneStatus = state.status;
+  state.statusDetails = '';
+  if (patch.reprojectIds?.length) reprojectProjectionForChangedIds(state, options, result.workingDocument, patch.reprojectIds);
+  else if (patch.changedIds) syncProjectionForChangedIds(state, options, result.workingDocument, patch.changedIds);
+  return true;
+}
+
 function armAssetPlacement<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   options: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
@@ -3433,10 +3521,13 @@ function createUiState<TDocument, TPatch, TAsset>(
   const inspectorMultiObject = document && inspectorMultiObjectBase
     ? withRuntimeInspectorSections(state, options, document, inspectorMultiObjectBase)
     : inspectorMultiObjectBase;
-  const assets = dedupeLocalEditorBrowserAssetItems(
-    state.assets
-      .map(asset => toBrowserAssetItem(options, asset)),
-  );
+  const documentAssetItems = document
+    ? options.documentAdapter.getBrowserAssetItems?.(document) ?? []
+    : [];
+  const assets = dedupeLocalEditorBrowserAssetItems([
+    ...state.assets.map(asset => toBrowserAssetItem(options, asset)),
+    ...documentAssetItems,
+  ]);
   return {
     mode: state.mode,
     busy: state.busy,
@@ -3446,6 +3537,7 @@ function createUiState<TDocument, TPatch, TAsset>(
     summary: state.summary,
     assetFilter: state.assetFilter,
     assets,
+    selectedAssetId: state.selectedAssetId,
     assetCountLabel: `${assets.length} assets`,
     hierarchy: document ? options.documentAdapter.getHierarchyItems(document) : [],
     selectedIds,
@@ -3903,6 +3995,8 @@ function toBrowserAssetItem<TDocument, TPatch, TAsset>(
       origin: (asset as LocalEditorHarnessAssetItem).origin,
       dedupeKey: (asset as LocalEditorHarnessAssetItem).dedupeKey,
       placeable: (asset as LocalEditorHarnessAssetItem).placeable,
+      preview: (asset as LocalEditorHarnessAssetItem).preview,
+      material: (asset as LocalEditorHarnessAssetItem & { material?: LocalEditorBrowserUiAssetItem['material'] }).material,
       meta: (asset as LocalEditorHarnessAssetItem).meta,
       disabled: (asset as LocalEditorHarnessAssetItem).disabled ?? (asset as LocalEditorHarnessAssetItem).placeable === false,
     };

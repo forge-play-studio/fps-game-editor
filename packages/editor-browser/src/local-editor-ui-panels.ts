@@ -1,4 +1,7 @@
 import type {
+  LocalEditorAssetBrowserTab,
+  LocalEditorBrowserAssetPreview,
+  LocalEditorBrowserAssetPreviewColorValue,
   LocalEditorBottomDockTab,
   LocalEditorBrowserHistoryEntry,
   LocalEditorBrowserHistoryView,
@@ -20,6 +23,7 @@ import type {
   LocalEditorBrowserSerializedMultiObject,
   LocalEditorBrowserSerializedObject,
   LocalEditorBrowserSerializedProperty,
+  LocalEditorBrowserUiAssetItem,
   LocalEditorBrowserUiState,
   LocalEditorRightDockTab,
   LocalEditorWorkbenchPanelDescriptor,
@@ -53,6 +57,15 @@ const RIGHT_DOCK_TAB_ICONS: Record<LocalEditorRightDockTab, LocalEditorIconName>
   inspector: 'inspector',
   rendering: 'world',
 };
+
+const ASSET_BROWSER_TABS: Array<{ id: LocalEditorAssetBrowserTab; label: string; title: string }> = [
+  { id: 'all', label: '全部', title: '显示全部项目资产' },
+  { id: 'models', label: '模型', title: '显示模型资产' },
+  { id: 'materials', label: '材质', title: '显示项目材质资产' },
+  { id: 'textures', label: '贴图', title: '显示贴图资产' },
+];
+
+export type LocalEditorAssetPreviewVariant = 'list' | 'grid' | 'modal';
 
 export interface LocalEditorBrowserInspectorRenderOptions<TDocument = unknown> {
   controls?: readonly LocalEditorBrowserInspectorControlRegistration<TDocument>[];
@@ -125,11 +138,12 @@ export function renderBottomDockPanel<TDocument>(
   panel: HTMLElement,
   state: LocalEditorBrowserUiState<TDocument>,
   activeTab: LocalEditorBottomDockTab,
+  activeAssetBrowserTab: LocalEditorAssetBrowserTab = 'all',
 ): void {
   clearElement(panel);
   appendDockTabs(doc, panel, activeTab);
   if (activeTab === 'history') renderHistoryPanel(doc, panel, state.session?.history ?? null);
-  else renderAssetBrowserContent(doc, panel, state);
+  else renderAssetBrowserContent(doc, panel, state, 'list', activeAssetBrowserTab);
 }
 
 export function renderWorkbenchBottomDockPanel<TDocument>(
@@ -138,6 +152,7 @@ export function renderWorkbenchBottomDockPanel<TDocument>(
   state: LocalEditorBrowserUiState<TDocument>,
   activeTab: LocalEditorBottomDockTab,
   panels: LocalEditorWorkbenchPanelDescriptor[] = [],
+  activeAssetBrowserTab: LocalEditorAssetBrowserTab = 'all',
 ): void {
   clearElement(panel);
   const tabHeader = doc.createElement('div');
@@ -167,7 +182,7 @@ export function renderWorkbenchBottomDockPanel<TDocument>(
   content.style.cssText = 'flex:1;min-height:0;overflow:auto;padding:8px';
   panel.appendChild(content);
   if (activeTab === 'history') renderHistoryPanel(doc, content, state.session?.history ?? null);
-  else renderAssetBrowserContent(doc, content, state, 'grid');
+  else renderAssetBrowserContent(doc, content, state, 'grid', activeAssetBrowserTab);
 }
 
 function appendDockTabs(
@@ -561,12 +576,15 @@ function renderAssetBrowserContent<TDocument>(
   panel: HTMLElement,
   state: LocalEditorBrowserUiState<TDocument>,
   variant: 'list' | 'grid' = 'list',
+  activeTab: LocalEditorAssetBrowserTab = 'all',
 ): void {
   const title = doc.createElement('h2');
   title.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;margin:0 0 8px;font-weight:800;color:var(--fps-editor-text-strong)';
   title.appendChild(createLocalEditorIcon(doc, 'asset'));
   title.appendChild(createHeadingLabel(doc, '资产浏览器'));
   panel.appendChild(title);
+
+  appendAssetBrowserTabs(doc, panel, state, activeTab);
 
   const filter = doc.createElement('input');
   filter.type = 'search';
@@ -586,8 +604,9 @@ function renderAssetBrowserContent<TDocument>(
   ].join(';');
   panel.appendChild(filter);
 
+  const tabAssets = filterAssetsByBrowserTab(state.assets, activeTab);
   const normalizedFilter = state.assetFilter.trim().toLowerCase();
-  const filteredAssets = state.assets
+  const filteredAssets = tabAssets
     .filter((asset) => {
       if (!normalizedFilter) return true;
       return [
@@ -606,35 +625,40 @@ function renderAssetBrowserContent<TDocument>(
     .slice(0, 80);
 
   const count = doc.createElement('div');
-  count.textContent = state.assetCountLabel
+  const activeTabLabel = ASSET_BROWSER_TABS.find(tab => tab.id === activeTab)?.label ?? '资产';
+  count.textContent = activeTab === 'all' && state.assetCountLabel
     ? `${filteredAssets.length} / ${state.assetCountLabel}`
-    : `${filteredAssets.length} / ${state.assets.length} 个资产`;
+    : `${filteredAssets.length} / ${tabAssets.length} 个${activeTabLabel}资产`;
   count.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;margin-bottom:6px';
   panel.appendChild(count);
 
   const list = createAssetList(doc, variant === 'grid');
   for (const asset of filteredAssets) {
+    const selected = state.selectedAssetId === asset.id;
+    const hasPreview = !!asset.preview;
     const button = doc.createElement('button');
     button.type = 'button';
     button.dataset.editorAssetId = asset.id;
     button.disabled = asset.disabled ?? false;
+    button.setAttribute('aria-selected', selected ? 'true' : 'false');
     button.style.cssText = [
       'width:100%',
-      `min-height:${variant === 'grid' ? '48px' : '32px'}`,
+      `min-height:${variant === 'grid' ? (hasPreview ? '66px' : '48px') : (hasPreview ? '38px' : '32px')}`,
       'text-align:left',
-      'padding:6px 8px',
-      'border:1px solid var(--fps-editor-border)',
+      `padding:${hasPreview ? '7px 8px' : '6px 8px'}`,
+      `border:1px solid ${selected ? 'var(--fps-editor-accent-strong)' : 'var(--fps-editor-border)'}`,
       'border-radius:3px',
-      'background:var(--fps-editor-asset-card-bg)',
+      `background:${selected ? 'var(--fps-editor-accent-soft)' : 'var(--fps-editor-asset-card-bg)'}`,
       'color:var(--fps-editor-text)',
       'display:flex',
       'align-items:center',
       'gap:8px',
       'font-size:12px',
-      'cursor:pointer',
+      asset.disabled ? 'cursor:not-allowed' : 'cursor:pointer',
+      asset.disabled ? 'opacity:0.72' : '',
     ].join(';');
 
-    const icon = createLocalEditorIcon(doc, 'asset', { size: 16 });
+    const preview = createAssetPreviewElement(doc, asset, variant);
     const body = doc.createElement('div');
     body.style.cssText = 'min-width:0;flex:1';
     const label = doc.createElement('div');
@@ -645,11 +669,198 @@ function renderAssetBrowserContent<TDocument>(
     meta.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     body.appendChild(label);
     body.appendChild(meta);
-    button.appendChild(icon);
+    button.appendChild(preview);
     button.appendChild(body);
     list.appendChild(button);
   }
+  if (filteredAssets.length === 0) {
+    list.appendChild(createEmptyState(doc, normalizedFilter ? '没有匹配的资产。' : '暂无该类型资产。'));
+  }
   panel.appendChild(list);
+}
+
+export function createAssetPreviewElement(
+  doc: Document,
+  asset: LocalEditorBrowserUiAssetItem,
+  variant: LocalEditorAssetPreviewVariant,
+): HTMLElement {
+  const size = variant === 'modal' ? 220 : variant === 'grid' ? 46 : 24;
+  const preview = asset.preview;
+  if (!preview) return createLocalEditorIcon(doc, 'asset', { size: variant === 'grid' ? 18 : 16 });
+
+  const frame = doc.createElement('div');
+  frame.style.cssText = [
+    `width:${size}px`,
+    `height:${size}px`,
+    `flex:0 0 ${size}px`,
+    'display:flex',
+    'align-items:center',
+    'justify-content:center',
+    'overflow:hidden',
+    'border:1px solid var(--fps-editor-border)',
+    `border-radius:${variant === 'modal' ? '6px' : '3px'}`,
+    'background:var(--fps-editor-field)',
+    'box-sizing:border-box',
+  ].join(';');
+
+  if (preview.kind === 'image') {
+    const image = doc.createElement('img');
+    image.src = preview.url;
+    image.alt = preview.alt ?? asset.label;
+    image.loading = 'lazy';
+    image.style.cssText = [
+      'width:100%',
+      'height:100%',
+      `object-fit:${preview.fit ?? 'cover'}`,
+      'display:block',
+    ].join(';');
+    frame.appendChild(image);
+    return frame;
+  }
+
+  const sphere = doc.createElement('div');
+  const metallic = clamp01(preview.metallic ?? 0);
+  const roughness = clamp01(preview.roughness ?? 0.55);
+  const emissionIntensity = clampNumber(preview.emissionIntensity ?? 0, 0, 8);
+  const baseColor = formatAssetPreviewColor(preview.baseColor, '#8f9aa8');
+  const emissionColor = formatAssetPreviewColor(preview.emissionColor, '#ffffff');
+  sphere.style.cssText = [
+    'position:relative',
+    'width:82%',
+    'height:82%',
+    'overflow:hidden',
+    'border-radius:999px',
+    `background:${baseColor}`,
+    'border:1px solid rgba(255,255,255,0.22)',
+    'box-shadow:' + [
+      `inset -5px -7px 12px rgba(0,0,0,${(0.26 + roughness * 0.14).toFixed(2)})`,
+      `inset 5px 5px 10px rgba(255,255,255,${(0.12 + metallic * 0.2).toFixed(2)})`,
+      emissionIntensity > 0 ? `0 0 ${Math.round(6 + emissionIntensity * 5)}px ${emissionColor}` : '0 1px 2px rgba(0,0,0,0.4)',
+    ].join(','),
+  ].join(';');
+
+  if (preview.textureUrl) {
+    const image = doc.createElement('img');
+    image.src = preview.textureUrl;
+    image.alt = '';
+    image.style.cssText = [
+      'position:absolute',
+      'inset:0',
+      'width:100%',
+      'height:100%',
+      'object-fit:cover',
+      'opacity:0.62',
+      'mix-blend-mode:multiply',
+    ].join(';');
+    sphere.appendChild(image);
+  }
+
+  const shading = doc.createElement('div');
+  const highlightAlpha = clampNumber(0.86 - roughness * 0.48 + metallic * 0.12, 0.25, 0.92);
+  const highlightEnd = Math.round(9 + roughness * 12);
+  const shadowAlpha = clampNumber(0.28 + roughness * 0.14 + metallic * 0.16, 0.2, 0.62);
+  const rimAlpha = clampNumber(0.12 + metallic * 0.36, 0.08, 0.52);
+  shading.style.cssText = [
+    'position:absolute',
+    'inset:0',
+    'border-radius:inherit',
+    'pointer-events:none',
+    'background:' + [
+      `radial-gradient(circle at 31% 23%, rgba(255,255,255,${highlightAlpha.toFixed(2)}) 0 ${highlightEnd}%, rgba(255,255,255,0) ${highlightEnd + 17}%)`,
+      `radial-gradient(circle at 70% 82%, rgba(0,0,0,${shadowAlpha.toFixed(2)}) 0 26%, rgba(0,0,0,0) 58%)`,
+      `radial-gradient(circle at 82% 22%, rgba(255,255,255,${rimAlpha.toFixed(2)}) 0 9%, rgba(255,255,255,0) 36%)`,
+      `linear-gradient(135deg, rgba(255,255,255,${(0.08 + metallic * 0.16).toFixed(2)}), rgba(0,0,0,${(0.12 + roughness * 0.1).toFixed(2)}))`,
+    ].join(','),
+  ].join(';');
+  sphere.appendChild(shading);
+  frame.appendChild(sphere);
+  return frame;
+}
+
+function formatAssetPreviewColor(
+  value: LocalEditorBrowserAssetPreviewColorValue | undefined,
+  fallback: string,
+): string {
+  if (!value) return fallback;
+  if (typeof value === 'string') return value;
+  const r = normalizeAssetPreviewColorChannel(value.r);
+  const g = normalizeAssetPreviewColorChannel(value.g);
+  const b = normalizeAssetPreviewColorChannel(value.b);
+  if (value.a === undefined) return `rgb(${r}, ${g}, ${b})`;
+  return `rgba(${r}, ${g}, ${b}, ${clampNumber(value.a, 0, 1)})`;
+}
+
+function normalizeAssetPreviewColorChannel(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(clampNumber(value >= 0 && value <= 1 ? value * 255 : value, 0, 255));
+}
+
+function clamp01(value: number): number {
+  return clampNumber(value, 0, 1);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function appendAssetBrowserTabs<TDocument>(
+  doc: Document,
+  panel: HTMLElement,
+  state: LocalEditorBrowserUiState<TDocument>,
+  activeTab: LocalEditorAssetBrowserTab,
+): void {
+  const tabs = doc.createElement('div');
+  tabs.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'gap:4px',
+    'margin:0 0 8px',
+    'min-height:26px',
+  ].join(';');
+  for (const tab of ASSET_BROWSER_TABS) {
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.dataset.editorAssetBrowserTab = tab.id;
+    button.title = tab.title;
+    const active = activeTab === tab.id;
+    const count = filterAssetsByBrowserTab(state.assets, tab.id).length;
+    button.textContent = `${tab.label} ${count}`;
+    button.style.cssText = [
+      'height:24px',
+      'padding:0 8px',
+      'border:1px solid var(--fps-editor-border)',
+      'border-radius:3px',
+      `background:${active ? 'var(--fps-editor-accent)' : 'var(--fps-editor-button-bg)'}`,
+      `color:${active ? 'var(--fps-editor-text-strong)' : 'var(--fps-editor-muted)'}`,
+      'font-size:11px',
+      'font-weight:800',
+      'cursor:pointer',
+    ].join(';');
+    tabs.appendChild(button);
+  }
+  panel.appendChild(tabs);
+}
+
+function filterAssetsByBrowserTab(
+  assets: readonly LocalEditorBrowserUiAssetItem[],
+  tab: LocalEditorAssetBrowserTab,
+): LocalEditorBrowserUiAssetItem[] {
+  if (tab === 'all') return [...assets];
+  return assets.filter(asset => resolveAssetBrowserTab(asset) === tab);
+}
+
+function resolveAssetBrowserTab(asset: LocalEditorBrowserUiAssetItem): Exclude<LocalEditorAssetBrowserTab, 'all'> {
+  const kind = `${asset.kind ?? ''}`.trim().toLowerCase();
+  const id = `${asset.id ?? ''}`.trim().toLowerCase();
+  const assetId = `${asset.assetId ?? ''}`.trim().toLowerCase();
+  if (kind === 'material' || kind === 'materials' || id.startsWith('material:') || assetId.startsWith('material:')) {
+    return 'materials';
+  }
+  if (kind === 'texture' || kind === 'image' || kind === 'textures' || id.startsWith('texture:') || assetId.startsWith('texture:')) {
+    return 'textures';
+  }
+  return 'models';
 }
 
 function renderHistoryPanel(
@@ -1148,6 +1359,21 @@ function readInspectorControlOptionNumber<TDocument>(
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+function readInspectorAssetPickerPreview<TDocument>(
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+  key: string,
+): LocalEditorBrowserAssetPreview | undefined {
+  const value = property.controlOptions?.[key];
+  return isLocalEditorBrowserAssetPreview(value) ? value : undefined;
+}
+
+function isLocalEditorBrowserAssetPreview(value: unknown): value is LocalEditorBrowserAssetPreview {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const preview = value as Record<string, unknown>;
+  if (preview.kind === 'image') return typeof preview.url === 'string' && preview.url.length > 0;
+  return preview.kind === 'material-sphere';
+}
+
 function resolveInspectorVectorGroupLabel<TDocument>(
   properties: LocalEditorBrowserInspectorProperty<TDocument>[],
   fallback: string,
@@ -1216,6 +1442,13 @@ const builtinInspectorControlRegistrations: readonly LocalEditorBrowserInspector
     control: 'custom',
     customControl: 'open-right-dock-tab',
     render: ({ doc, property }) => createInspectorOpenRightDockTabControl(doc, property),
+  },
+  {
+    id: 'builtin.asset-picker-card',
+    order: 95,
+    control: 'custom',
+    customControl: 'asset-picker-card',
+    render: ({ doc, target, property, bindInput }) => createInspectorAssetPickerCardControl(doc, target, property, bindInput),
   },
   {
     id: 'builtin.asset',
@@ -1684,6 +1917,121 @@ function createInspectorOpenRightDockTabControl<TDocument>(
     'height:28px',
   ].filter(Boolean).join(';');
   return button;
+}
+
+function createInspectorAssetPickerCardControl<TDocument>(
+  doc: Document,
+  _target: LocalEditorBrowserInspectorObject<TDocument>,
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+  bindInput: LocalEditorBrowserInspectorControlRenderContext<TDocument>['bindInput'],
+): HTMLDivElement {
+  const wrapper = doc.createElement('div');
+  wrapper.dataset.editorInspectorAssetPickerControl = 'true';
+  wrapper.style.cssText = [
+    'min-width:0',
+    'display:grid',
+    readInspectorControlOptionString(property, 'copyActionValue') ? 'grid-template-columns:1fr auto auto' : 'grid-template-columns:1fr auto',
+    'align-items:stretch',
+    'gap:6px',
+  ].join(';');
+
+  const input = doc.createElement('input');
+  input.type = 'hidden';
+  input.value = property.mixed ? '' : String(property.value ?? '');
+  bindInput(input, { source: 'asset' });
+  wrapper.appendChild(input);
+
+  const card = doc.createElement('button');
+  card.type = 'button';
+  card.dataset.editorInspectorAssetPicker = 'true';
+  card.disabled = !isInspectorPropertyEditable(property);
+  card.style.cssText = [
+    'min-width:0',
+    'min-height:42px',
+    'display:flex',
+    'align-items:center',
+    'gap:8px',
+    'padding:6px 7px',
+    'border:1px solid var(--fps-editor-editable-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-field)',
+    'color:var(--fps-editor-text)',
+    'text-align:left',
+    card.disabled ? 'cursor:not-allowed' : 'cursor:pointer',
+    card.disabled ? 'opacity:0.72' : '',
+  ].filter(Boolean).join(';');
+
+  const label = readInspectorControlOptionString(property, 'currentLabel')
+    || readInspectorControlOptionString(property, 'placeholder')
+    || (property.mixed ? '--' : String(property.value || 'None'));
+  const meta = readInspectorControlOptionString(property, 'currentMeta')
+    || readInspectorControlOptionString(property, 'pickerKind')
+    || property.label;
+  const preview = readInspectorAssetPickerPreview(property, 'currentPreview');
+  card.appendChild(createAssetPreviewElement(doc, {
+    id: `${property.path}:preview`,
+    label,
+    preview,
+  }, 'list'));
+
+  const body = doc.createElement('div');
+  body.style.cssText = 'min-width:0;flex:1';
+  const title = doc.createElement('div');
+  title.textContent = label;
+  title.style.cssText = 'font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  const subtitle = doc.createElement('div');
+  subtitle.textContent = meta;
+  subtitle.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  body.appendChild(title);
+  body.appendChild(subtitle);
+  card.appendChild(body);
+  wrapper.appendChild(card);
+
+  const action = doc.createElement('button');
+  action.type = 'button';
+  action.dataset.editorInspectorAssetPicker = 'true';
+  action.disabled = card.disabled;
+  action.textContent = readInspectorControlOptionString(property, 'actionLabel') || '替换';
+  action.style.cssText = [
+    'width:54px',
+    'min-height:42px',
+    'padding:0 8px',
+    'border:1px solid var(--fps-editor-editable-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-button-bg)',
+    'color:var(--fps-editor-text)',
+    'font-size:11px',
+    'font-weight:900',
+    action.disabled ? 'cursor:not-allowed' : 'cursor:pointer',
+    action.disabled ? 'opacity:0.72' : '',
+  ].filter(Boolean).join(';');
+  wrapper.appendChild(action);
+
+  const copyValue = readInspectorControlOptionString(property, 'copyActionValue');
+  if (copyValue) {
+    const copyAction = doc.createElement('button');
+    copyAction.type = 'button';
+    copyAction.dataset.editorInspectorAssetCopy = 'true';
+    copyAction.dataset.editorInspectorAssetCopyValue = copyValue;
+    copyAction.disabled = card.disabled;
+    copyAction.textContent = readInspectorControlOptionString(property, 'copyActionLabel') || '复制';
+    copyAction.title = readInspectorControlOptionString(property, 'copyActionTooltip');
+    copyAction.style.cssText = [
+      'width:48px',
+      'min-height:42px',
+      'padding:0 8px',
+      'border:1px solid var(--fps-editor-editable-border)',
+      'border-radius:3px',
+      'background:var(--fps-editor-button-bg)',
+      'color:var(--fps-editor-text)',
+      'font-size:11px',
+      'font-weight:900',
+      copyAction.disabled ? 'cursor:not-allowed' : 'cursor:pointer',
+      copyAction.disabled ? 'opacity:0.72' : '',
+    ].filter(Boolean).join(';');
+    wrapper.appendChild(copyAction);
+  }
+  return wrapper;
 }
 
 function createInspectorReadonlyControl<TDocument>(

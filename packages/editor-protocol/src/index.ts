@@ -41,6 +41,65 @@ export type RuntimeProp = 'position' | 'rotation' | 'scaling';
 
 export type MaterialRuntimeKind = 'pbr' | 'standard' | 'unknown';
 
+export interface ArtistMaterialTextureRef {
+  url?: string;
+  textureAssetId?: string;
+}
+
+export interface ArtistBaseColorProfile {
+  color?: ColorRGB;
+  texture?: ArtistMaterialTextureRef;
+  brightness?: number;
+  saturation?: number;
+  contrast?: number;
+  hue?: number;
+}
+
+export interface ArtistEmissionProfile {
+  color?: ColorRGB;
+  intensity?: number;
+  maskTexture?: ArtistMaterialTextureRef;
+}
+
+export interface ArtistMaterialProfile {
+  baseColor?: ArtistBaseColorProfile;
+  metallic?: number;
+  roughness?: number;
+  emission?: ArtistEmissionProfile;
+}
+
+export type SceneMaterialAssetKind = 'pbr' | 'standard';
+export type SceneMaterialAssetSystemPreset = 'default-pbr' | 'default-standard';
+
+export interface SceneMaterialAssetSystemConfig {
+  readonly?: boolean;
+  preset?: SceneMaterialAssetSystemPreset;
+}
+
+export interface SceneMaterialAssetConfig {
+  id: string;
+  name: string;
+  profile: ArtistMaterialProfile;
+  materialKind?: SceneMaterialAssetKind;
+  system?: SceneMaterialAssetSystemConfig;
+}
+
+export interface SceneNodeMaterialBindingConfig {
+  materialAssetId?: string;
+  override?: ArtistMaterialProfile;
+}
+
+export type ArtistMaterialProp =
+  | 'material.baseColor.color'
+  | 'material.baseColor.texture.url'
+  | 'material.baseColor.brightness'
+  | 'material.baseColor.saturation'
+  | 'material.baseColor.contrast'
+  | 'material.baseColor.hue'
+  | 'material.emission.color'
+  | 'material.emission.intensity'
+  | 'material.emission.maskTexture.url';
+
 export type MaterialProp =
   | 'material.albedoColor'
   | 'material.emissiveColor'
@@ -66,6 +125,188 @@ export type MaterialProp =
   | 'material.standard.useSpecularOverAlpha';
 
 export type MaterialValue = ColorRGB | number | boolean | string | null;
+
+export interface ResolveArtistMaterialProfileInput {
+  originalProfile?: ArtistMaterialProfile | null;
+  materialAssets?: readonly SceneMaterialAssetConfig[] | null;
+  binding?: SceneNodeMaterialBindingConfig | null;
+  legacyProfile?: ArtistMaterialProfile | null;
+}
+
+export interface ResolveArtistMaterialProfileResult {
+  profile: ArtistMaterialProfile;
+  materialAsset: SceneMaterialAssetConfig | null;
+  missingMaterialAssetId?: string;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function normalizeColorRGB(value: ColorRGB | undefined): ColorRGB | undefined {
+  if (!value || !isFiniteNumber(value.r) || !isFiniteNumber(value.g) || !isFiniteNumber(value.b)) return undefined;
+  return { r: value.r, g: value.g, b: value.b };
+}
+
+function normalizeMaterialTextureRef(value: ArtistMaterialTextureRef | undefined): ArtistMaterialTextureRef | undefined {
+  if (!value) return undefined;
+  const url = typeof value.url === 'string' ? value.url.trim() : '';
+  const textureAssetId = typeof value.textureAssetId === 'string' ? value.textureAssetId.trim() : '';
+  if (!url && !textureAssetId) return undefined;
+  return {
+    ...(url ? { url } : {}),
+    ...(textureAssetId ? { textureAssetId } : {}),
+  };
+}
+
+export function normalizeSceneMaterialAssetKind(value: unknown): SceneMaterialAssetKind | undefined {
+  return value === 'pbr' || value === 'standard' ? value : undefined;
+}
+
+export function resolveSceneMaterialAssetKind(
+  materialAsset: Pick<SceneMaterialAssetConfig, 'materialKind' | 'system'> | null | undefined,
+): SceneMaterialAssetKind {
+  return normalizeSceneMaterialAssetKind(materialAsset?.materialKind)
+    ?? inferSceneMaterialAssetKindFromSystemPreset(materialAsset?.system?.preset)
+    ?? 'pbr';
+}
+
+export function normalizeSceneMaterialAssetSystemConfig(
+  value: SceneMaterialAssetSystemConfig | null | undefined,
+): SceneMaterialAssetSystemConfig | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const preset = value.preset === 'default-pbr' || value.preset === 'default-standard'
+    ? value.preset
+    : undefined;
+  const readonly = value.readonly === true;
+  if (!preset && !readonly) return undefined;
+  return {
+    ...(readonly ? { readonly } : {}),
+    ...(preset ? { preset } : {}),
+  };
+}
+
+export function isReadonlySceneMaterialAsset(
+  materialAsset: Pick<SceneMaterialAssetConfig, 'system'> | null | undefined,
+): boolean {
+  return materialAsset?.system?.readonly === true;
+}
+
+function inferSceneMaterialAssetKindFromSystemPreset(
+  preset: unknown,
+): SceneMaterialAssetKind | undefined {
+  if (preset === 'default-pbr') return 'pbr';
+  if (preset === 'default-standard') return 'standard';
+  return undefined;
+}
+
+export function normalizeArtistMaterialProfile(profile: ArtistMaterialProfile | null | undefined): ArtistMaterialProfile | undefined {
+  if (!profile || typeof profile !== 'object') return undefined;
+
+  const normalized: ArtistMaterialProfile = {};
+  const baseColor: ArtistBaseColorProfile = {};
+  const color = normalizeColorRGB(profile.baseColor?.color);
+  if (color) baseColor.color = color;
+  const texture = normalizeMaterialTextureRef(profile.baseColor?.texture);
+  if (texture) baseColor.texture = texture;
+  if (isFiniteNumber(profile.baseColor?.brightness)) baseColor.brightness = profile.baseColor.brightness;
+  if (isFiniteNumber(profile.baseColor?.saturation)) baseColor.saturation = profile.baseColor.saturation;
+  if (isFiniteNumber(profile.baseColor?.contrast)) baseColor.contrast = profile.baseColor.contrast;
+  if (isFiniteNumber(profile.baseColor?.hue)) baseColor.hue = profile.baseColor.hue;
+  if (Object.keys(baseColor).length > 0) normalized.baseColor = baseColor;
+
+  if (isFiniteNumber(profile.metallic)) normalized.metallic = profile.metallic;
+  if (isFiniteNumber(profile.roughness)) normalized.roughness = profile.roughness;
+
+  const emission: ArtistEmissionProfile = {};
+  const emissionColor = normalizeColorRGB(profile.emission?.color);
+  if (emissionColor) emission.color = emissionColor;
+  if (isFiniteNumber(profile.emission?.intensity)) emission.intensity = profile.emission.intensity;
+  const maskTexture = normalizeMaterialTextureRef(profile.emission?.maskTexture);
+  if (maskTexture) emission.maskTexture = maskTexture;
+  if (Object.keys(emission).length > 0) normalized.emission = emission;
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+export function normalizeSceneMaterialAssetConfig(
+  materialAsset: SceneMaterialAssetConfig | null | undefined,
+): SceneMaterialAssetConfig | undefined {
+  if (!materialAsset || typeof materialAsset !== 'object') return undefined;
+  const id = typeof materialAsset.id === 'string' ? materialAsset.id.trim() : '';
+  const name = typeof materialAsset.name === 'string' ? materialAsset.name.trim() : '';
+  const profile = normalizeArtistMaterialProfile(materialAsset.profile);
+  if (!id || !name || !profile) return undefined;
+  const system = normalizeSceneMaterialAssetSystemConfig(materialAsset.system);
+  const materialKind = normalizeSceneMaterialAssetKind(materialAsset.materialKind);
+  const presetKind = inferSceneMaterialAssetKindFromSystemPreset(system?.preset);
+  if (materialKind && presetKind && materialKind !== presetKind) return undefined;
+  return {
+    id,
+    name,
+    profile,
+    ...(materialKind ?? presetKind ? { materialKind: materialKind ?? presetKind } : {}),
+    ...(system ? { system } : {}),
+  };
+}
+
+export function mergeArtistMaterialProfiles(
+  ...profiles: Array<ArtistMaterialProfile | null | undefined>
+): ArtistMaterialProfile {
+  const merged: ArtistMaterialProfile = {};
+  for (const profile of profiles) {
+    const normalized = normalizeArtistMaterialProfile(profile);
+    if (!normalized) continue;
+    if (normalized.baseColor) {
+      merged.baseColor = {
+        ...(merged.baseColor ?? {}),
+        ...normalized.baseColor,
+      };
+    }
+    if (normalized.metallic !== undefined) merged.metallic = normalized.metallic;
+    if (normalized.roughness !== undefined) merged.roughness = normalized.roughness;
+    if (normalized.emission) {
+      merged.emission = {
+        ...(merged.emission ?? {}),
+        ...normalized.emission,
+      };
+    }
+  }
+  return normalizedOrEmpty(merged);
+}
+
+export function findSceneMaterialAsset(
+  materialAssets: readonly SceneMaterialAssetConfig[] | null | undefined,
+  materialAssetId: string | null | undefined,
+): SceneMaterialAssetConfig | null {
+  const id = typeof materialAssetId === 'string' ? materialAssetId.trim() : '';
+  if (!id || !materialAssets) return null;
+  return materialAssets.find(asset => asset.id === id) ?? null;
+}
+
+export function resolveArtistMaterialProfile(
+  input: ResolveArtistMaterialProfileInput,
+): ResolveArtistMaterialProfileResult {
+  const materialAssetId = typeof input.binding?.materialAssetId === 'string'
+    ? input.binding.materialAssetId.trim()
+    : '';
+  const materialAsset = findSceneMaterialAsset(input.materialAssets, materialAssetId);
+  const profile = mergeArtistMaterialProfiles(
+    input.originalProfile,
+    materialAsset?.profile,
+    input.binding?.override,
+    input.legacyProfile,
+  );
+  return {
+    profile,
+    materialAsset,
+    ...(materialAssetId && !materialAsset ? { missingMaterialAssetId: materialAssetId } : {}),
+  };
+}
+
+function normalizedOrEmpty(profile: ArtistMaterialProfile): ArtistMaterialProfile {
+  return normalizeArtistMaterialProfile(profile) ?? {};
+}
 
 export type OutlineProp =
   | 'outline.renderOutline'

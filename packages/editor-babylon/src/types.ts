@@ -48,6 +48,7 @@ export type BabylonRuntimeGlobal = {
     CreateCapsule?: (name: string, options: Record<string, unknown>, scene: RuntimeScene) => any;
   };
   StandardMaterial?: new (name: string, scene: RuntimeScene) => any;
+  PBRMaterial?: new (name: string, scene: RuntimeScene) => any;
   DynamicTexture?: new (
     name: string,
     options: { width: number; height: number } | number,

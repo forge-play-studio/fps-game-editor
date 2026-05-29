@@ -71,8 +71,13 @@ import {
 } from './local-editor-ui-workbench';
 import { createLocalEditorIcon, type LocalEditorIconName } from './local-editor-ui-icons';
 import type {
+  LocalEditorAssetBrowserTab,
   LocalEditorBottomDockTab,
+  LocalEditorBrowserAssetActionInput,
+  LocalEditorBrowserAssetPreview,
   LocalEditorBrowserCoordinateAxesState,
+  LocalEditorBrowserInspectorAssetPickerOption,
+  LocalEditorBrowserUiAssetItem,
   LocalEditorBrowserInspectorCommitMode,
   LocalEditorBrowserInspectorControlKind,
   LocalEditorBrowserInspectorEditSource,
@@ -99,6 +104,7 @@ import type {
   LocalEditorBrowserUiOptions,
   LocalEditorBrowserUiPropertyInput,
   LocalEditorBrowserUiState,
+  LocalEditorContextMenuItem,
   LocalEditorRightDockTab,
   LocalEditorThemeController,
 } from './local-editor-ui-types';
@@ -142,6 +148,8 @@ export type {
 } from './local-editor-ui-icons';
 
 export type {
+  LocalEditorAssetBrowserTab,
+  LocalEditorBrowserAssetActionInput,
   LocalEditorBottomDockTab,
   LocalEditorBrowserAuthoringSource,
   LocalEditorBrowserCoordinateAxis,
@@ -1085,6 +1093,185 @@ function formatSvgNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : '0';
 }
 
+function isLocalEditorAssetBrowserTab(value: unknown): value is LocalEditorAssetBrowserTab {
+  return value === 'all' || value === 'models' || value === 'materials' || value === 'textures';
+}
+
+function createAssetBrowserMenuItems<TDocument>(
+  state: LocalEditorBrowserUiState<TDocument>,
+  asset: LocalEditorBrowserUiAssetItem,
+): LocalEditorContextMenuItem[] {
+  const assetKind = resolveBrowserAssetKind(asset);
+  const placeable = asset.placeable !== false && asset.disabled !== true;
+  const activeId = state.activeId;
+  const items: LocalEditorContextMenuItem[] = [];
+  if (assetKind === 'material') {
+    items.push({
+      id: 'asset.edit-material',
+      label: '编辑材质球',
+      disabled: !asset.material,
+      disabledReason: '该材质资产缺少可编辑参数。',
+    });
+  } else if (assetKind === 'texture' && asset.preview) {
+    items.push({
+      id: 'asset.preview',
+      label: '查看贴图预览',
+    });
+  }
+
+  if (assetKind === 'material') {
+    items.push({
+      id: 'asset.apply-material',
+      label: '应用到当前 GameObject',
+      separatorBefore: true,
+      disabled: !activeId,
+      disabledReason: '请先在 Hierarchy 或 Scene View 中选择一个 GameObject。',
+    });
+  } else if (assetKind === 'texture') {
+    items.push({
+      id: 'asset.add-to-scene',
+      label: '作为地贴添加到场景',
+      separatorBefore: asset.preview ? true : undefined,
+      disabled: !placeable,
+      disabledReason: '该贴图当前不可放置。',
+    });
+    items.push({
+      id: 'asset.place',
+      label: '进入地面放置模式',
+      disabled: !placeable,
+      disabledReason: '该贴图当前不可放置。',
+    });
+    items.push({
+      id: 'asset.use-base-texture',
+      label: '用作当前材质 Base 图',
+      disabled: true,
+      disabledReason: 'Base 图材质字段将在下一步接入。',
+      separatorBefore: true,
+    });
+    items.push({
+      id: 'asset.use-emission-mask',
+      label: '用作当前材质自发光遮罩',
+      disabled: true,
+      disabledReason: '自发光遮罩绑定将在下一步接入。',
+    });
+  } else {
+    items.push({
+      id: 'asset.add-to-scene',
+      label: '添加到场景',
+      disabled: !placeable,
+      disabledReason: '该模型当前不可放置。',
+    });
+    items.push({
+      id: 'asset.place',
+      label: '进入放置模式',
+      disabled: !placeable,
+      disabledReason: '该模型当前不可放置。',
+    });
+    items.push({
+      id: 'asset.add-as-child',
+      label: '添加为当前节点子对象',
+      disabled: true,
+      disabledReason: '子对象添加动作将在资产 patch 中接入。',
+      separatorBefore: true,
+    });
+    items.push({
+      id: 'asset.replace-selected-model',
+      label: '替换当前模型',
+      disabled: true,
+      disabledReason: '模型替换动作将在资产 patch 中接入。',
+    });
+  }
+
+  items.push({
+    id: 'asset.copy-id',
+    label: '复制 Asset ID',
+    separatorBefore: true,
+  });
+  return items;
+}
+
+function resolveBrowserAssetKind(asset: LocalEditorBrowserUiAssetItem): 'model' | 'material' | 'texture' {
+  const kind = `${asset.kind ?? ''}`.trim().toLowerCase();
+  const id = `${asset.id ?? ''}`.trim().toLowerCase();
+  const assetId = `${asset.assetId ?? ''}`.trim().toLowerCase();
+  if (kind === 'material' || id.startsWith('material:') || assetId.startsWith('mat_')) return 'material';
+  if (kind === 'texture' || kind === 'image' || id.startsWith('texture:') || assetId.startsWith('texture_')) return 'texture';
+  return 'model';
+}
+
+function createAssetBrowserActionInput(
+  actionId: string,
+  asset: LocalEditorBrowserUiAssetItem,
+): LocalEditorBrowserAssetActionInput {
+  return {
+    actionId,
+    assetId: asset.assetId ?? asset.id,
+    browserAssetId: asset.id,
+    assetKind: asset.kind,
+  };
+}
+
+function copyTextToClipboard(win: Window | null, text: string): void {
+  void win?.navigator?.clipboard?.writeText?.(text);
+}
+
+function readInspectorAssetPickerOptions<TDocument>(
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+): { title: string; candidates: LocalEditorBrowserInspectorAssetPickerOption[] } {
+  const title = readControlOptionString(property, 'pickerTitle') || property.label;
+  const rawCandidates = property.controlOptions?.candidates;
+  const candidates = Array.isArray(rawCandidates)
+    ? rawCandidates.flatMap(readInspectorAssetPickerOption)
+    : [];
+  return { title, candidates };
+}
+
+function readInspectorAssetPickerOption(value: unknown): LocalEditorBrowserInspectorAssetPickerOption[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const record = value as Record<string, unknown>;
+  const label = typeof record.label === 'string' ? record.label : '';
+  const optionValue = typeof record.value === 'string' ? record.value : '';
+  if (!label && !optionValue) return [];
+  return [{
+    label: label || optionValue,
+    value: optionValue,
+    ...(typeof record.meta === 'string' ? { meta: record.meta } : {}),
+    ...(typeof record.kind === 'string' ? { kind: record.kind } : {}),
+    ...(isAssetPreview(record.preview) ? { preview: record.preview } : {}),
+  }];
+}
+
+function readControlOptionString<TDocument>(
+  property: LocalEditorBrowserInspectorProperty<TDocument>,
+  key: string,
+): string {
+  const value = property.controlOptions?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function isAssetPreview(value: unknown): value is LocalEditorBrowserAssetPreview {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.kind === 'image') return typeof record.url === 'string' && record.url.length > 0;
+  return record.kind === 'material-sphere';
+}
+
+function findInspectorPropertyForInput<TDocument>(
+  state: LocalEditorBrowserUiState<TDocument>,
+  input: HTMLInputElement | HTMLSelectElement,
+): LocalEditorBrowserInspectorProperty<TDocument> | null {
+  const path = input.dataset.serializedPath;
+  if (!path) return null;
+  const objects = [state.inspectorObject, state.inspectorMultiObject].filter(Boolean) as Array<NonNullable<LocalEditorBrowserUiState<TDocument>['inspectorObject']>>;
+  for (const object of objects) {
+    for (const section of object.sections) {
+      const property = section.properties.find(candidate => candidate.path === path);
+      if (property) return property;
+    }
+  }
+  return null;
+}
+
 export function createLocalEditorBrowserUi<TDocument = unknown>(
   options: LocalEditorBrowserUiOptions<TDocument> = {},
 ): LocalEditorBrowserUi<TDocument> & LocalEditorThemeController {
@@ -1106,6 +1293,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   });
   let currentState: LocalEditorBrowserUiState<TDocument> | null = null;
   let inspectorFilter = '';
+  let assetBrowserTab: LocalEditorAssetBrowserTab = 'all';
   const workbenchLayout = createDefaultLocalEditorWorkbenchLayout();
   const panelRegistry = createLocalEditorPanelRegistry(workbenchLayout);
 
@@ -1200,6 +1388,13 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const undoButton = createToolbarIconButton(doc, '撤销', 'undo', '撤销');
   const redoButton = createToolbarIconButton(doc, '重做', 'redo', '重做');
   let helpOpen = false;
+  let assetPreviewOpen = false;
+  let previewedAsset: LocalEditorBrowserUiAssetItem | null = null;
+  let assetPreviewMode: 'preview' | 'material-editor' = 'preview';
+  let assetPickerOpen = false;
+  let assetPickerFilter = '';
+  let assetPickerInput: HTMLInputElement | null = null;
+  let assetPickerProperty: LocalEditorBrowserInspectorProperty<TDocument> | null = null;
 
   const editorStatusButton = createToolbarIconButton(doc, '编辑器状态', 'status', '编辑器状态');
   editorStatusButton.dataset.editorStatusButton = 'true';
@@ -1653,6 +1848,166 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   root.appendChild(shortcutHelpPanel);
   tooltipSurfaces.add(shortcutHelpPanel);
 
+  const assetPreviewModal = doc.createElement('div');
+  assetPreviewModal.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  assetPreviewModal.dataset.editorAssetPreviewModal = 'true';
+  assetPreviewModal.dataset.editorWorkbenchRegion = 'modal';
+  assetPreviewModal.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'z-index:2147483642',
+    'display:none',
+    'align-items:center',
+    'justify-content:center',
+    'padding:32px',
+    'background:rgba(0,0,0,0.45)',
+    'font-family:var(--fps-editor-font)',
+    'color:var(--fps-editor-text)',
+    'pointer-events:auto',
+  ].join(';');
+  const assetPreviewDialog = doc.createElement('div');
+  assetPreviewDialog.setAttribute('role', 'dialog');
+  assetPreviewDialog.setAttribute('aria-modal', 'true');
+  assetPreviewDialog.setAttribute('aria-label', '资产预览');
+  assetPreviewDialog.style.cssText = [
+    'width:min(420px,calc(100vw - 64px))',
+    'max-height:calc(100vh - 64px)',
+    'display:flex',
+    'flex-direction:column',
+    'gap:12px',
+    'padding:14px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:4px',
+    'background:var(--fps-editor-panel)',
+    'box-shadow:var(--fps-editor-shadow-modal)',
+    'overflow:auto',
+  ].join(';');
+  const assetPreviewHeader = doc.createElement('div');
+  assetPreviewHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px';
+  const assetPreviewTitle = doc.createElement('h2');
+  assetPreviewTitle.style.cssText = [
+    'min-width:0',
+    'margin:0',
+    'overflow:hidden',
+    'text-overflow:ellipsis',
+    'white-space:nowrap',
+    'font-size:13px',
+    'font-weight:900',
+    'color:var(--fps-editor-text-strong)',
+  ].join(';');
+  const assetPreviewCloseButton = LocalEditorShared.createButton(doc, '关闭');
+  assetPreviewCloseButton.dataset.editorAssetPreviewClose = 'true';
+  assetPreviewHeader.appendChild(assetPreviewTitle);
+  assetPreviewHeader.appendChild(assetPreviewCloseButton);
+  const assetPreviewBody = doc.createElement('div');
+  assetPreviewBody.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'justify-content:center',
+    'min-height:240px',
+    'border:1px solid var(--fps-editor-divider)',
+    'border-radius:4px',
+    'background:var(--fps-editor-panel-soft)',
+  ].join(';');
+  const assetPreviewMeta = doc.createElement('div');
+  assetPreviewMeta.style.cssText = [
+    'min-height:16px',
+    'overflow:hidden',
+    'text-overflow:ellipsis',
+    'white-space:nowrap',
+    'color:var(--fps-editor-muted)',
+    'font-size:11px',
+    'font-weight:800',
+  ].join(';');
+  assetPreviewDialog.appendChild(assetPreviewHeader);
+  assetPreviewDialog.appendChild(assetPreviewBody);
+  assetPreviewDialog.appendChild(assetPreviewMeta);
+  assetPreviewModal.appendChild(assetPreviewDialog);
+  root.appendChild(assetPreviewModal);
+  tooltipSurfaces.add(assetPreviewModal);
+
+  const assetPickerModal = doc.createElement('div');
+  assetPickerModal.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  assetPickerModal.dataset.editorAssetPickerModal = 'true';
+  assetPickerModal.dataset.editorWorkbenchRegion = 'modal';
+  assetPickerModal.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'z-index:2147483642',
+    'display:none',
+    'align-items:center',
+    'justify-content:center',
+    'padding:32px',
+    'background:rgba(0,0,0,0.45)',
+    'font-family:var(--fps-editor-font)',
+    'color:var(--fps-editor-text)',
+    'pointer-events:auto',
+  ].join(';');
+  const assetPickerDialog = doc.createElement('div');
+  assetPickerDialog.setAttribute('role', 'dialog');
+  assetPickerDialog.setAttribute('aria-modal', 'true');
+  assetPickerDialog.setAttribute('aria-label', '资产选择');
+  assetPickerDialog.style.cssText = [
+    'width:min(620px,calc(100vw - 64px))',
+    'max-height:calc(100vh - 64px)',
+    'display:flex',
+    'flex-direction:column',
+    'gap:10px',
+    'padding:14px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:4px',
+    'background:var(--fps-editor-panel)',
+    'box-shadow:var(--fps-editor-shadow-modal)',
+    'overflow:hidden',
+  ].join(';');
+  const assetPickerHeader = doc.createElement('div');
+  assetPickerHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px';
+  const assetPickerTitle = doc.createElement('h2');
+  assetPickerTitle.style.cssText = [
+    'min-width:0',
+    'margin:0',
+    'overflow:hidden',
+    'text-overflow:ellipsis',
+    'white-space:nowrap',
+    'font-size:13px',
+    'font-weight:900',
+    'color:var(--fps-editor-text-strong)',
+  ].join(';');
+  const assetPickerCloseButton = LocalEditorShared.createButton(doc, '关闭');
+  assetPickerCloseButton.dataset.editorAssetPickerClose = 'true';
+  assetPickerHeader.appendChild(assetPickerTitle);
+  assetPickerHeader.appendChild(assetPickerCloseButton);
+  const assetPickerSearch = doc.createElement('input');
+  assetPickerSearch.type = 'search';
+  assetPickerSearch.dataset.editorAssetPickerSearch = 'true';
+  assetPickerSearch.placeholder = '搜索资产';
+  assetPickerSearch.style.cssText = [
+    'width:100%',
+    'height:30px',
+    'border:1px solid var(--fps-editor-border)',
+    'border-radius:3px',
+    'background:var(--fps-editor-field)',
+    'color:var(--fps-editor-text)',
+    'font-size:12px',
+    'padding:0 8px',
+  ].join(';');
+  const assetPickerList = doc.createElement('div');
+  assetPickerList.style.cssText = [
+    'min-height:180px',
+    'max-height:min(430px,calc(100vh - 196px))',
+    'overflow:auto',
+    'display:grid',
+    'grid-template-columns:repeat(auto-fill,minmax(176px,1fr))',
+    'gap:7px',
+    'padding-right:2px',
+  ].join(';');
+  assetPickerDialog.appendChild(assetPickerHeader);
+  assetPickerDialog.appendChild(assetPickerSearch);
+  assetPickerDialog.appendChild(assetPickerList);
+  assetPickerModal.appendChild(assetPickerDialog);
+  root.appendChild(assetPickerModal);
+  tooltipSurfaces.add(assetPickerModal);
+
   function applyThemeToSurfaces(): void {
     applyLocalEditorTheme(hostChrome, activeTheme);
     applyLocalEditorTheme(workbench.root, activeTheme);
@@ -1660,6 +2015,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     applyLocalEditorTheme(measurementOverlay.root, activeTheme);
     applyLocalEditorTheme(sceneFrameRateOverlay.root, activeTheme);
     applyLocalEditorTheme(shortcutHelpPanel, activeTheme);
+    applyLocalEditorTheme(assetPreviewModal, activeTheme);
+    applyLocalEditorTheme(assetPickerModal, activeTheme);
     applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
     applyLocalEditorTheme(localTestMenu, activeTheme);
     applyLocalEditorTheme(toolbarOverflowMenu, activeTheme);
@@ -2156,10 +2513,441 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const setShortcutHelpOpen = (open: boolean): void => {
     if (open) contextMenu.close();
     helpOpen = open;
-    inputRouter.setModalOpen(open);
+    syncInputModalOpen();
     shortcutHelpPanel.style.display = helpOpen ? '' : 'none';
     LocalEditorShared.applyButtonActiveState(sceneHelpButton, helpOpen);
   };
+
+  const openAssetPreviewModal = (asset: LocalEditorBrowserUiAssetItem): void => {
+    if (!asset.preview) return;
+    contextMenu.close();
+    previewedAsset = asset;
+    assetPreviewMode = 'preview';
+    assetPreviewDialog.setAttribute('aria-label', '资产预览');
+    assetPreviewOpen = true;
+    renderAssetPreviewModal();
+    syncInputModalOpen();
+    assetPreviewCloseButton.focus({ preventScroll: true });
+  };
+
+  const openAssetMaterialEditorModal = (asset: LocalEditorBrowserUiAssetItem): void => {
+    if (!asset.material) return;
+    contextMenu.close();
+    previewedAsset = asset;
+    assetPreviewMode = 'material-editor';
+    assetPreviewDialog.setAttribute('aria-label', '编辑材质球');
+    assetPreviewOpen = true;
+    renderAssetPreviewModal();
+    syncInputModalOpen();
+    assetPreviewCloseButton.focus({ preventScroll: true });
+  };
+
+  const closeAssetPreviewModal = (): void => {
+    if (!assetPreviewOpen) return;
+    assetPreviewOpen = false;
+    previewedAsset = null;
+    assetPreviewMode = 'preview';
+    renderAssetPreviewModal();
+    syncInputModalOpen();
+  };
+
+  const openInspectorAssetPicker = (
+    input: HTMLInputElement,
+    property: LocalEditorBrowserInspectorProperty<TDocument>,
+  ): void => {
+    contextMenu.close();
+    if (helpOpen) setShortcutHelpOpen(false);
+    assetPickerInput = input;
+    assetPickerProperty = property;
+    assetPickerFilter = '';
+    assetPickerOpen = true;
+    closeAssetPreviewModal();
+    renderAssetPickerModal();
+    syncInputModalOpen();
+    assetPickerSearch.focus({ preventScroll: true });
+    assetPickerSearch.select();
+  };
+
+  const closeInspectorAssetPicker = (): void => {
+    if (!assetPickerOpen) return;
+    assetPickerOpen = false;
+    assetPickerInput = null;
+    assetPickerProperty = null;
+    assetPickerFilter = '';
+    renderAssetPickerModal();
+    syncInputModalOpen();
+  };
+
+  function syncInputModalOpen(): void {
+    inputRouter.setModalOpen(currentState?.mode === 'editor' && (helpOpen || assetPreviewOpen || assetPickerOpen));
+  }
+
+  function resolvePreviewedAssetFromState(): LocalEditorBrowserUiAssetItem | null {
+    if (!previewedAsset) return null;
+    const refreshed = currentState?.assets.find(asset => asset.id === previewedAsset?.id)
+      ?? currentState?.assets.find(asset => (asset.assetId ?? asset.id) === (previewedAsset?.assetId ?? previewedAsset?.id))
+      ?? null;
+    if (refreshed) previewedAsset = refreshed;
+    return previewedAsset;
+  }
+
+  function renderAssetPreviewModal(): void {
+    const asset = resolvePreviewedAssetFromState();
+    if (!assetPreviewOpen || !asset || (assetPreviewMode === 'preview' && !asset.preview) || (assetPreviewMode === 'material-editor' && !asset.material)) {
+      assetPreviewModal.style.display = 'none';
+      assetPreviewTitle.textContent = '';
+      assetPreviewMeta.textContent = '';
+      while (assetPreviewBody.firstChild) assetPreviewBody.removeChild(assetPreviewBody.firstChild);
+      return;
+    }
+    if (assetPreviewMode === 'material-editor' && asset.material) {
+      renderAssetMaterialEditorModal(asset);
+      assetPreviewModal.style.display = 'flex';
+      return;
+    }
+    assetPreviewDialog.style.width = 'min(420px,calc(100vw - 64px))';
+    assetPreviewBody.style.cssText = [
+      'display:flex',
+      'align-items:center',
+      'justify-content:center',
+      'min-height:240px',
+      'border:1px solid var(--fps-editor-divider)',
+      'border-radius:4px',
+      'background:var(--fps-editor-panel-soft)',
+    ].join(';');
+    assetPreviewTitle.textContent = asset.label;
+    assetPreviewMeta.textContent = [
+      asset.kind ? `Kind: ${asset.kind}` : '',
+      asset.meta ?? asset.assetId ?? asset.id,
+    ].filter(Boolean).join(' · ');
+    while (assetPreviewBody.firstChild) assetPreviewBody.removeChild(assetPreviewBody.firstChild);
+    assetPreviewBody.appendChild(LocalEditorPanels.createAssetPreviewElement(doc, asset, 'modal'));
+    assetPreviewModal.style.display = 'flex';
+  }
+
+  function renderAssetMaterialEditorModal(asset: LocalEditorBrowserUiAssetItem): void {
+    const material = asset.material!;
+    const profile = material.profile ?? {};
+    const baseColor = profile.baseColor ?? {};
+    const emission = profile.emission ?? {};
+    const readonly = material.readonly === true;
+    const materialKind = material.materialKind === 'standard' ? 'standard' : 'pbr';
+    assetPreviewDialog.style.width = 'min(780px,calc(100vw - 64px))';
+    assetPreviewTitle.textContent = '编辑材质球';
+    assetPreviewMeta.textContent = [
+      material.name || asset.label,
+      materialKind === 'standard' ? 'Standard' : 'PBR',
+      readonly ? '只读系统材质' : '共享资产参数',
+      material.id,
+    ].filter(Boolean).join(' · ');
+    while (assetPreviewBody.firstChild) assetPreviewBody.removeChild(assetPreviewBody.firstChild);
+    assetPreviewBody.style.cssText = [
+      'display:grid',
+      'grid-template-columns:minmax(180px,250px) minmax(0,1fr)',
+      'gap:14px',
+      'align-items:start',
+      'min-height:360px',
+      'border:1px solid var(--fps-editor-divider)',
+      'border-radius:4px',
+      'background:var(--fps-editor-panel-soft)',
+      'padding:12px',
+      'box-sizing:border-box',
+    ].join(';');
+
+    const previewColumn = doc.createElement('div');
+    previewColumn.style.cssText = 'display:flex;flex-direction:column;gap:10px;min-width:0';
+    previewColumn.appendChild(LocalEditorPanels.createAssetPreviewElement(doc, asset, 'modal'));
+    const previewMeta = doc.createElement('div');
+    previewMeta.textContent = readonly
+      ? '系统默认材质不可编辑。'
+      : '修改会影响所有使用该材质球的物体。';
+    previewMeta.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;font-weight:800;line-height:1.45';
+    previewColumn.appendChild(previewMeta);
+
+    const form = doc.createElement('div');
+    form.style.cssText = 'display:grid;grid-template-columns:minmax(96px,140px) minmax(0,1fr);gap:7px 10px;align-items:center;min-width:0';
+    appendMaterialEditorReadonlyRow(form, '名称', material.name || asset.label);
+    appendMaterialEditorReadonlyRow(form, '类型', materialKind === 'standard' ? 'Standard 标准材质球' : 'PBR 标准材质球');
+    appendMaterialEditorColorField(form, '基础颜色', 'profile.baseColor.color', baseColor.color ?? { r: 1, g: 1, b: 1 }, readonly);
+    appendMaterialEditorTextureField(form, '基础贴图', 'profile.baseColor.texture.url', baseColor.texture?.url ?? '', readonly);
+    appendMaterialEditorNumberField(form, '亮度', 'profile.baseColor.brightness', baseColor.brightness ?? 1, readonly, 0, 2, 0.05);
+    appendMaterialEditorNumberField(form, '饱和度', 'profile.baseColor.saturation', baseColor.saturation ?? 1, readonly, 0, 2, 0.05);
+    appendMaterialEditorNumberField(form, '对比度', 'profile.baseColor.contrast', baseColor.contrast ?? 1, readonly, 0, 2, 0.05);
+    appendMaterialEditorNumberField(form, '色相', 'profile.baseColor.hue', baseColor.hue ?? 0, readonly, -180, 180, 1);
+    if (materialKind === 'pbr') {
+      appendMaterialEditorNumberField(form, '金属度', 'profile.metallic', profile.metallic ?? 0, readonly, 0, 1, 0.05);
+      appendMaterialEditorNumberField(form, '粗糙度', 'profile.roughness', profile.roughness ?? 1, readonly, 0, 1, 0.05);
+    }
+    appendMaterialEditorColorField(form, '自发光颜色', 'profile.emission.color', emission.color ?? { r: 0, g: 0, b: 0 }, readonly);
+    appendMaterialEditorNumberField(form, '自发光强度', 'profile.emission.intensity', emission.intensity ?? 0, readonly, 0, undefined, 0.05);
+    appendMaterialEditorTextureField(form, '遮罩贴图', 'profile.emission.maskTexture.url', emission.maskTexture?.url ?? '', readonly);
+
+    assetPreviewBody.appendChild(previewColumn);
+    assetPreviewBody.appendChild(form);
+  }
+
+  function appendMaterialEditorReadonlyRow(container: HTMLElement, label: string, value: string): void {
+    appendMaterialEditorLabel(container, label);
+    const output = doc.createElement('div');
+    output.textContent = value;
+    output.style.cssText = [
+      'min-height:30px',
+      'display:flex',
+      'align-items:center',
+      'min-width:0',
+      'padding:0 8px',
+      'border:1px solid var(--fps-editor-border)',
+      'border-radius:3px',
+      'background:var(--fps-editor-field)',
+      'color:var(--fps-editor-muted-strong)',
+      'font-size:12px',
+      'font-weight:900',
+      'overflow:hidden',
+      'text-overflow:ellipsis',
+      'white-space:nowrap',
+    ].join(';');
+    container.appendChild(output);
+  }
+
+  function appendMaterialEditorColorField(
+    container: HTMLElement,
+    label: string,
+    fieldPath: string,
+    color: { r: number; g: number; b: number },
+    readonly: boolean,
+  ): void {
+    appendMaterialEditorLabel(container, label);
+    const input = doc.createElement('input');
+    input.type = 'color';
+    input.value = materialEditorColorToHex(color);
+    input.disabled = readonly;
+    input.dataset.editorAssetMaterialField = fieldPath;
+    input.dataset.editorAssetMaterialFieldKind = 'color';
+    input.style.cssText = [
+      'width:48px',
+      'height:32px',
+      'padding:2px',
+      'border:1px solid var(--fps-editor-accent)',
+      'border-radius:3px',
+      'background:var(--fps-editor-field)',
+      readonly ? 'opacity:0.62' : 'cursor:pointer',
+    ].join(';');
+    container.appendChild(input);
+  }
+
+  function appendMaterialEditorNumberField(
+    container: HTMLElement,
+    label: string,
+    fieldPath: string,
+    value: number,
+    readonly: boolean,
+    min?: number,
+    max?: number,
+    step = 0.05,
+  ): void {
+    appendMaterialEditorLabel(container, label);
+    const input = doc.createElement('input');
+    input.type = 'number';
+    input.value = formatMaterialEditorNumber(value);
+    if (min != null) input.min = String(min);
+    if (max != null) input.max = String(max);
+    input.step = String(step);
+    input.disabled = readonly;
+    input.dataset.editorAssetMaterialField = fieldPath;
+    input.dataset.editorAssetMaterialFieldKind = 'number';
+    input.style.cssText = createMaterialEditorFieldCss(readonly);
+    container.appendChild(input);
+  }
+
+  function appendMaterialEditorTextureField(
+    container: HTMLElement,
+    label: string,
+    fieldPath: string,
+    value: string,
+    readonly: boolean,
+  ): void {
+    appendMaterialEditorLabel(container, label);
+    const select = doc.createElement('select');
+    select.disabled = readonly;
+    select.dataset.editorAssetMaterialField = fieldPath;
+    select.dataset.editorAssetMaterialFieldKind = 'texture';
+    select.style.cssText = createMaterialEditorFieldCss(readonly);
+    for (const option of createMaterialEditorTextureOptions(value)) {
+      const optionElement = doc.createElement('option');
+      optionElement.value = option.value;
+      optionElement.textContent = option.label;
+      optionElement.title = option.meta ?? option.value;
+      select.appendChild(optionElement);
+    }
+    select.value = value;
+    container.appendChild(select);
+  }
+
+  function appendMaterialEditorLabel(container: HTMLElement, text: string): void {
+    const label = doc.createElement('div');
+    label.textContent = text;
+    label.style.cssText = 'color:var(--fps-editor-muted-strong);font-size:12px;font-weight:900;line-height:1.2';
+    container.appendChild(label);
+  }
+
+  function createMaterialEditorTextureOptions(currentValue: string): Array<{ label: string; value: string; meta?: string }> {
+    const options: Array<{ label: string; value: string; meta?: string }> = [{ label: '继承 / 无', value: '', meta: '清空贴图引用' }];
+    const seen = new Set(['']);
+    for (const asset of currentState?.assets ?? []) {
+      if (resolveBrowserAssetKind(asset) !== 'texture') continue;
+      const value = asset.preview?.kind === 'image'
+        ? asset.preview.url
+        : asset.external?.assetUrl ?? asset.external?.assetPath ?? '';
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      options.push({ label: asset.label, value, meta: asset.meta ?? asset.assetId ?? asset.id });
+    }
+    if (currentValue && !seen.has(currentValue)) {
+      options.push({ label: currentValue, value: currentValue, meta: '当前贴图 URL' });
+    }
+    return options;
+  }
+
+  function createMaterialEditorFieldCss(readonly: boolean): string {
+    return [
+      'width:100%',
+      'min-width:0',
+      'height:32px',
+      'padding:0 8px',
+      'border:1px solid var(--fps-editor-accent)',
+      'border-radius:3px',
+      'background:var(--fps-editor-field)',
+      'color:var(--fps-editor-text-strong)',
+      'font-size:12px',
+      'font-weight:800',
+      'box-sizing:border-box',
+      readonly ? 'opacity:0.62' : '',
+    ].join(';');
+  }
+
+  function formatMaterialEditorNumber(value: number): string {
+    if (!Number.isFinite(value)) return '0';
+    return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function materialEditorColorToHex(color: { r: number; g: number; b: number }): string {
+    const toHex = (value: number): string => {
+      const normalized = Number.isFinite(value) ? value : 0;
+      const byte = Math.round(Math.min(255, Math.max(0, normalized <= 1 ? normalized * 255 : normalized)));
+      return byte.toString(16).padStart(2, '0');
+    };
+    return `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`;
+  }
+
+  function materialEditorHexToColor(value: string): { r: number; g: number; b: number } | null {
+    const match = value.trim().match(/^#?([0-9a-f]{6})$/i);
+    if (!match) return null;
+    const hex = match[1];
+    return {
+      r: Number.parseInt(hex.slice(0, 2), 16) / 255,
+      g: Number.parseInt(hex.slice(2, 4), 16) / 255,
+      b: Number.parseInt(hex.slice(4, 6), 16) / 255,
+    };
+  }
+
+  function dispatchMaterialEditorFieldChange(input: HTMLInputElement | HTMLSelectElement): void {
+    const asset = resolvePreviewedAssetFromState();
+    const material = asset?.material;
+    const fieldPath = input.dataset.editorAssetMaterialField;
+    if (!asset || !material || !fieldPath || material.readonly === true) return;
+    const kind = input.dataset.editorAssetMaterialFieldKind;
+    let value: unknown;
+    if (kind === 'color' && input instanceof HTMLInputElement) {
+      value = materialEditorHexToColor(input.value);
+      if (!value) return;
+    } else if (kind === 'number' && input instanceof HTMLInputElement) {
+      value = Number(input.value);
+      if (!Number.isFinite(value)) return;
+    } else if (kind === 'texture') {
+      value = input.value.trim() || null;
+    } else {
+      value = input.value;
+    }
+    callbacks.onAssetAction?.({
+      actionId: 'asset.edit-material-field',
+      assetId: material.id || asset.assetId || asset.id,
+      browserAssetId: asset.id,
+      assetKind: asset.kind,
+      fieldPath,
+      value,
+    });
+  }
+
+  function renderAssetPickerModal(): void {
+    if (!assetPickerOpen || !assetPickerProperty || !assetPickerInput) {
+      assetPickerModal.style.display = 'none';
+      assetPickerTitle.textContent = '';
+      assetPickerSearch.value = '';
+      while (assetPickerList.firstChild) assetPickerList.removeChild(assetPickerList.firstChild);
+      return;
+    }
+    const options = readInspectorAssetPickerOptions(assetPickerProperty);
+    assetPickerTitle.textContent = options.title;
+    assetPickerSearch.value = assetPickerFilter;
+    while (assetPickerList.firstChild) assetPickerList.removeChild(assetPickerList.firstChild);
+    const normalizedFilter = assetPickerFilter.trim().toLowerCase();
+    const candidates = options.candidates.filter(candidate => {
+      if (!normalizedFilter) return true;
+      return [candidate.label, candidate.value, candidate.meta ?? '', candidate.kind ?? '']
+        .some(value => value.toLowerCase().includes(normalizedFilter));
+    });
+    if (candidates.length === 0) {
+      const empty = doc.createElement('div');
+      empty.textContent = '没有匹配的资产。';
+      empty.style.cssText = 'color:var(--fps-editor-muted);font-size:12px;font-weight:800;padding:10px';
+      assetPickerList.appendChild(empty);
+    }
+    for (const candidate of candidates) {
+      assetPickerList.appendChild(createInspectorAssetPickerCandidateButton(candidate, assetPickerInput.value));
+    }
+    assetPickerModal.style.display = 'flex';
+  }
+
+  function createInspectorAssetPickerCandidateButton(
+    candidate: LocalEditorBrowserInspectorAssetPickerOption,
+    currentValue: string,
+  ): HTMLButtonElement {
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.dataset.editorAssetPickerCandidate = candidate.value;
+    const selected = candidate.value === currentValue;
+    button.style.cssText = [
+      'min-width:0',
+      'min-height:56px',
+      'display:flex',
+      'align-items:center',
+      'gap:8px',
+      'padding:7px 8px',
+      `border:1px solid ${selected ? 'var(--fps-editor-accent-strong)' : 'var(--fps-editor-border)'}`,
+      'border-radius:3px',
+      `background:${selected ? 'var(--fps-editor-accent-soft)' : 'var(--fps-editor-asset-card-bg)'}`,
+      'color:var(--fps-editor-text)',
+      'text-align:left',
+      'cursor:pointer',
+    ].join(';');
+    button.appendChild(LocalEditorPanels.createAssetPreviewElement(doc, {
+      id: candidate.value || '__empty__',
+      label: candidate.label,
+      preview: candidate.preview,
+    }, 'grid'));
+    const body = doc.createElement('div');
+    body.style.cssText = 'min-width:0;flex:1';
+    const label = doc.createElement('div');
+    label.textContent = candidate.label;
+    label.style.cssText = 'font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const meta = doc.createElement('div');
+    meta.textContent = candidate.meta ?? candidate.value;
+    meta.style.cssText = 'color:var(--fps-editor-muted);font-size:11px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    body.appendChild(label);
+    body.appendChild(meta);
+    button.appendChild(body);
+    return button;
+  }
 
   sceneHelpButton.addEventListener('click', () => {
     setShortcutHelpOpen(!helpOpen);
@@ -2171,6 +2959,40 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (!target?.closest('[data-editor-shortcut-help-close]')) return;
     setShortcutHelpOpen(false);
+  });
+  assetPreviewModal.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('[data-editor-asset-preview-close]')) {
+      closeAssetPreviewModal();
+      return;
+    }
+    if (target === assetPreviewModal) closeAssetPreviewModal();
+  });
+  assetPreviewBody.addEventListener('change', (event) => {
+    if (assetPreviewMode !== 'material-editor') return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const input = target?.closest<HTMLInputElement | HTMLSelectElement>('[data-editor-asset-material-field]');
+    if (!input) return;
+    dispatchMaterialEditorFieldChange(input);
+  });
+  assetPickerModal.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('[data-editor-asset-picker-close]')) {
+      closeInspectorAssetPicker();
+      return;
+    }
+    const candidateButton = target?.closest<HTMLButtonElement>('[data-editor-asset-picker-candidate]');
+    if (candidateButton && assetPickerInput) {
+      assetPickerInput.value = candidateButton.dataset.editorAssetPickerCandidate ?? '';
+      assetPickerInput.dispatchEvent(new Event('change', { bubbles: true }));
+      closeInspectorAssetPicker();
+      return;
+    }
+    if (target === assetPickerModal) closeInspectorAssetPicker();
+  });
+  assetPickerSearch.addEventListener('input', () => {
+    assetPickerFilter = assetPickerSearch.value;
+    renderAssetPickerModal();
   });
   toolGroup.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -2253,11 +3075,50 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       if (currentState) render(currentState);
       return;
     }
-    const assetButton = target?.closest<HTMLButtonElement>('[data-editor-asset-id]');
-    if (assetButton?.dataset.editorAssetId) {
-      callbacks.onCreateFromAsset?.(assetButton.dataset.editorAssetId);
+    const assetBrowserTabButton = target?.closest<HTMLButtonElement>('[data-editor-asset-browser-tab]');
+    const nextAssetBrowserTab = assetBrowserTabButton?.dataset.editorAssetBrowserTab;
+    if (isLocalEditorAssetBrowserTab(nextAssetBrowserTab)) {
+      assetBrowserTab = nextAssetBrowserTab;
+      if (currentState) render(currentState);
       return;
     }
+    const assetButton = target?.closest<HTMLButtonElement>('[data-editor-asset-id]');
+    if (assetButton?.dataset.editorAssetId) {
+      callbacks.onSelectAsset?.(assetButton.dataset.editorAssetId);
+      return;
+    }
+  });
+
+  assetPanel.addEventListener('contextmenu', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const assetButton = target?.closest<HTMLButtonElement>('[data-editor-asset-id]');
+    const browserAssetId = assetButton?.dataset.editorAssetId;
+    if (!browserAssetId || !currentState) return;
+    const asset = currentState.assets.find(candidate => candidate.id === browserAssetId);
+    if (!asset) return;
+    event.preventDefault();
+    event.stopPropagation();
+    callbacks.onSelectAsset?.(browserAssetId);
+    contextMenu.open({
+      x: event.clientX,
+      y: event.clientY,
+      items: createAssetBrowserMenuItems(currentState, asset),
+      onAction(item) {
+        if (item.id === 'asset.preview') {
+          openAssetPreviewModal(asset);
+          return;
+        }
+        if (item.id === 'asset.edit-material') {
+          openAssetMaterialEditorModal(asset);
+          return;
+        }
+        if (item.id === 'asset.copy-id') {
+          copyTextToClipboard(doc.defaultView, asset.assetId ?? asset.id);
+          return;
+        }
+        callbacks.onAssetAction?.(createAssetBrowserActionInput(item.id, asset));
+      },
+    });
   });
 
   workbench.rightDock.addEventListener('click', (event) => {
@@ -2290,6 +3151,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     },
     onBeforeOpenContextMenu: () => {
       if (helpOpen) setShortcutHelpOpen(false);
+      if (assetPreviewOpen) closeAssetPreviewModal();
     },
   });
 
@@ -2311,6 +3173,31 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (readInspectorCommitMode(input) !== 'live') return;
     const propertyInput = createInspectorPropertyInput(input, 'input');
     if (propertyInput) callbacks.onPropertyInput?.(propertyInput);
+  });
+
+  inspectorPanel.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const copyButton = target?.closest<HTMLButtonElement>('[data-editor-inspector-asset-copy]');
+    if (copyButton) {
+      const control = copyButton.closest<HTMLElement>('[data-editor-inspector-asset-picker-control]');
+      const input = control?.querySelector<HTMLInputElement>('input[data-serialized-path]');
+      const value = copyButton.dataset.editorInspectorAssetCopyValue;
+      if (!input || !value) return;
+      event.preventDefault();
+      event.stopPropagation();
+      input.value = value;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+    const pickerButton = target?.closest<HTMLButtonElement>('[data-editor-inspector-asset-picker]');
+    if (!pickerButton) return;
+    const control = pickerButton.closest<HTMLElement>('[data-editor-inspector-asset-picker-control]');
+    const input = control?.querySelector<HTMLInputElement>('input[data-serialized-path]');
+    if (!input || !currentState) return;
+    const property = findInspectorPropertyForInput(currentState, input);
+    if (!property) return;
+    event.preventDefault();
+    openInspectorAssetPicker(input, property);
   });
 
   inspectorPanel.addEventListener('change', (event) => {
@@ -2382,6 +3269,16 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     if (event.defaultPrevented) return;
     if (currentState?.mode !== 'editor' || currentState.busy) return;
     const key = event.key.toLowerCase();
+    if (key === 'escape' && assetPreviewOpen) {
+      event.preventDefault();
+      closeAssetPreviewModal();
+      return;
+    }
+    if (key === 'escape' && assetPickerOpen) {
+      event.preventDefault();
+      closeInspectorAssetPicker();
+      return;
+    }
     if (key === 'escape' && snapSettingsOpen) {
       event.preventDefault();
       closeSnapSettingsPopover();
@@ -2540,7 +3437,15 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     localTestButton.disabled = disabled;
     if (!inEditor || !localTestActionsEnabled) closeLocalTestMenu();
     if (!inEditor) helpOpen = false;
-    inputRouter.setModalOpen(inEditor && helpOpen);
+    if (!inEditor || disabled) {
+      assetPreviewOpen = false;
+      previewedAsset = null;
+      assetPreviewMode = 'preview';
+      assetPickerOpen = false;
+      assetPickerInput = null;
+      assetPickerProperty = null;
+    }
+    syncInputModalOpen();
     const transformTool = state.transformTool ?? null;
     workbench.root.style.display = inEditor ? '' : 'none';
     sceneToolOverlay.style.display = inEditor ? 'flex' : 'none';
@@ -2667,6 +3572,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     redoButton.disabled = disabled || !state.session?.canRedo;
     LocalEditorShared.applyButtonActiveState(sceneHelpButton, inEditor && helpOpen);
     shortcutHelpPanel.style.display = inEditor && helpOpen ? '' : 'none';
+    renderAssetPreviewModal();
+    renderAssetPickerModal();
     dirtyBadge.style.display = inEditor && state.session?.dirty ? 'inline-flex' : 'none';
     const editorStatusText = [
       state.status,
@@ -2723,7 +3630,14 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     inspectorPanel.style.display = activeRightTab === 'inspector' ? '' : 'none';
     renderingPanel.style.display = activeRightTab === 'rendering' ? '' : 'none';
     hierarchyController.render(state);
-    LocalEditorPanels.renderWorkbenchBottomDockPanel(doc, assetPanel, state, panelRegistry.getBottomDockTab(), panelRegistry.getPanels('bottom'));
+    LocalEditorPanels.renderWorkbenchBottomDockPanel(
+      doc,
+      assetPanel,
+      state,
+      panelRegistry.getBottomDockTab(),
+      panelRegistry.getPanels('bottom'),
+      assetBrowserTab,
+    );
     LocalEditorPanels.renderWorkbenchRightDockTabs(doc, rightDockTabs, activeRightTab, panelRegistry.getPanels('right'));
     if (activeRightTab === 'inspector') {
       LocalEditorPanels.renderInspectorPanel(doc, inspectorPanel, state, inspectorFilter, options.inspector);
@@ -2769,6 +3683,8 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       sceneFrameRateOverlay.root.remove();
       boxSelectionOverlay.remove();
       shortcutHelpPanel.remove();
+      assetPreviewModal.remove();
+      assetPickerModal.remove();
       hierarchyController.dispose();
       workbenchLayoutController.dispose();
       tooltipController.dispose();
