@@ -1,100 +1,250 @@
 import { describe, expect, it } from 'vitest';
-
 import {
   createLocalEditorSceneRenderScheduler,
+  type LocalEditorSceneRenderFrame,
   type LocalEditorSceneRenderFrameHost,
+  type LocalEditorSceneRenderStats,
 } from '../../packages/editor/src/local-editor-scene-render-scheduler';
 
-function createFrameHost(): LocalEditorSceneRenderFrameHost & {
-  canceled: number[];
-  flushNext(): void;
+function createManualFrameHost(): {
+  host: LocalEditorSceneRenderFrameHost;
   pendingCount(): number;
+  flushNextFrame(deltaMs?: number): void;
 } {
-  type Callback = Parameters<LocalEditorSceneRenderFrameHost['requestAnimationFrame']>[0];
-  let nextId = 1;
-  const callbacks = new Map<number, Callback>();
+  let nextFrameId = 1;
+  let nextTimestamp = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
   return {
-    canceled: [],
-    requestAnimationFrame(callback) {
-      const id = nextId++;
-      callbacks.set(id, callback);
-      return id;
-    },
-    cancelAnimationFrame(id) {
-      callbacks.delete(id);
-      this.canceled.push(id);
-    },
-    flushNext() {
-      const [id, callback] = callbacks.entries().next().value ?? [];
-      if (id == null || !callback) return;
-      callbacks.delete(id);
-      callback(0);
+    host: {
+      requestAnimationFrame(callback) {
+        const frameId = nextFrameId;
+        nextFrameId += 1;
+        callbacks.set(frameId, callback);
+        return frameId;
+      },
+      cancelAnimationFrame(frameId) {
+        callbacks.delete(frameId);
+      },
     },
     pendingCount() {
       return callbacks.size;
+    },
+    flushNextFrame(deltaMs = 16.67) {
+      const entry = callbacks.entries().next().value as [number, FrameRequestCallback] | undefined;
+      if (!entry) return;
+      const [frameId, callback] = entry;
+      callbacks.delete(frameId);
+      nextTimestamp += deltaMs;
+      callback(nextTimestamp);
     },
   };
 }
 
 describe('local editor scene render scheduler', () => {
-  it('coalesces requested frames into one render', () => {
-    const frameHost = createFrameHost();
-    let renderCount = 0;
-    const scheduler = createLocalEditorSceneRenderScheduler({
-      frameHost,
-      render: () => {
-        renderCount += 1;
-      },
-    });
+  it('coalesces one-shot frame requests', () => {
+    const frameHost = createManualFrameHost();
+    let renders = 0;
+    const frames: LocalEditorSceneRenderFrame[] = [];
+    const scheduler = createLocalEditorSceneRenderScheduler((frame) => {
+      renders += 1;
+      frames.push(frame);
+    }, { frameHost: frameHost.host });
 
-    scheduler.requestFrame('projection');
     scheduler.requestFrame('selection');
+    scheduler.requestFrame('grid');
+    scheduler.requestFrame('camera');
 
     expect(frameHost.pendingCount()).toBe(1);
-    frameHost.flushNext();
-    expect(renderCount).toBe(1);
+    frameHost.flushNextFrame();
+    expect(renders).toBe(1);
+    expect(frames).toEqual([{
+      timestampMs: 16.67,
+      deltaSeconds: 0,
+      mode: 'idle',
+      frameCount: 1,
+      activeReasons: [],
+    }]);
     expect(frameHost.pendingCount()).toBe(0);
   });
 
-  it('renders continuously while continuous reasons are active', () => {
-    const frameHost = createFrameHost();
-    let renderCount = 0;
-    const scheduler = createLocalEditorSceneRenderScheduler({
-      frameHost,
-      render: () => {
-        renderCount += 1;
-      },
+  it('waits for the next real scene frame without driving a duplicate frame', async () => {
+    const frameHost = createManualFrameHost();
+    let renders = 0;
+    const scheduler = createLocalEditorSceneRenderScheduler(() => {
+      renders += 1;
+    }, { frameHost: frameHost.host });
+
+    const frame = scheduler.waitForNextFrame('initial-editor-frame');
+    scheduler.requestFrame('coalesced-selection');
+
+    expect(frameHost.pendingCount()).toBe(1);
+    frameHost.flushNextFrame();
+
+    await expect(frame).resolves.toMatchObject({
+      frameCount: 1,
+      mode: 'idle',
     });
+    expect(renders).toBe(1);
+    expect(frameHost.pendingCount()).toBe(0);
+  });
+
+  it('keeps scene invalidations requested during a frame instead of swallowing them', () => {
+    const frameHost = createManualFrameHost();
+    let renders = 0;
+    const scheduler = createLocalEditorSceneRenderScheduler(() => {
+      renders += 1;
+      if (renders === 1) scheduler.requestFrame('projection-updated-during-render');
+    }, { frameHost: frameHost.host });
+
+    scheduler.requestFrame('initial');
+
+    expect(frameHost.pendingCount()).toBe(1);
+    frameHost.flushNextFrame();
+    expect(renders).toBe(1);
+    expect(frameHost.pendingCount()).toBe(1);
+
+    frameHost.flushNextFrame();
+    expect(renders).toBe(2);
+    expect(frameHost.pendingCount()).toBe(0);
+  });
+
+  it('renders continuously only while a reason is active', () => {
+    const frameHost = createManualFrameHost();
+    let renders = 0;
+    const frames: LocalEditorSceneRenderFrame[] = [];
+    const scheduler = createLocalEditorSceneRenderScheduler((frame) => {
+      renders += 1;
+      frames.push(frame);
+    }, { frameHost: frameHost.host });
 
     scheduler.beginContinuous('orbit');
-    frameHost.flushNext();
-    frameHost.flushNext();
-    expect(renderCount).toBe(2);
+    expect(frameHost.pendingCount()).toBe(1);
+
+    frameHost.flushNextFrame();
+    expect(renders).toBe(1);
+    expect(frameHost.pendingCount()).toBe(1);
+    expect(frames[0]).toMatchObject({
+      timestampMs: 16.67,
+      deltaSeconds: 1 / 60,
+      mode: 'continuous',
+      frameCount: 1,
+      activeReasons: ['orbit'],
+    });
+
+    scheduler.endContinuous('orbit');
+    frameHost.flushNextFrame();
+    expect(renders).toBe(2);
+    expect(frameHost.pendingCount()).toBe(0);
+    expect(frames[1]).toMatchObject({
+      deltaSeconds: 0,
+      mode: 'idle',
+      frameCount: 2,
+      activeReasons: [],
+    });
+  });
+
+  it('clamps continuous frame delta from the editor frame clock', () => {
+    const frameHost = createManualFrameHost();
+    const frames: LocalEditorSceneRenderFrame[] = [];
+    const stats: LocalEditorSceneRenderStats[] = [];
+    const scheduler = createLocalEditorSceneRenderScheduler(frame => {
+      frames.push(frame);
+    }, {
+      frameHost: frameHost.host,
+      onStatsChange: nextStats => stats.push(nextStats),
+      statsUpdateIntervalMs: 0,
+    });
+
+    scheduler.beginContinuous('flythrough');
+    frameHost.flushNextFrame();
+    frameHost.flushNextFrame(250);
+
+    expect(frames.map(frame => frame.deltaSeconds)).toEqual([1 / 60, 0.1]);
+    expect(frames.map(frame => frame.activeReasons)).toEqual([['flythrough'], ['flythrough']]);
+    expect(stats[stats.length - 1]).toMatchObject({
+      frameCount: 2,
+      lastFrameMs: 250,
+      mode: 'continuous',
+    });
+  });
+
+  it('keeps continuous rendering until every reason ends', () => {
+    const frameHost = createManualFrameHost();
+    let renders = 0;
+    const scheduler = createLocalEditorSceneRenderScheduler(() => {
+      renders += 1;
+    }, { frameHost: frameHost.host });
+
+    scheduler.beginContinuous('orbit');
+    scheduler.beginContinuous('measurement');
+    frameHost.flushNextFrame();
     expect(frameHost.pendingCount()).toBe(1);
 
     scheduler.endContinuous('orbit');
-    frameHost.flushNext();
-    expect(renderCount).toBe(2);
+    frameHost.flushNextFrame();
+    expect(renders).toBe(2);
+    expect(frameHost.pendingCount()).toBe(1);
+
+    scheduler.endContinuous('measurement');
+    frameHost.flushNextFrame();
+    expect(renders).toBe(3);
     expect(frameHost.pendingCount()).toBe(0);
   });
 
-  it('cancels pending frame work after dispose', () => {
-    const frameHost = createFrameHost();
-    let renderCount = 0;
-    const scheduler = createLocalEditorSceneRenderScheduler({
-      frameHost,
-      render: () => {
-        renderCount += 1;
-      },
+  it('cancels pending work on dispose', () => {
+    const frameHost = createManualFrameHost();
+    let renders = 0;
+    const scheduler = createLocalEditorSceneRenderScheduler(() => {
+      renders += 1;
+    }, { frameHost: frameHost.host });
+
+    scheduler.beginContinuous('drag');
+    expect(frameHost.pendingCount()).toBe(1);
+
+    scheduler.dispose();
+    expect(frameHost.pendingCount()).toBe(0);
+    frameHost.flushNextFrame();
+    expect(renders).toBe(0);
+  });
+
+  it('rejects frame waiters on dispose', async () => {
+    const frameHost = createManualFrameHost();
+    const scheduler = createLocalEditorSceneRenderScheduler(() => {}, { frameHost: frameHost.host });
+    const frame = scheduler.waitForNextFrame('initial-editor-frame');
+
+    scheduler.dispose();
+
+    await expect(frame).rejects.toThrow('disposed');
+    expect(frameHost.pendingCount()).toBe(0);
+  });
+
+  it('reports passive frame-rate stats without driving extra frames', () => {
+    const frameHost = createManualFrameHost();
+    const stats: LocalEditorSceneRenderStats[] = [];
+    const latestStats = () => stats[stats.length - 1];
+    const scheduler = createLocalEditorSceneRenderScheduler(() => {}, {
+      frameHost: frameHost.host,
+      onStatsChange: nextStats => stats.push(nextStats),
+      statsUpdateIntervalMs: 0,
     });
 
-    scheduler.requestFrame('initial');
-    scheduler.dispose();
-    scheduler.requestFrame('late');
-    scheduler.beginContinuous('late-continuous');
+    scheduler.beginContinuous('orbit');
+    expect(latestStats()?.mode).toBe('continuous');
+    expect(latestStats()?.activeReasons).toEqual(['orbit']);
 
-    expect(frameHost.canceled).toEqual([1]);
+    frameHost.flushNextFrame();
+    frameHost.flushNextFrame();
+    expect(latestStats()?.fps).toBeGreaterThan(50);
+    expect(latestStats()?.frameCount).toBe(2);
+
+    scheduler.endContinuous('orbit');
+    expect(latestStats()?.mode).toBe('idle');
+    expect(latestStats()?.fps).toBeNull();
+    expect(frameHost.pendingCount()).toBe(1);
+
+    frameHost.flushNextFrame();
+    expect(latestStats()?.mode).toBe('idle');
+    expect(latestStats()?.fps).toBeNull();
     expect(frameHost.pendingCount()).toBe(0);
-    expect(renderCount).toBe(0);
   });
 });

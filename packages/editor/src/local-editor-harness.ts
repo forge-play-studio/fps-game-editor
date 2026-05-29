@@ -117,6 +117,7 @@ import {
   type BabylonEditorGridController,
   type BabylonEditorGridColorOptions,
   type BabylonTransformGizmoCommit,
+  type BabylonTransformGizmoBlockEvent,
   type BabylonTransformGizmoController,
   type BabylonTransformGizmoDuplicateDragInput,
   type BabylonTransformGizmoDuplicateDragResult,
@@ -134,6 +135,10 @@ import {
   createLocalEditorViewportRenderCoordinator,
   type LocalEditorViewportRenderCoordinator,
 } from './local-editor-viewport-render-coordinator';
+import {
+  createLocalEditorSceneViewInteractionRuntime,
+  type LocalEditorSceneViewInteractionRuntime,
+} from './local-editor-scene-view-interaction-runtime';
 
 export type LocalEditorHarnessMode = 'game' | 'editor';
 type LocalEditorMaybePromise<T> = T | Promise<T>;
@@ -483,6 +488,11 @@ export interface LocalEditorHarnessWorldRendering {
 
 export type LocalEditorHarnessGridController = BabylonEditorGridController;
 
+export interface LocalEditorHarnessGridContext {
+  getCamera(): unknown | null;
+  getEditorCamera(): unknown | null;
+}
+
 export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEditorHarnessAssetItem> {
   root?: HTMLElement;
   theme?: LocalEditorThemeName;
@@ -509,6 +519,7 @@ export interface LocalEditorHarnessOptions<TDocument, TPatch, TAsset = LocalEdit
     babylon: BabylonRuntimeGlobal & Record<string, any>,
     scene: unknown,
     camera?: unknown,
+    context?: LocalEditorHarnessGridContext,
   ) => LocalEditorHarnessGridController | void;
 }
 
@@ -547,6 +558,7 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   sceneCameraPreviewEnabled: boolean;
   sceneViewInput: BabylonSceneViewInputController | null;
   sceneViewCamera: BabylonSceneViewCameraController | null;
+  sceneViewInteraction: LocalEditorSceneViewInteractionRuntime | null;
   sceneViewMeasurement: BabylonSceneViewMeasurementController | null;
   sceneViewSpatialOverlay: BabylonSceneViewSpatialOverlayController | null;
   selectionController: BabylonProjectionSelectionController | null;
@@ -603,6 +615,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     sceneCameraPreviewEnabled: false,
     sceneViewInput: null,
     sceneViewCamera: null,
+    sceneViewInteraction: null,
     sceneViewMeasurement: null,
     sceneViewSpatialOverlay: null,
     selectionController: null,
@@ -634,6 +647,9 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     root,
     theme: options.theme,
     localTestActions: options.localTestActions,
+    input: {
+      isShortcutReserved: (event) => state.sceneViewInput?.ownsKeyboardEvent(event) ?? false,
+    },
     inspector: options.inspector,
     hierarchy: {
       contextActions: createBrowserHierarchyContextActions(state, options),
@@ -1222,23 +1238,6 @@ function clearViewportMeasurement<TDocument, TPatch, TAsset>(
   return true;
 }
 
-function getPointerContinuousRenderReason(intent: string | null | undefined): string | null {
-  if (
-    intent === 'orbit'
-    || intent === 'pan'
-    || intent === 'dolly'
-    || intent === 'flythrough'
-    || intent === 'gizmo-drag'
-    || intent === 'view-plane-move'
-    || intent === 'placement'
-    || intent === 'measurement'
-    || intent === 'box-select'
-  ) {
-    return `viewport-pointer-${intent}`;
-  }
-  return null;
-}
-
 export function applyLocalEditorHarnessViewportMeasurementPointerStart(
   state: LocalEditorHarnessViewportMeasurementState,
   event: Pick<PointerEvent, 'clientX' | 'clientY'>,
@@ -1383,7 +1382,29 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     useRightHandedSystem: options.world?.useRightHandedSystem,
     enableDefaultCameraControls: false,
   });
-  const grid = options.createGrid?.(babylon, world.scene, world.camera) ?? null;
+  const sceneRenderScheduler = createLocalEditorSceneRenderScheduler((frame) => {
+    state.sceneViewInteraction?.updateFrame(frame);
+    world.render();
+  }, {
+    onStatsChange(stats) {
+      state.sceneFrameStats = stats;
+      updateSceneFrameStats(stats);
+    },
+  });
+  const viewportRenderCoordinator = createLocalEditorViewportRenderCoordinator({
+    scheduler: sceneRenderScheduler,
+    getEngine: () => engine,
+    getScene: () => world.scene,
+  });
+  const sceneViewInteraction = createLocalEditorSceneViewInteractionRuntime({
+    coordinator: viewportRenderCoordinator,
+    getCamera: () => state.sceneViewCamera,
+  });
+  state.sceneViewInteraction = sceneViewInteraction;
+  const grid = options.createGrid?.(babylon, world.scene, world.camera, {
+    getCamera: () => world.scene?.activeCamera ?? world.camera ?? null,
+    getEditorCamera: () => world.camera ?? null,
+  }) ?? null;
   if (initialAppearance.grid) grid?.setColors(initialAppearance.grid);
   grid?.setVisible(state.gridVisible);
   const projection = createBabylonEditorProjection({
@@ -1391,6 +1412,10 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     scene: world.scene,
     importModel: options.worldAdapter.importProjectionModel,
     logger: console,
+    onProjectionReady(event) {
+      syncCurrentSelectionToSceneArtifacts(state);
+      viewportRenderCoordinator.invalidateScene(`projection-${event.nodeId}-ready`);
+    },
   });
   const gizmo = createBabylonTransformGizmoController({
     babylon,
@@ -1400,6 +1425,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     initialSpace: state.transformSpace,
     logger: console,
     onDragStart(event) {
+      sceneViewInteraction.beginGizmoDrag();
       state.status = event.targetIds.length > 1
         ? `Dragging ${event.duplicate ? 'duplicate ' : ''}${event.tool} ${event.targetIds.length} objects`
         : `Dragging ${event.duplicate ? 'duplicate ' : ''}${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
@@ -1409,10 +1435,13 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       render();
     },
     onDragEnd(event) {
-      commitGizmoTransform(state, options, event);
-      render();
+      sceneViewInteraction.endGizmoDrag();
+      const changed = commitGizmoTransform(state, options, event);
+      if (!changed) requestEditorSceneFrame(state, 'gizmo-drag-end');
+      renderUi();
     },
     onDragCancel(event) {
+      sceneViewInteraction.endGizmoDrag();
       if (event.duplicate && cancelDuplicateDrag(state, options)) {
         render();
         return;
@@ -1421,6 +1450,15 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
         ? `Canceled ${event.tool} ${event.targetIds.length} objects`
         : `Canceled ${event.tool} ${event.nodeId ?? event.activeId ?? 'selection'}`;
       render();
+    },
+    onDragBlocked(event) {
+      sceneViewInteraction.endGizmoDrag();
+      if (event.duplicate) cancelDuplicateDrag(state, options);
+      requestEditorSceneFrame(state, 'gizmo-drag-blocked');
+      state.status = formatBlockedGizmoTransformStatus(event);
+      state.statusTone = 'warning';
+      state.statusToneStatus = state.status;
+      renderUi();
     },
     onDuplicateDragStart(input) {
       return beginDuplicateDrag(state, options, input);
@@ -1461,8 +1499,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
     isPlacementCandidate: () => isPlacementArmed(state),
     isMeasurementCandidate: () => state.viewportTools.activeUtilityTool === 'measure-distance',
     onPointerIntentStart(event) {
-      const continuousReason = getPointerContinuousRenderReason(event.state.intent);
-      if (continuousReason) beginEditorSceneContinuousRender(state, continuousReason);
+      sceneViewInteraction.beginPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
         if (handleViewportMeasurementStart(state, event.originalEvent)) render();
         return;
@@ -1485,8 +1522,6 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentMove(event) {
-      const continuousReason = getPointerContinuousRenderReason(event.state.intent);
-      if (continuousReason) beginEditorSceneContinuousRender(state, continuousReason);
       if (event.state.intent === 'measurement') {
         if (handleViewportMeasurementMove(state, event.originalEvent)) render();
         return;
@@ -1509,9 +1544,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentEnd(event) {
-      const continuousReason = getPointerContinuousRenderReason(event.state.intent);
-      if (continuousReason) endEditorSceneContinuousRender(state, continuousReason);
-      if (event.state.intent === 'flythrough') endEditorSceneContinuousRender(state, 'viewport-flythrough-keys');
+      sceneViewInteraction.endPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
         if (handleViewportMeasurementEnd(state)) render();
         return;
@@ -1530,9 +1563,7 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       }
     },
     onPointerIntentCancel(event) {
-      const continuousReason = getPointerContinuousRenderReason(event.state.intent);
-      if (continuousReason) endEditorSceneContinuousRender(state, continuousReason);
-      if (event.state.intent === 'flythrough') endEditorSceneContinuousRender(state, 'viewport-flythrough-keys');
+      sceneViewInteraction.cancelPointerIntent(event.state.intent);
       if (event.state.intent === 'measurement') {
         render();
         return;
@@ -1559,12 +1590,8 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       if (!state.sceneCameraPreviewEnabled && state.sceneViewCamera?.handleWheel(event)) render();
     },
     onMovementKeysChange(event) {
-      if (event.pressedMovementKeys.length > 0) {
-        beginEditorSceneContinuousRender(state, 'viewport-flythrough-keys');
-        requestEditorSceneFrame(state, 'viewport-flythrough-keys');
-      } else {
-        endEditorSceneContinuousRender(state, 'viewport-flythrough-keys');
-      }
+      sceneViewInteraction.updateMovementKeys(event.pressedMovementKeys);
+      renderUi();
     },
   });
   const sceneViewCamera = createBabylonSceneViewCameraController({
@@ -1581,17 +1608,6 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
   const sceneViewSpatialOverlay = createBabylonSceneViewSpatialOverlayController({
     babylon,
     scene: world.scene,
-  });
-  const sceneRenderScheduler = createLocalEditorSceneRenderScheduler({
-    render: () => world.render(),
-    onStatsChange(stats) {
-      state.sceneFrameStats = stats;
-      updateSceneFrameStats(stats);
-    },
-  });
-  const viewportRenderCoordinator = createLocalEditorViewportRenderCoordinator({
-    scheduler: sceneRenderScheduler,
-    getEngine: () => state.engine,
   });
   if (document) {
     projection.projectNodes(options.documentAdapter.getProjectionNodes(document));
@@ -1634,6 +1650,8 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
 function disposeEditorWorld<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
 ): void {
+  state.sceneViewInteraction?.dispose();
+  state.sceneViewInteraction = null;
   if (state.resizeHandler) {
     window.removeEventListener('resize', state.resizeHandler);
     state.resizeHandler = null;
@@ -1677,6 +1695,13 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
   state.babylon = null;
   state.world = null;
   state.engine = null;
+}
+
+function requestEditorSceneFrame<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  reason: string,
+): void {
+  state.viewportRenderCoordinator?.requestFrame(reason);
 }
 
 async function runExclusive<TDocument, TPatch, TAsset>(
@@ -2271,31 +2296,23 @@ function syncSelectionToProjection<TDocument, TPatch, TAsset>(
   requestEditorSceneFrame(state, 'projection-selection');
 }
 
-function requestEditorSceneFrame<TDocument, TPatch, TAsset>(
+function syncCurrentSelectionToSceneArtifacts<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
-  reason: string,
 ): void {
-  state.viewportRenderCoordinator?.requestFrame(reason);
-}
-
-function beginEditorSceneContinuousRender<TDocument, TPatch, TAsset>(
-  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
-  reason: string,
-): void {
-  state.viewportRenderCoordinator?.beginContinuous(reason);
-}
-
-function endEditorSceneContinuousRender<TDocument, TPatch, TAsset>(
-  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
-  reason: string,
-): void {
-  state.viewportRenderCoordinator?.endContinuous(reason);
+  syncSelectionToProjection(
+    state,
+    state.session?.getState().selection ?? { selectedIds: [], activeId: null },
+  );
 }
 
 function invalidateEditorScene<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
   reason: string,
+  options?: LocalEditorHarnessOptions<TDocument, TPatch, TAsset>,
 ): void {
+  if (options && state.sceneCameraPreviewEnabled) {
+    syncSceneCameraPreview(state, options);
+  }
   state.viewportRenderCoordinator?.invalidateScene(reason);
 }
 
@@ -3065,6 +3082,22 @@ function restoreBatchTransformPreview<TDocument, TPatch, TAsset>(
   state.projection?.setNodeTransformsPreview(transforms);
 }
 
+function formatBlockedGizmoTransformStatus(event: BabylonTransformGizmoBlockEvent): string {
+  const target = event.targetIds.length > 1
+    ? `${event.targetIds.length} objects`
+    : event.nodeId ?? event.activeId ?? 'selection';
+  const failed = event.failedTargetId && event.targetIds.length > 1
+    ? ` at ${event.failedTargetId}`
+    : '';
+  return `Blocked ${event.tool} ${target}${failed}: ${formatTransformOperationBlockReason(event.reason)}`;
+}
+
+function formatTransformOperationBlockReason(reason: BabylonTransformGizmoBlockEvent['reason']): string {
+  if (reason === 'non-trs-representable') return 'result cannot be represented as position/rotation/scale';
+  if (reason === 'non-invertible-parent') return 'parent transform cannot be inverted';
+  return 'unsupported transform';
+}
+
 function cancelActiveGizmoDrag<TDocument, TPatch, TAsset>(
   state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
 ): void {
@@ -3253,12 +3286,10 @@ function reprojectProjectionForChangedIds<TDocument, TPatch, TAsset>(
     const projectedNode = options.documentAdapter.getProjectionNode(document, changedId);
     if (projectedNode) state.projection?.projectNode(projectedNode);
   }
-  const selection = state.session?.getState().selection ?? { selectedIds: [], activeId: null };
-  syncSelectionToProjection(state, selection);
-  state.gizmo?.refreshSelection();
+  syncCurrentSelectionToSceneArtifacts(state);
   syncEditorWorldAppearanceFromDocument(state, options, document, 'world-appearance-reproject-changed-ids');
   syncEditorWorldRenderingFromDocument(state, options, document, 'world-rendering-reproject-changed-ids', true);
-  invalidateEditorScene(state, 'projection-reproject-changed-ids');
+  invalidateEditorScene(state, 'projection-reproject-changed-ids', options);
 }
 
 function setSceneCameraPreviewEnabled<TDocument, TPatch, TAsset>(

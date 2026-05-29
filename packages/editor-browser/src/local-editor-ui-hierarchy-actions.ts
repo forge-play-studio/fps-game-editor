@@ -57,6 +57,7 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
   const topLevelSelection = model.getTopLevelSelection(targetIds);
   const canRename = canRenameNode(node);
   const canCreateChildGroup = canLocalEditorHierarchyNodeHaveChildren(node);
+  const selectParent = createSelectParentAction(input, node);
   const duplicateDisabledReason = getDuplicateDisabledReason(input, targetIds);
   const pasteDisabledReason = getPasteDisabledReason(input);
   const deleteDisabledReason = getDeleteDisabledReason(model, targetIds);
@@ -69,6 +70,7 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
     action: { region: 'hierarchy', action: 'focus', targetIds, activeId },
   });
   actions.set('hierarchy.rename', { kind: 'begin-rename', targetId: node.id });
+  if (selectParent.action) actions.set('hierarchy.select-parent', selectParent.action);
   actions.set('hierarchy.create-child-group', {
     kind: 'context-action',
     action: { region: 'hierarchy', action: 'create-group', parentId: node.id, activeId },
@@ -105,6 +107,10 @@ export function createLocalEditorHierarchyNodeMenu<TDocument>(
       top: customItems.top,
       primary: [
         menuItem('hierarchy.focus', 'Focus in Preview', { shortcut: 'F', disabled: !selectable, disabledReason: 'Protected or locked nodes cannot be focused from Hierarchy.' }),
+        menuItem('hierarchy.select-parent', 'Select Parent', {
+          disabled: selectParent.disabled,
+          disabledReason: selectParent.disabledReason,
+        }),
       ],
       afterPrimary: customItems.afterPrimary,
       create: [
@@ -429,6 +435,28 @@ function createGroupSelectionAction<TDocument>(
         name: 'Parent',
         pivot: 'selection-center',
         preserveWorldTransform: true,
+      },
+    },
+  };
+}
+
+function createSelectParentAction<TDocument>(
+  input: LocalEditorHierarchyActionInput<TDocument>,
+  node: LocalEditorHierarchyTreeNode,
+): { disabled: boolean; disabledReason?: string; action?: LocalEditorHierarchyAction } {
+  if (!node.parentId) return { disabled: true, disabledReason: 'This node has no parent.' };
+  const parent = input.model.getNode(node.parentId);
+  if (!parent) return { disabled: true, disabledReason: 'The parent node no longer exists.' };
+  if (!isNodeSelectable(parent)) return { disabled: true, disabledReason: 'The parent node is protected or locked.' };
+  return {
+    disabled: false,
+    action: {
+      kind: 'selection-command',
+      command: {
+        type: 'selection.replace',
+        label: 'Select Parent',
+        selectedIds: [parent.id],
+        activeId: parent.id,
       },
     },
   };

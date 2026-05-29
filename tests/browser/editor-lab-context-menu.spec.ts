@@ -52,7 +52,8 @@ test('context menu closes cleanly and editable targets keep global shortcuts iso
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-editor-context-menu]')).toBeHidden();
 
-  await page.getByRole('button', { name: 'Blue Box' }).dblclick();
+  await page.getByRole('button', { name: 'Blue Box' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
   const renameInput = page.locator('input[data-editor-hierarchy-rename-input="lab_box_01"]');
   await expect(renameInput).toBeVisible();
   await renameInput.fill('Transient Rename');

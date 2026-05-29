@@ -11,6 +11,10 @@ import type {
 } from './types';
 
 export type BabylonEditorProjectionVec3 = EditorTransformVec3;
+export interface BabylonEditorProjectionVec2 {
+  x: number;
+  y: number;
+}
 
 export interface BabylonEditorProjectionTransform {
   position: BabylonEditorProjectionVec3;
@@ -47,6 +51,15 @@ export interface BabylonEditorProjectionCameraSettings {
   radius: number;
   orthoSize: number;
   fov?: number;
+  targetOffset?: BabylonEditorProjectionVec3;
+  minZ?: number;
+  maxZ?: number;
+  lowerBetaLimit?: number;
+  upperBetaLimit?: number;
+  lowerRadiusLimit?: number;
+  upperRadiusLimit?: number;
+  inertia?: number;
+  targetScreenOffset?: BabylonEditorProjectionVec2;
 }
 
 export interface BabylonEditorProjectionCameraRigApplyOptions {
@@ -115,6 +128,12 @@ export interface BabylonEditorProjectionOptions {
   scene: RuntimeScene;
   importModel?: BabylonEditorProjectionImporter;
   logger?: Pick<Console, 'warn'>;
+  onProjectionReady?: (event: BabylonEditorProjectionReadyEvent) => void;
+}
+
+export interface BabylonEditorProjectionReadyEvent {
+  nodeId: string;
+  async: boolean;
 }
 
 export interface ProjectedBabylonEditorNode {
@@ -462,6 +481,10 @@ async function loadModelProjection(
     options.logger?.warn?.(`[BabylonEditorProjection] Failed to project model "${asset.sourceId ?? asset.id ?? node.id}"`, error);
     if (!projection.root.isDisposed?.()) {
       attachFallbackProjection(options.babylon, options.scene, node, projection, true);
+    }
+  } finally {
+    if (!projection.root.isDisposed?.()) {
+      options.onProjectionReady?.({ nodeId: node.id, async: true });
     }
   }
 }
@@ -1022,6 +1045,8 @@ function attachHemisphericLightProjection(
 export function normalizeBabylonEditorProjectionCameraSettings(
   settings: BabylonEditorProjectionCameraSettings | undefined,
 ): BabylonEditorProjectionCameraSettings {
+  const targetOffset = readOptionalProjectionVec3(settings?.targetOffset);
+  const targetScreenOffset = readOptionalProjectionVec2(settings?.targetScreenOffset);
   return {
     projection: readProjectionCameraMode(settings?.projection),
     alpha: readFiniteNumber(settings?.alpha, 3.9269908169872414),
@@ -1029,6 +1054,15 @@ export function normalizeBabylonEditorProjectionCameraSettings(
     radius: Math.max(0.001, readFiniteNumber(settings?.radius, 14)),
     orthoSize: Math.max(0.001, readFiniteNumber(settings?.orthoSize, 6)),
     fov: Math.max(0.001, readFiniteNumber(settings?.fov, 0.85)),
+    ...(targetOffset ? { targetOffset } : {}),
+    minZ: Math.max(0.001, readFiniteNumber(settings?.minZ, 1)),
+    maxZ: Math.max(0.001, readFiniteNumber(settings?.maxZ, 10000)),
+    lowerBetaLimit: readFiniteNumber(settings?.lowerBetaLimit, settings?.beta ?? 0.8),
+    upperBetaLimit: readFiniteNumber(settings?.upperBetaLimit, settings?.beta ?? 0.8),
+    lowerRadiusLimit: Math.max(0.001, readFiniteNumber(settings?.lowerRadiusLimit, settings?.radius ?? 14)),
+    upperRadiusLimit: Math.max(0.001, readFiniteNumber(settings?.upperRadiusLimit, settings?.radius ?? 14)),
+    inertia: clampUnit(readFiniteNumber(settings?.inertia, 0.9)),
+    ...(targetScreenOffset ? { targetScreenOffset } : {}),
   };
 }
 
@@ -1041,9 +1075,20 @@ export function applyBabylonEditorProjectionCameraRig(
 ): BabylonEditorProjectionCameraSettings {
   const normalized = normalizeBabylonEditorProjectionCameraSettings(settings);
   const Vector3 = babylon.Vector3;
-  const target = options.target && Vector3
-    ? new Vector3(options.target.x, options.target.y, options.target.z)
+  const Vector2 = (babylon as any).Vector2;
+  const targetInput = options.target ?? normalized.targetOffset ?? null;
+  const target = targetInput && Vector3
+    ? new Vector3(targetInput.x, targetInput.y, targetInput.z)
     : null;
+
+  camera.minZ = normalized.minZ ?? 1;
+  camera.maxZ = Math.max(camera.minZ + 0.001, normalized.maxZ ?? 10000);
+  camera.inertia = normalized.inertia ?? camera.inertia;
+  if (normalized.targetScreenOffset) {
+    camera.targetScreenOffset = Vector2
+      ? new Vector2(normalized.targetScreenOffset.x, normalized.targetScreenOffset.y)
+      : { ...normalized.targetScreenOffset };
+  }
 
   if (typeof camera.alpha === 'number') {
     clearBabylonArcRotateCameraOrbitLimits(camera);
@@ -1054,10 +1099,10 @@ export function applyBabylonEditorProjectionCameraRig(
     if (options.lockOrbit !== false) {
       camera.lowerAlphaLimit = normalized.alpha;
       camera.upperAlphaLimit = normalized.alpha;
-      camera.lowerBetaLimit = normalized.beta;
-      camera.upperBetaLimit = normalized.beta;
-      camera.lowerRadiusLimit = normalized.radius;
-      camera.upperRadiusLimit = normalized.radius;
+      camera.lowerBetaLimit = normalized.lowerBetaLimit ?? normalized.beta;
+      camera.upperBetaLimit = normalized.upperBetaLimit ?? normalized.beta;
+      camera.lowerRadiusLimit = normalized.lowerRadiusLimit ?? normalized.radius;
+      camera.upperRadiusLimit = normalized.upperRadiusLimit ?? normalized.radius;
     }
   } else if (target) {
     camera.setTarget?.(target);
@@ -1099,6 +1144,32 @@ function readProjectionSceneAspect(scene: RuntimeScene): number {
   const height = Number(engine?.getRenderHeight?.() ?? engine?.getRenderingCanvas?.()?.height ?? 1);
   if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) return 16 / 9;
   return Math.max(0.01, width / height);
+}
+
+function readOptionalProjectionVec2(value: unknown): BabylonEditorProjectionVec2 | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<BabylonEditorProjectionVec2>;
+  if (!Number.isFinite(candidate.x) || !Number.isFinite(candidate.y)) return null;
+  return {
+    x: Number(candidate.x),
+    y: Number(candidate.y),
+  };
+}
+
+function readOptionalProjectionVec3(value: unknown): BabylonEditorProjectionVec3 | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<BabylonEditorProjectionVec3>;
+  if (!Number.isFinite(candidate.x) || !Number.isFinite(candidate.y) || !Number.isFinite(candidate.z)) return null;
+  return {
+    x: Number(candidate.x),
+    y: Number(candidate.y),
+    z: Number(candidate.z),
+  };
+}
+
+function clampUnit(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
 }
 
 function readProjectionDirectionalLightSettings(

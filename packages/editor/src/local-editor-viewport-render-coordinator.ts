@@ -14,7 +14,8 @@ export interface LocalEditorViewportRenderCoordinator {
 
 export interface LocalEditorViewportRenderCoordinatorOptions {
   scheduler: LocalEditorSceneRenderScheduler;
-  getEngine?: () => { resize?: () => void } | null | undefined;
+  getEngine?: () => any;
+  getScene?: () => any;
   frameHost?: LocalEditorSceneRenderFrameHost | null;
 }
 
@@ -25,9 +26,52 @@ export function createLocalEditorViewportRenderCoordinator(
   const frameHost = options.frameHost ?? readDefaultFrameHost();
   let disposed = false;
   let revealFrameId: number | null = null;
+  let sceneReadyFrameId: number | null = null;
+  let sceneReadyToken = 0;
 
   const resize = (): void => {
     options.getEngine?.()?.resize?.();
+  };
+
+  const cancelSceneReadyFrame = (): void => {
+    if (sceneReadyFrameId != null && frameHost) {
+      frameHost.cancelAnimationFrame(sceneReadyFrameId);
+    }
+    sceneReadyFrameId = null;
+  };
+
+  const requestSceneReadyFrame = (reason: string): void => {
+    const scene = options.getScene?.();
+    sceneReadyToken += 1;
+    const token = sceneReadyToken;
+    cancelSceneReadyFrame();
+    if (!scene) return;
+
+    const requestAfterReady = (): void => {
+      if (disposed || token !== sceneReadyToken) return;
+      if (!frameHost) {
+        scheduler.requestFrame(`${reason}-scene-ready`);
+        return;
+      }
+      sceneReadyFrameId = frameHost.requestAnimationFrame(() => {
+        sceneReadyFrameId = null;
+        if (disposed || token !== sceneReadyToken) return;
+        scheduler.requestFrame(`${reason}-scene-ready`);
+      });
+    };
+
+    if (typeof scene.executeWhenReady === 'function') {
+      scene.executeWhenReady(requestAfterReady);
+      return;
+    }
+
+    const readyPromise = typeof scene.whenReadyAsync === 'function' ? scene.whenReadyAsync() : null;
+    if (readyPromise && typeof readyPromise.then === 'function') {
+      readyPromise.then(requestAfterReady, () => {});
+      return;
+    }
+
+    requestAfterReady();
   };
 
   return {
@@ -51,6 +95,7 @@ export function createLocalEditorViewportRenderCoordinator(
     invalidateScene(reason) {
       if (disposed) return;
       scheduler.requestFrame(reason);
+      requestSceneReadyFrame(reason);
     },
     beginContinuous(reason) {
       if (disposed) return;
@@ -62,10 +107,12 @@ export function createLocalEditorViewportRenderCoordinator(
     },
     dispose() {
       disposed = true;
+      sceneReadyToken += 1;
       if (revealFrameId != null && frameHost) {
         frameHost.cancelAnimationFrame(revealFrameId);
         revealFrameId = null;
       }
+      cancelSceneReadyFrame();
     },
   };
 }

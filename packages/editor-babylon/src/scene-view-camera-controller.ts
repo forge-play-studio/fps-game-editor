@@ -23,10 +23,15 @@ export interface BabylonSceneViewCameraControllerOptions {
   dollySensitivity?: number;
 }
 
+export interface BabylonSceneViewCameraFrame {
+  deltaSeconds: number;
+}
+
 export interface BabylonSceneViewCameraController {
   getState(): BabylonSceneViewCameraState;
   setViewPreset(preset: EditorViewportViewPreset, options?: BabylonSceneViewCameraPresetOptions): boolean;
   setProjectionMode(mode: EditorViewportProjectionMode): boolean;
+  updateFrame(frame: BabylonSceneViewCameraFrame): boolean;
   handlePointerIntentMove(event: BabylonSceneViewInputPointerEvent): boolean;
   handleWheel(event: BabylonSceneViewInputWheelEvent): boolean;
   dispose(): void;
@@ -74,17 +79,9 @@ export function createBabylonSceneViewCameraController(
   const panSensitivity = options.panSensitivity ?? DEFAULT_PAN_SENSITIVITY;
   const dollySensitivity = options.dollySensitivity ?? DEFAULT_DOLLY_SENSITIVITY;
   let disposed = false;
-  let renderObserver: unknown = null;
   let viewPreset: EditorViewportViewPreset = 'perspective';
   let projectionMode: EditorViewportProjectionMode = readProjectionMode();
   let lastPerspective: PerspectiveSnapshot | null = readPerspectiveSnapshot();
-
-  if (scene?.onBeforeRenderObservable?.add) {
-    renderObserver = scene.onBeforeRenderObservable.add(() => {
-      if (disposed) return;
-      updateFlythroughMovement();
-    });
-  }
 
   function handlePointerIntentMove(event: BabylonSceneViewInputPointerEvent): boolean {
     if (disposed) return false;
@@ -158,16 +155,23 @@ export function createBabylonSceneViewCameraController(
     return true;
   }
 
-  function updateFlythroughMovement(): void {
-    if (input.getState().navigationMode !== 'flythrough') return;
-    const pressed = input.getState().pressedMovementKeys;
-    if (pressed.length === 0) return;
-    const dt = Math.max(0, Number(scene?.getEngine?.()?.getDeltaTime?.() ?? 16.67)) / 1000;
-    const speed = input.getState().flySpeed;
-    const step = speed * dt * 4;
+  function updateFrame(frame: BabylonSceneViewCameraFrame): boolean {
+    if (disposed) return false;
+    return updateFlythroughMovement(frame);
+  }
+
+  function updateFlythroughMovement(frame: BabylonSceneViewCameraFrame): boolean {
+    const inputState = input.getState();
+    if (inputState.navigationMode !== 'flythrough' || inputState.pressedMovementKeys.length === 0) {
+      return false;
+    }
+    const pressed = inputState.pressedMovementKeys;
+    const speed = inputState.flySpeed;
+    const step = speed * frame.deltaSeconds * 4;
+    if (step <= 0) return false;
     const forward = getCameraForward();
     const right = getCameraRight();
-    if (!forward || !right) return;
+    if (!forward || !right) return false;
     const up = { x: 0, y: 1, z: 0 };
     let move = { x: 0, y: 0, z: 0 };
     for (const key of pressed) {
@@ -179,8 +183,9 @@ export function createBabylonSceneViewCameraController(
       else if (key === 'q') move = subtractVec3(move, up);
     }
     const normalized = normalizeVec3(move);
-    if (!normalized) return;
+    if (!normalized) return false;
     translateCamera(scaleVec3(normalized, step));
+    return true;
   }
 
   function orbitCamera(dx: number, dy: number): void {
@@ -197,8 +202,10 @@ export function createBabylonSceneViewCameraController(
 
   function lookCamera(dx: number, dy: number): void {
     if (Number.isFinite(camera.alpha) && Number.isFinite(camera.beta)) {
+      const position = readVec3(camera.position);
       camera.alpha += dx * orbitSensitivity;
       camera.beta = clamp(camera.beta - dy * orbitSensitivity, 0.01, Math.PI - 0.01);
+      keepArcRotatePosition(position);
       return;
     }
     if (camera.rotation) {
@@ -230,6 +237,25 @@ export function createBabylonSceneViewCameraController(
     const forward = getCameraForward();
     if (!forward) return;
     translateCamera(scaleVec3(forward, -deltaY * 0.01));
+  }
+
+  function keepArcRotatePosition(position: Vec3): void {
+    if (!camera.target || !Vector3) return;
+    const radius = Number(camera.radius);
+    const alpha = Number(camera.alpha);
+    const beta = Number(camera.beta);
+    if (!Number.isFinite(radius) || !Number.isFinite(alpha) || !Number.isFinite(beta)) return;
+    const sinBeta = Math.sin(beta);
+    const offset = {
+      x: radius * Math.cos(alpha) * sinBeta,
+      y: radius * Math.cos(beta),
+      z: radius * Math.sin(alpha) * sinBeta,
+    };
+    camera.target = new Vector3(
+      position.x - offset.x,
+      position.y - offset.y,
+      position.z - offset.z,
+    );
   }
 
   function translateCamera(delta: Vec3): void {
@@ -365,15 +391,12 @@ export function createBabylonSceneViewCameraController(
     getState,
     setViewPreset,
     setProjectionMode,
+    updateFrame,
     handlePointerIntentMove,
     handleWheel,
     dispose() {
       if (disposed) return;
       disposed = true;
-      if (renderObserver && scene?.onBeforeRenderObservable?.remove) {
-        scene.onBeforeRenderObservable.remove(renderObserver);
-      }
-      renderObserver = null;
     },
   };
 }

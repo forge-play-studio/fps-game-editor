@@ -635,6 +635,9 @@ export interface LocalEditorBrowserUiOptions<TDocument = unknown> {
   document?: Document;
   theme?: LocalEditorThemeName;
   localTestActions?: boolean;
+  input?: {
+    isShortcutReserved?: (event: KeyboardEvent) => boolean;
+  };
   callbacks?: LocalEditorBrowserUiCallbacks;
   inspector?: LocalEditorBrowserInspectorOptions<TDocument>;
   hierarchy?: {

@@ -2,6 +2,7 @@ import type {
   EditorPlacementHit,
   EditorPlacementMode,
   EditorTransformOperationSettings,
+  EditorTransformOperationBlockReason,
   EditorTransformCanonicalConstraint,
   EditorSelectionState,
   EditorTransformBatchCommit,
@@ -25,6 +26,7 @@ import type {
   RuntimeScene,
 } from './types';
 import type { BabylonEditorProjection } from './projection';
+import { createBabylonTransformSolver } from './transform-solver';
 
 export interface BabylonTransformGizmoDragEvent {
   nodeId: string | null;
@@ -53,6 +55,11 @@ export interface BabylonTransformGizmoDuplicateDragInput {
 export interface BabylonTransformGizmoDuplicateDragResult {
   targetIds: string[];
   activeId?: string | null;
+}
+
+export interface BabylonTransformGizmoBlockEvent extends BabylonTransformGizmoDragEvent {
+  reason: EditorTransformOperationBlockReason;
+  failedTargetId: string | null;
 }
 
 export type BabylonTransformGizmoHandleKey =
@@ -93,6 +100,7 @@ export interface BabylonTransformGizmoControllerOptions {
   onDragUpdate?: (event: BabylonTransformGizmoDragEvent & { current: EditorTransformSnapshot }) => void;
   onDragEnd?: (event: BabylonTransformGizmoCommit) => void;
   onDragCancel?: (event: BabylonTransformGizmoDragEvent) => void;
+  onDragBlocked?: (event: BabylonTransformGizmoBlockEvent) => void;
   onDuplicateDragStart?: (input: BabylonTransformGizmoDuplicateDragInput) => BabylonTransformGizmoDuplicateDragResult | null;
   logger?: Pick<Console, 'warn'>;
 }
@@ -129,6 +137,7 @@ interface ActiveDrag {
   before: EditorTransformSnapshot | null;
   beforeTransforms: Record<string, EditorTransformSnapshot>;
   duplicate: boolean;
+  handleKey?: BabylonTransformGizmoHandleKey;
   proxyStart?: EditorTransformSnapshot;
   viewPlane?: {
     pointerId: number;
@@ -137,12 +146,16 @@ interface ActiveDrag {
 }
 
 type ObserverDisposer = () => void;
+type PreviewBatchTransformResult =
+  | { ok: true; transforms: Record<string, EditorTransformSnapshot> }
+  | { ok: false; reason: EditorTransformOperationBlockReason; failedTargetId: string | null };
 
 export function createBabylonTransformGizmoController(
   options: BabylonTransformGizmoControllerOptions,
 ): BabylonTransformGizmoController {
   const GizmoManagerCtor = options.babylon.GizmoManager!;
   if (!GizmoManagerCtor) throw new Error('Babylon runtime missing GizmoManager');
+  const transformSolver = createBabylonTransformSolver({ babylon: options.babylon as BabylonRuntimeGlobal & Record<string, any> });
 
   let tool: EditorTransformTool = options.initialTool ?? 'select';
   let space: EditorTransformSpace = options.initialSpace ?? 'world';
@@ -253,7 +266,7 @@ export function createBabylonTransformGizmoController(
       const activeConstraint = resolveBabylonTransformHandleConstraint(activeTool, handleKey);
       if (!activeConstraint) continue;
       const behavior = gizmo?.[handleKey]?.dragBehavior;
-      addObserver(behavior?.onDragStartObservable, () => beginDrag(activeConstraint));
+      addObserver(behavior?.onDragStartObservable, () => beginDrag(activeConstraint, handleKey));
       addObserver(behavior?.onDragObservable, updateDrag);
       addObserver(behavior?.onDragEndObservable, endDrag);
     }
@@ -271,13 +284,13 @@ export function createBabylonTransformGizmoController(
   function applySpacePreference(): void {
     const activeManager = manager;
     if (!activeManager) return;
-    const matchAttachedMesh = space === 'local';
-    const gizmos = [
-      activeManager.gizmos?.positionGizmo,
-      activeManager.gizmos?.rotationGizmo,
-      activeManager.gizmos?.scaleGizmo,
+    const gizmos: Array<{ gizmo: any }> = [
+      { gizmo: activeManager.gizmos?.positionGizmo },
+      { gizmo: activeManager.gizmos?.rotationGizmo },
+      { gizmo: activeManager.gizmos?.scaleGizmo },
     ];
-    for (const gizmo of gizmos) {
+    for (const { gizmo } of gizmos) {
+      const matchAttachedMesh = shouldMatchAttachedMeshForGizmo();
       try {
         if ('updateGizmoRotationToMatchAttachedMesh' in (gizmo ?? {})) {
           gizmo.updateGizmoRotationToMatchAttachedMesh = matchAttachedMesh;
@@ -299,6 +312,10 @@ export function createBabylonTransformGizmoController(
         } catch {}
       }
     }
+  }
+
+  function shouldMatchAttachedMeshForGizmo(): boolean {
+    return space === 'local';
   }
 
   function applyHandlePreference(): void {
@@ -341,14 +358,17 @@ export function createBabylonTransformGizmoController(
     updateFreeMoveHandle();
   }
 
-  function beginDrag(activeConstraint: EditorTransformCanonicalConstraint = constraint): void {
+  function beginDrag(
+    activeConstraint: EditorTransformCanonicalConstraint = constraint,
+    handleKey?: BabylonTransformGizmoHandleKey,
+  ): void {
     if (activeDrag) return;
     const activeTool = activeTransformTool();
     if (!activeTool) return;
     const duplicate = pendingDuplicateDrag;
     pendingDuplicateDrag = false;
     const targetIds = resolveDragTargetIds(activeTool, getCurrentTransformTargetIds(), activeConstraint, duplicate);
-    const drag = createActiveDrag(activeTool, targetIds, activeConstraint, duplicate);
+    const drag = createActiveDrag(activeTool, targetIds, activeConstraint, duplicate, handleKey);
     if (!drag) return;
     activeDrag = drag;
     options.onDragStart?.(activeDrag);
@@ -424,6 +444,7 @@ export function createBabylonTransformGizmoController(
     targetIds: string[],
     activeConstraint: EditorTransformCanonicalConstraint,
     duplicate = false,
+    handleKey?: BabylonTransformGizmoHandleKey,
   ): ActiveDrag | null {
     if (targetIds.length === 0) return null;
     const beforeTransforms = options.projection.readNodeTransforms(targetIds);
@@ -448,13 +469,19 @@ export function createBabylonTransformGizmoController(
       before,
       beforeTransforms,
       duplicate,
+      handleKey,
       proxyStart: readNativeProxyTransform(pivot),
     };
   }
 
   function updateDrag(): void {
     if (!activeDrag) return;
-    const currentTransforms = previewBatchTransform(activeDrag);
+    const preview = previewBatchTransform(activeDrag);
+    if (!preview.ok) {
+      blockDrag(activeDrag, preview.reason, preview.failedTargetId);
+      return;
+    }
+    const currentTransforms = preview.transforms;
     const current = activeDrag.activeId
       ? currentTransforms[activeDrag.activeId] ?? Object.values(currentTransforms)[0] ?? null
       : Object.values(currentTransforms)[0] ?? null;
@@ -469,10 +496,37 @@ export function createBabylonTransformGizmoController(
   function endDrag(): void {
     const drag = activeDrag;
     if (!drag) return;
-    const afterTransforms = previewBatchTransform(drag);
+    const preview = previewBatchTransform(drag);
+    if (!preview.ok) {
+      blockDrag(drag, preview.reason, preview.failedTargetId);
+      return;
+    }
     activeDrag = null;
-    emitTransformCommit(drag, afterTransforms);
+    emitTransformCommit(drag, preview.transforms);
     attachCurrentSelection();
+  }
+
+  function blockDrag(
+    drag: ActiveDrag,
+    reason: EditorTransformOperationBlockReason,
+    failedTargetId: string | null,
+  ): void {
+    activeDrag = null;
+    restoreDragPreview(drag);
+    attachCurrentSelection();
+    options.onDragBlocked?.({
+      ...drag,
+      reason,
+      failedTargetId,
+    });
+  }
+
+  function restoreDragPreview(drag: ActiveDrag): void {
+    if (drag.targetIds.length > 1) {
+      options.projection.setNodeTransformsPreview(drag.beforeTransforms);
+    } else if (drag.nodeId && drag.before) {
+      options.projection.setNodeTransformPreview(drag.nodeId, drag.before);
+    }
   }
 
   function emitTransformCommit(
@@ -514,7 +568,7 @@ export function createBabylonTransformGizmoController(
     });
   }
 
-  function previewBatchTransform(drag: ActiveDrag): Record<string, EditorTransformSnapshot> {
+  function previewBatchTransform(drag: ActiveDrag): PreviewBatchTransformResult {
     const pivotTransform = readProjectionLikeTransform(pivotProxy, {
       position: drag.pivot.position,
       rotation: { x: 0, y: 0, z: 0 },
@@ -526,15 +580,15 @@ export function createBabylonTransformGizmoController(
       scale: { x: 1, y: 1, z: 1 },
     };
     if (drag.tool === 'move') {
-      return previewMoveWithDelta(drag, subtractVec3(pivotTransform.position, proxyStart.position));
+      return { ok: true, transforms: previewMoveWithDelta(drag, subtractVec3(pivotTransform.position, proxyStart.position)) };
     }
     if (drag.tool === 'rotate') {
-      return previewRotateWithDelta(drag, subtractVec3(pivotTransform.rotation, proxyStart.rotation));
+      return previewRotateWithDelta(drag, resolveRotationDelta(drag, pivotTransform, proxyStart));
     }
     if (drag.tool === 'scale') {
       return previewScaleWithDelta(drag, divideVec3(pivotTransform.scale, proxyStart.scale));
     }
-    return {};
+    return { ok: true, transforms: {} };
   }
 
   function previewMoveWithDelta(
@@ -545,47 +599,67 @@ export function createBabylonTransformGizmoController(
     for (const nodeId of drag.targetIds) {
       const before = drag.beforeTransforms[nodeId];
       if (!before) continue;
-      transforms[nodeId] = applySnapToTransform(drag, nodeId, translateTransform(before, delta));
+      const result = transformSolver.solveMove({ before, delta });
+      if (!result.ok) continue;
+      transforms[nodeId] = applySnapToTransform(drag, nodeId, result.transform);
     }
     options.projection.setNodeTransformsPreview(transforms);
     return transforms;
-  }
-
-  function translateTransform(
-    transform: EditorTransformSnapshot,
-    delta: EditorTransformVec3,
-  ): EditorTransformSnapshot {
-    return {
-      position: addVec3(transform.position, delta),
-      rotation: transform.rotation,
-      scale: transform.scale,
-    };
   }
 
   function previewRotateWithDelta(
     drag: ActiveDrag,
     rotationDelta: EditorTransformVec3,
-  ): Record<string, EditorTransformSnapshot> {
+  ): PreviewBatchTransformResult {
     const transforms: Record<string, EditorTransformSnapshot> = {};
     for (const nodeId of drag.targetIds) {
       const before = drag.beforeTransforms[nodeId];
       if (!before) continue;
-      const offset = subtractVec3(before.position, drag.pivot.position);
-      transforms[nodeId] = {
-        position: addVec3(drag.pivot.position, rotateVec3Euler(offset, rotationDelta)),
-        rotation: addVec3(before.rotation, rotationDelta),
-        scale: before.scale,
-      };
-      transforms[nodeId] = applySnapToTransform(drag, nodeId, transforms[nodeId]!);
+      const result = transformSolver.solveRotate({
+        before,
+        pivot: drag.pivot.position,
+        delta: rotationDelta,
+        space: drag.space,
+      });
+      if (!result.ok) {
+        return { ok: false, reason: result.reason, failedTargetId: nodeId };
+      }
+      transforms[nodeId] = applySnapToTransform(drag, nodeId, result.transform);
     }
     options.projection.setNodeTransformsPreview(transforms);
-    return transforms;
+    return { ok: true, transforms };
+  }
+
+  function resolveRotationDelta(
+    drag: ActiveDrag,
+    pivotTransform: EditorTransformSnapshot,
+    proxyStart: EditorTransformSnapshot,
+  ): EditorTransformVec3 {
+    const angleDelta = readRotationHandleAngle(drag.handleKey);
+    if (angleDelta != null) return rotationDeltaFromHandleAngle(drag.handleKey, angleDelta);
+    return subtractVec3(pivotTransform.rotation, proxyStart.rotation);
+  }
+
+  function readRotationHandleAngle(handleKey: BabylonTransformGizmoHandleKey | undefined): number | null {
+    if (handleKey !== 'xGizmo' && handleKey !== 'yGizmo' && handleKey !== 'zGizmo') return null;
+    const angle = manager?.gizmos?.rotationGizmo?.[handleKey]?.angle;
+    return Number.isFinite(angle) ? Number(angle) : null;
+  }
+
+  function rotationDeltaFromHandleAngle(
+    handleKey: BabylonTransformGizmoHandleKey | undefined,
+    angle: number,
+  ): EditorTransformVec3 {
+    if (handleKey === 'xGizmo') return { x: angle, y: 0, z: 0 };
+    if (handleKey === 'yGizmo') return { x: 0, y: angle, z: 0 };
+    if (handleKey === 'zGizmo') return { x: 0, y: 0, z: angle };
+    return { x: 0, y: 0, z: 0 };
   }
 
   function previewScaleWithDelta(
     drag: ActiveDrag,
     scaleDelta: EditorTransformVec3,
-  ): Record<string, EditorTransformSnapshot> {
+  ): PreviewBatchTransformResult {
     const transforms: Record<string, EditorTransformSnapshot> = {};
     const safeScale = {
       x: Number.isFinite(scaleDelta.x) ? scaleDelta.x : 1,
@@ -595,16 +669,19 @@ export function createBabylonTransformGizmoController(
     for (const nodeId of drag.targetIds) {
       const before = drag.beforeTransforms[nodeId];
       if (!before) continue;
-      const offset = subtractVec3(before.position, drag.pivot.position);
-      transforms[nodeId] = {
-        position: addVec3(drag.pivot.position, multiplyVec3(offset, safeScale)),
-        rotation: before.rotation,
-        scale: multiplyVec3(before.scale, safeScale),
-      };
-      transforms[nodeId] = applySnapToTransform(drag, nodeId, transforms[nodeId]!);
+      const result = transformSolver.solveScale({
+        before,
+        pivot: drag.pivot.position,
+        delta: safeScale,
+        space: drag.space,
+      });
+      if (!result.ok) {
+        return { ok: false, reason: result.reason, failedTargetId: nodeId };
+      }
+      transforms[nodeId] = applySnapToTransform(drag, nodeId, result.transform);
     }
     options.projection.setNodeTransformsPreview(transforms);
-    return transforms;
+    return { ok: true, transforms };
   }
 
   function applySnapToTransform(
@@ -675,53 +752,11 @@ export function createBabylonTransformGizmoController(
     return left.x * right.x + left.y * right.y + left.z * right.z;
   }
 
-  function multiplyVec3(left: EditorTransformVec3, right: EditorTransformVec3): EditorTransformVec3 {
-    return {
-      x: left.x * right.x,
-      y: left.y * right.y,
-      z: left.z * right.z,
-    };
-  }
-
   function divideVec3(left: EditorTransformVec3, right: EditorTransformVec3): EditorTransformVec3 {
     return {
       x: Math.abs(right.x) > 0.000001 ? left.x / right.x : 1,
       y: Math.abs(right.y) > 0.000001 ? left.y / right.y : 1,
       z: Math.abs(right.z) > 0.000001 ? left.z / right.z : 1,
-    };
-  }
-
-  function rotateVec3Euler(value: EditorTransformVec3, rotation: EditorTransformVec3): EditorTransformVec3 {
-    return rotateZ(rotateY(rotateX(value, rotation.x), rotation.y), rotation.z);
-  }
-
-  function rotateX(value: EditorTransformVec3, angle: number): EditorTransformVec3 {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    return {
-      x: value.x,
-      y: value.y * cos - value.z * sin,
-      z: value.y * sin + value.z * cos,
-    };
-  }
-
-  function rotateY(value: EditorTransformVec3, angle: number): EditorTransformVec3 {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    return {
-      x: value.x * cos + value.z * sin,
-      y: value.y,
-      z: -value.x * sin + value.z * cos,
-    };
-  }
-
-  function rotateZ(value: EditorTransformVec3, angle: number): EditorTransformVec3 {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    return {
-      x: value.x * cos - value.y * sin,
-      y: value.x * sin + value.y * cos,
-      z: value.z,
     };
   }
 
@@ -1099,7 +1134,10 @@ export function createBabylonTransformGizmoController(
     },
     setTool(nextTool) {
       if (disposed) return;
-      if (tool === nextTool) return;
+      if (tool === nextTool) {
+        if (!activeDrag) attachCurrentSelection();
+        return;
+      }
       controller.cancelDrag();
       tool = nextTool;
       constraint = normalizeConstraintForTool(tool, constraint) ?? 'axis';
@@ -1107,7 +1145,10 @@ export function createBabylonTransformGizmoController(
     },
     setSpace(nextSpace) {
       if (disposed) return;
-      if (space === nextSpace) return;
+      if (space === nextSpace) {
+        if (!activeDrag) attachCurrentSelection();
+        return;
+      }
       controller.cancelDrag();
       space = nextSpace;
       attachCurrentSelection();
@@ -1115,7 +1156,10 @@ export function createBabylonTransformGizmoController(
     setConstraint(nextConstraint) {
       if (disposed) return;
       const normalized = normalizeConstraintForTool(tool, nextConstraint) ?? 'axis';
-      if (constraint === normalized) return;
+      if (constraint === normalized) {
+        if (!activeDrag) attachCurrentSelection();
+        return;
+      }
       controller.cancelDrag();
       constraint = normalized;
       attachCurrentSelection();

@@ -1,10 +1,23 @@
 export type EditorTransformTool = 'select' | 'move' | 'rotate' | 'scale';
 
+/**
+ * Operation-space preference for transform tools.
+ *
+ * This describes the basis used by a gizmo operation, not the storage space of
+ * authored data. Transform commits emitted by the editor framework use
+ * world-space snapshots; project adapters are responsible for converting those
+ * snapshots back into their document-local representation when needed.
+ */
 export type EditorTransformSpace = 'world' | 'local';
 
 export type EditorTransformCanonicalConstraint = 'axis' | 'plane' | 'free' | 'uniform';
 
 export type EditorTransformConstraint = EditorTransformCanonicalConstraint | 'view-plane';
+
+export type EditorTransformOperationBlockReason =
+  | 'non-trs-representable'
+  | 'non-invertible-parent'
+  | 'unsupported-transform';
 
 export interface EditorTransformHandleDescriptor {
   id: string;
@@ -115,6 +128,13 @@ export interface EditorTransformVec3 {
   z: number;
 }
 
+/**
+ * Engine-independent TRS snapshot.
+ *
+ * In gizmo drag commits and batch commits this snapshot is world-space. The
+ * target project adapter owns any world-to-parent-local conversion before
+ * mutating authored document data.
+ */
 export interface EditorTransformSnapshot {
   position: EditorTransformVec3;
   rotation: EditorTransformVec3;
@@ -135,9 +155,12 @@ export interface EditorTransformGizmoState {
 export interface EditorTransformGizmoCommit {
   nodeId: string;
   tool: Exclude<EditorTransformTool, 'select'>;
+  /** Operation-space preference used to produce the world-space snapshots. */
   space: EditorTransformSpace;
   constraint: EditorTransformCanonicalConstraint;
+  /** World-space transform before the drag. */
   before: EditorTransformSnapshot;
+  /** World-space transform after the drag. */
   after: EditorTransformSnapshot;
 }
 
@@ -148,7 +171,9 @@ export interface EditorTransformPivot {
 
 export interface EditorTransformTargetSnapshot {
   id: string;
+  /** World-space transform before the batch drag. */
   before: EditorTransformSnapshot;
+  /** World-space transform after the batch drag. */
   after: EditorTransformSnapshot;
 }
 
@@ -156,6 +181,7 @@ export interface EditorTransformBatchCommit {
   targetIds: string[];
   activeId: string | null;
   tool: Exclude<EditorTransformTool, 'select'>;
+  /** Operation-space preference used to produce the world-space snapshots. */
   space: EditorTransformSpace;
   constraint: EditorTransformCanonicalConstraint;
   pivot: EditorTransformPivot;

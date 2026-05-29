@@ -1,8 +1,3 @@
-export interface LocalEditorSceneRenderFrameHost {
-  requestAnimationFrame(callback: FrameRequestCallback): number;
-  cancelAnimationFrame(handle: number): void;
-}
-
 export interface LocalEditorSceneRenderScheduler {
   requestFrame(reason: string): void;
   waitForNextFrame(reason: string): Promise<LocalEditorSceneRenderStats>;
@@ -10,6 +5,19 @@ export interface LocalEditorSceneRenderScheduler {
   endContinuous(reason: string): void;
   getStats(): LocalEditorSceneRenderStats;
   dispose(): void;
+}
+
+export interface LocalEditorSceneRenderFrame {
+  timestampMs: number;
+  deltaSeconds: number;
+  mode: 'idle' | 'continuous';
+  frameCount: number;
+  activeReasons: string[];
+}
+
+export interface LocalEditorSceneRenderFrameHost {
+  requestAnimationFrame(callback: FrameRequestCallback): number;
+  cancelAnimationFrame(frameId: number): void;
 }
 
 export interface LocalEditorSceneRenderStats {
@@ -21,8 +29,7 @@ export interface LocalEditorSceneRenderStats {
 }
 
 export interface LocalEditorSceneRenderSchedulerOptions {
-  render: () => void;
-  frameHost?: LocalEditorSceneRenderFrameHost | null;
+  frameHost?: LocalEditorSceneRenderFrameHost;
   onStatsChange?: (stats: LocalEditorSceneRenderStats) => void;
   statsUpdateIntervalMs?: number;
 }
@@ -33,19 +40,21 @@ interface LocalEditorSceneRenderFrameWaiter {
 }
 
 export function createLocalEditorSceneRenderScheduler(
-  options: LocalEditorSceneRenderSchedulerOptions,
+  renderScene: (frame: LocalEditorSceneRenderFrame) => void,
+  options: LocalEditorSceneRenderSchedulerOptions = {},
 ): LocalEditorSceneRenderScheduler {
-  const frameHost = options.frameHost ?? readDefaultFrameHost();
+  const host = options.frameHost ?? window;
   const statsUpdateIntervalMs = options.statsUpdateIntervalMs ?? 250;
   const continuousReasons = new Set<string>();
-  let disposed = false;
   let frameId: number | null = null;
-  let pendingFrame = false;
+  let disposed = false;
   let frameCount = 0;
   let lastFrameTimestamp: number | null = null;
   let lastStatsTimestamp: number | null = null;
   let lastFrameMs: number | null = null;
   let fps: number | null = null;
+  let oneShotFrameRequested = false;
+  let scheduledFrameWasContinuous = false;
   const frameWaiters: LocalEditorSceneRenderFrameWaiter[] = [];
 
   const getStats = (): LocalEditorSceneRenderStats => ({
@@ -77,53 +86,65 @@ export function createLocalEditorSceneRenderScheduler(
     for (const waiter of waiters) waiter.resolve(stats);
   };
 
-  const scheduleFrame = (): void => {
-    if (disposed || frameId != null || !frameHost) return;
-    frameId = frameHost.requestAnimationFrame((timestamp) => {
+  const schedule = (): void => {
+    if (disposed || frameId != null) return;
+    scheduledFrameWasContinuous = continuousReasons.size > 0;
+    frameId = host.requestAnimationFrame((timestamp) => {
       frameId = null;
       if (disposed) return;
-      const shouldRender = pendingFrame || frameWaiters.length > 0 || continuousReasons.size > 0;
-      pendingFrame = false;
-      if (shouldRender) {
-        const isContinuousFrame = continuousReasons.size > 0;
-        const frameMs = isContinuousFrame && lastFrameTimestamp != null
-          ? Math.max(0, timestamp - lastFrameTimestamp)
-          : null;
-        lastFrameTimestamp = isContinuousFrame ? timestamp : null;
-        options.render();
-        frameCount += 1;
-        lastFrameMs = frameMs;
-        if (isContinuousFrame && frameMs != null && frameMs > 0) {
-          const instantFps = 1000 / frameMs;
-          fps = fps == null ? instantFps : fps * 0.8 + instantFps * 0.2;
-        } else if (!isContinuousFrame) {
-          fps = null;
-        }
-        const stats = getStats();
-        emitFrameStats(timestamp, stats);
-        resolveFrameWaiters(stats);
+      const shouldRenderOneShot = oneShotFrameRequested || frameWaiters.length > 0;
+      oneShotFrameRequested = false;
+      const shouldRenderContinuousFrame = scheduledFrameWasContinuous || continuousReasons.size > 0;
+      scheduledFrameWasContinuous = false;
+      if (!shouldRenderOneShot && !shouldRenderContinuousFrame) return;
+      const isContinuousFrame = continuousReasons.size > 0;
+      const frameDeltaSeconds = isContinuousFrame
+        ? resolveFrameDeltaSeconds(timestamp, lastFrameTimestamp)
+        : 0;
+      const frameMs = isContinuousFrame && lastFrameTimestamp != null
+        ? Math.max(0, timestamp - lastFrameTimestamp)
+        : null;
+      const nextFrameCount = frameCount + 1;
+      const frame: LocalEditorSceneRenderFrame = {
+        timestampMs: timestamp,
+        deltaSeconds: frameDeltaSeconds,
+        mode: isContinuousFrame ? 'continuous' : 'idle',
+        frameCount: nextFrameCount,
+        activeReasons: [...continuousReasons].sort(),
+      };
+      lastFrameTimestamp = isContinuousFrame ? timestamp : null;
+      renderScene(frame);
+      frameCount = nextFrameCount;
+      lastFrameMs = frameMs;
+      if (isContinuousFrame && frameMs != null && frameMs > 0) {
+        const instantFps = 1000 / frameMs;
+        fps = fps == null ? instantFps : fps * 0.8 + instantFps * 0.2;
+      } else if (!isContinuousFrame) {
+        fps = null;
       }
-      if (continuousReasons.size > 0) scheduleFrame();
+      const stats = getStats();
+      emitFrameStats(timestamp, stats);
+      resolveFrameWaiters(stats);
+      if (oneShotFrameRequested || frameWaiters.length > 0 || continuousReasons.size > 0) {
+        schedule();
+      }
     });
   };
 
   return {
-    requestFrame() {
+    requestFrame(_reason) {
       if (disposed) return;
-      pendingFrame = true;
-      scheduleFrame();
+      oneShotFrameRequested = true;
+      schedule();
     },
-    waitForNextFrame() {
+    waitForNextFrame(_reason) {
       if (disposed) {
         return Promise.reject(new Error('Local editor scene render scheduler is disposed'));
       }
-      if (!frameHost) {
-        return Promise.reject(new Error('Local editor scene render scheduler has no frame host'));
-      }
       return new Promise((resolve, reject) => {
         frameWaiters.push({ resolve, reject });
-        pendingFrame = true;
-        scheduleFrame();
+        oneShotFrameRequested = true;
+        schedule();
       });
     },
     beginContinuous(reason) {
@@ -137,10 +158,9 @@ export function createLocalEditorSceneRenderScheduler(
         fps = null;
       }
       if (continuousReasons.size !== previousSize) emitStats();
-      scheduleFrame();
+      schedule();
     },
     endContinuous(reason) {
-      if (disposed) return;
       const previousSize = continuousReasons.size;
       continuousReasons.delete(reason);
       if (previousSize > 0 && continuousReasons.size === 0) {
@@ -156,19 +176,26 @@ export function createLocalEditorSceneRenderScheduler(
     },
     dispose() {
       disposed = true;
-      pendingFrame = false;
       continuousReasons.clear();
+      if (frameId != null) {
+        host.cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+      scheduledFrameWasContinuous = false;
+      oneShotFrameRequested = false;
       const waiters = frameWaiters.splice(0);
       const error = new Error('Local editor scene render scheduler is disposed');
       for (const waiter of waiters) waiter.reject(error);
-      if (frameId != null && frameHost) {
-        frameHost.cancelAnimationFrame(frameId);
-        frameId = null;
-      }
     },
   };
 }
 
-function readDefaultFrameHost(): LocalEditorSceneRenderFrameHost | null {
-  return typeof window === 'undefined' ? null : window;
+const DEFAULT_CONTINUOUS_DELTA_SECONDS = 1 / 60;
+const MAX_CONTINUOUS_DELTA_SECONDS = 0.1;
+
+function resolveFrameDeltaSeconds(timestamp: number, previousTimestamp: number | null): number {
+  if (previousTimestamp == null) return DEFAULT_CONTINUOUS_DELTA_SECONDS;
+  const elapsedMs = timestamp - previousTimestamp;
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return DEFAULT_CONTINUOUS_DELTA_SECONDS;
+  return Math.min(MAX_CONTINUOUS_DELTA_SECONDS, elapsedMs / 1000);
 }

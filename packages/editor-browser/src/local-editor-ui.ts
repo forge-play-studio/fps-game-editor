@@ -19,6 +19,9 @@ export {
   createLocalEditorHierarchyController,
 } from './local-editor-ui-hierarchy-controller';
 export {
+  resolveLocalEditorHierarchySearchRows,
+} from './local-editor-ui-hierarchy-view';
+export {
   canLocalEditorHierarchyNodeHaveChildren,
   createLocalEditorHierarchyTreeModel,
   isLocalEditorHierarchyNodeMovable,
@@ -1063,7 +1066,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   const localTestActionsEnabled = options.localTestActions === true;
   ensureLocalEditorTheme(doc);
   let activeTheme: LocalEditorThemeName = normalizeLocalEditorThemeName(options.theme);
-  const inputRouter = createLocalEditorWorkbenchInputRouter(doc);
+  const inputRouter = createLocalEditorWorkbenchInputRouter(doc, {
+    isShortcutReserved: options.input?.isShortcutReserved,
+  });
   const contextMenu = createLocalEditorContextMenuController(doc, (open) => {
     inputRouter.setContextMenuOpen(open);
   }, activeTheme);
@@ -2439,6 +2444,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     }
     if (active.dataset.editorInspectorSearch != null) {
       return { selector: 'input[data-editor-inspector-search]', value: active.value };
+    }
+    if (active.dataset.editorHierarchySearch != null) {
+      return { selector: 'input[data-editor-hierarchy-search]', value: active.value };
     }
     if (active.dataset.editorAssetFilter != null) {
       return { selector: 'input[data-editor-asset-filter]', value: active.value };
