@@ -31,6 +31,9 @@
       "@fps-games/editor-babylon/legacy-runtime": [
         "packages/editor-babylon/src/legacy-runtime.ts"
       ],
+      "@fps-games/babylon-renderer": [
+        "packages/babylon-renderer/src/index.ts"
+      ],
       "@fps-games/editor": [
         "packages/editor/src/index.ts"
       ]

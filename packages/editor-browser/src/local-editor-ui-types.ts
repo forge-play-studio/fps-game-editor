@@ -282,7 +282,7 @@ export interface LocalEditorBrowserUiState<TDocument = unknown> {
   viewportMeasurement?: LocalEditorBrowserViewportMeasurementState | null;
   viewportSpatialOverlay?: LocalEditorBrowserViewportSpatialOverlayState | null;
   sceneFrameStats?: LocalEditorBrowserSceneFrameStats | null;
-  mainCameraPreview?: {
+  sceneCameraPreview?: {
     enabled: boolean;
     available: boolean;
   } | null;
@@ -511,7 +511,7 @@ export interface LocalEditorBrowserUiCallbacks {
   onViewportOverlaySettingsChange?: (settings: LocalEditorBrowserViewportOverlaySettings) => void;
   onViewportUtilityToolChange?: (tool: LocalEditorBrowserViewportUtilityTool) => void;
   onViewportMeasurementClear?: () => void;
-  onMainCameraPreviewToggle?: (enabled: boolean) => void;
+  onSceneCameraPreviewToggle?: (enabled: boolean) => void;
   onGridVisibleChange?: (visible: boolean) => void;
   onFocusSelection?: () => void;
   onCancelEditorIntent?: () => void;

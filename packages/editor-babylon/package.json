@@ -25,6 +25,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@fps-games/babylon-renderer": "0.1.2-beta.1",
     "@fps-games/editor-browser": "0.1.2-beta.1",
     "@fps-games/editor-core": "0.1.2-beta.1",
     "@fps-games/editor-protocol": "0.1.2-beta.1"

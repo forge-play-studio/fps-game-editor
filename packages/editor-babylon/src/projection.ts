@@ -418,10 +418,13 @@ function createProjectionRoot(
   const root = new TransformNode(`${node.id}.projection`, scene);
   root.id = node.id;
   root.name = node.name ?? node.id;
+  const disablePlanarShadow = node.runtimeKind === 'camera' || node.runtimeKind === 'light' || node.helperKind === 'root';
   root.metadata = {
     ...(root.metadata ?? {}),
+    ...(disablePlanarShadow ? { disablePlanarShadow: true } : {}),
     editorProjection: {
       nodeId: node.id,
+      ...(node.runtimeKind ? { runtimeKind: node.runtimeKind } : {}),
     },
   };
   return root;
@@ -605,7 +608,7 @@ function attachDirectionalLightProjection(
       settings.diffuseColor?.g ?? 1,
       settings.diffuseColor?.b ?? 1,
     );
-    light.metadata = createProjectionMetadata(node.id, { runtimeKind: 'light' });
+    light.metadata = createProjectionMetadata(node.id, { runtimeKind: 'light', lightType: 'directional' });
     light.setEnabled?.(node.active !== false);
     projection.runtimeObjects.push(light);
   }
@@ -647,10 +650,13 @@ function attachRootProjection(
   }, scene);
   sphere.parent = projection.root;
   sphere.isPickable = false;
-  sphere.metadata = createProjectionMetadata(node.id, {
-    helperKind: 'root',
-    helper: 'anchor',
-  });
+  sphere.metadata = {
+    ...createProjectionMetadata(node.id, {
+      helperKind: 'root',
+      helper: 'anchor',
+    }),
+    disablePlanarShadow: true,
+  };
   const sphereMaterial = new StandardMaterial(`${node.id}.rootMarker.material`, scene);
   sphereMaterial.diffuseColor = new Color3(0.25, 0.64, 1);
   sphereMaterial.emissiveColor = new Color3(0.08, 0.28, 0.45);
@@ -713,6 +719,7 @@ function createRootLabelProjection(
       helper: 'label',
       text: 'Root',
     }),
+    disablePlanarShadow: true,
     editorProjectionRuntimeObjects: [texture, material],
   };
   label.position = new Vector3(0, 0.42, 0);

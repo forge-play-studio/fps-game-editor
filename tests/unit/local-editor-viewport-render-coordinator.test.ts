@@ -45,6 +45,13 @@ function createScheduler(): LocalEditorSceneRenderScheduler & {
   const requestedFrames: string[] = [];
   const continuousBegins: string[] = [];
   const continuousEnds: string[] = [];
+  const readStats = () => ({
+    fps: null,
+    frameCount: requestedFrames.length,
+    mode: continuousBegins.length > continuousEnds.length ? 'continuous' as const : 'idle' as const,
+    lastFrameMs: null,
+    activeReasons: continuousBegins.filter(reason => !continuousEnds.includes(reason)),
+  });
   return {
     requestedFrames,
     continuousBegins,
@@ -52,11 +59,17 @@ function createScheduler(): LocalEditorSceneRenderScheduler & {
     requestFrame(reason) {
       requestedFrames.push(reason);
     },
+    waitForNextFrame() {
+      return Promise.resolve(readStats());
+    },
     beginContinuous(reason) {
       continuousBegins.push(reason);
     },
     endContinuous(reason) {
       continuousEnds.push(reason);
+    },
+    getStats() {
+      return readStats();
     },
     dispose() {
       // Scheduler ownership stays with the harness; coordinator only controls viewport requests.

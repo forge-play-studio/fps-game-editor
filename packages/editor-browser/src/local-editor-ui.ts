@@ -76,6 +76,7 @@ import type {
   LocalEditorBrowserInspectorPersistenceMode,
   LocalEditorBrowserInspectorProperty,
   LocalEditorBrowserPlacementMode,
+  LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserTransformAction,
   LocalEditorBrowserTransformSpace,
   LocalEditorBrowserTransformSnapStepKind,
@@ -157,6 +158,7 @@ export type {
   LocalEditorBrowserInspectorSection,
   LocalEditorBrowserPlacementMode,
   LocalEditorBrowserPrimitiveShape,
+  LocalEditorBrowserSceneFrameStats,
   LocalEditorBrowserSceneGraphCreateGroupIntent,
   LocalEditorBrowserSceneGraphCreatePrimitiveIntent,
   LocalEditorBrowserSceneGraphDeleteIntent,
@@ -401,6 +403,111 @@ interface CoordinateAxesOverlayElements {
   axisLabels: Map<string, SVGTextElement>;
   axisDiscs: Map<string, SVGCircleElement>;
   centerDot: SVGCircleElement;
+  projectionIcon: SVGGElement;
+  projectionIconShape: SVGPathElement;
+}
+
+interface SceneFrameRateOverlayElements {
+  root: HTMLDivElement;
+  fpsValue: HTMLSpanElement;
+  modeLabel: HTMLSpanElement;
+}
+
+function createSceneFrameRateOverlay(doc: Document): SceneFrameRateOverlayElements {
+  const root = doc.createElement('div');
+  root.classList.add(LOCAL_EDITOR_THEME_CLASS);
+  root.dataset.editorSceneFrameRateOverlay = 'true';
+  root.style.cssText = [
+    'position:absolute',
+    'right:14px',
+    'bottom:134px',
+    'z-index:3',
+    'display:none',
+    'align-items:center',
+    'gap:6px',
+    'width:112px',
+    'height:30px',
+    'padding:0 8px',
+    'box-sizing:border-box',
+    'border:1px solid color-mix(in srgb, var(--fps-editor-border) 78%, transparent)',
+    'border-radius:6px',
+    'background:color-mix(in srgb, var(--fps-editor-chrome) 76%, transparent)',
+    'box-shadow:var(--fps-editor-shadow-panel)',
+    'font-family:var(--fps-editor-font)',
+    'font-size:11px',
+    'font-weight:900',
+    'letter-spacing:0',
+    'color:var(--fps-editor-text-strong)',
+    'pointer-events:none',
+    'backdrop-filter:blur(5px)',
+    'overflow:hidden',
+  ].join(';');
+
+  const label = doc.createElement('span');
+  label.textContent = 'FPS';
+  label.style.cssText = [
+    'color:var(--fps-editor-muted-strong)',
+    'font-size:10px',
+    'line-height:1',
+  ].join(';');
+  const fpsValue = doc.createElement('span');
+  fpsValue.textContent = '--';
+  fpsValue.style.cssText = [
+    'width:26px',
+    'flex:0 0 26px',
+    'font-variant-numeric:tabular-nums',
+    'font-size:13px',
+    'line-height:1',
+  ].join(';');
+  const modeLabel = doc.createElement('span');
+  modeLabel.textContent = 'IDLE';
+  modeLabel.style.cssText = [
+    'margin-left:auto',
+    'padding:2px 4px',
+    'flex:0 0 auto',
+    'border:1px solid var(--fps-editor-border-soft)',
+    'border-radius:4px',
+    'background:color-mix(in srgb, var(--fps-editor-field) 72%, transparent)',
+    'color:var(--fps-editor-muted)',
+    'font-size:9px',
+    'line-height:1',
+  ].join(';');
+
+  root.appendChild(label);
+  root.appendChild(fpsValue);
+  root.appendChild(modeLabel);
+  return { root, fpsValue, modeLabel };
+}
+
+function renderSceneFrameRateOverlay(
+  overlay: SceneFrameRateOverlayElements,
+  stats: LocalEditorBrowserSceneFrameStats | null,
+): void {
+  if (!stats) {
+    overlay.root.style.display = 'none';
+    return;
+  }
+  overlay.root.style.display = 'flex';
+  const fps = Number.isFinite(stats.fps) ? Math.round(stats.fps as number) : null;
+  const displayFps = stats.mode === 'idle' ? 0 : fps;
+  overlay.fpsValue.textContent = displayFps == null ? '--' : String(displayFps);
+  overlay.modeLabel.textContent = stats.mode === 'continuous' ? 'LIVE' : 'IDLE';
+  overlay.modeLabel.style.color = stats.mode === 'continuous'
+    ? 'var(--fps-editor-success)'
+    : 'var(--fps-editor-muted)';
+  overlay.fpsValue.style.color = displayFps == null || stats.mode === 'idle'
+    ? 'var(--fps-editor-muted)'
+    : displayFps >= 50
+      ? 'var(--fps-editor-success)'
+      : displayFps >= 30
+        ? 'var(--fps-editor-warn)'
+        : 'var(--fps-editor-danger-strong)';
+  overlay.root.title = [
+    `Scene FPS: ${displayFps == null ? '--' : displayFps}`,
+    `mode: ${stats.mode}`,
+    stats.lastFrameMs == null ? '' : `frame: ${stats.lastFrameMs.toFixed(1)}ms`,
+    stats.activeReasons.length ? `active: ${stats.activeReasons.join(', ')}` : '',
+  ].filter(Boolean).join(' | ');
 }
 
 function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElements {
@@ -475,6 +582,31 @@ function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElemen
   centerDot.setAttribute('fill', 'color-mix(in srgb, var(--fps-editor-text) 82%, transparent)');
   labelLayer.appendChild(centerDot);
 
+  const projectionIcon = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  projectionIcon.setAttribute('transform', 'translate(8 8)');
+  projectionIcon.setAttribute('role', 'button');
+  projectionIcon.setAttribute('tabindex', '0');
+  projectionIcon.dataset.coordinateAxesProjectionToggle = 'true';
+  projectionIcon.style.cssText = 'opacity:0.92;pointer-events:auto;cursor:pointer;outline:none';
+  const projectionIconFrame = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  projectionIconFrame.setAttribute('x', '0');
+  projectionIconFrame.setAttribute('y', '0');
+  projectionIconFrame.setAttribute('width', '18');
+  projectionIconFrame.setAttribute('height', '18');
+  projectionIconFrame.setAttribute('rx', '4');
+  projectionIconFrame.setAttribute('fill', 'color-mix(in srgb, var(--fps-editor-chrome) 78%, transparent)');
+  projectionIconFrame.setAttribute('stroke', 'color-mix(in srgb, var(--fps-editor-border) 82%, transparent)');
+  projectionIconFrame.setAttribute('stroke-width', '1');
+  const projectionIconShape = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+  projectionIconShape.setAttribute('fill', 'none');
+  projectionIconShape.setAttribute('stroke', 'color-mix(in srgb, var(--fps-editor-accent) 82%, #ffffff)');
+  projectionIconShape.setAttribute('stroke-width', '1.6');
+  projectionIconShape.setAttribute('stroke-linejoin', 'round');
+  projectionIconShape.setAttribute('stroke-linecap', 'round');
+  projectionIcon.appendChild(projectionIconFrame);
+  projectionIcon.appendChild(projectionIconShape);
+  svg.appendChild(projectionIcon);
+
   return {
     root,
     lineLayer,
@@ -484,6 +616,8 @@ function createCoordinateAxesOverlay(doc: Document): CoordinateAxesOverlayElemen
     axisLabels,
     axisDiscs,
     centerDot,
+    projectionIcon,
+    projectionIconShape,
   };
 }
 
@@ -496,6 +630,7 @@ function renderCoordinateAxesOverlay(
     return;
   }
   overlay.root.style.display = '';
+  renderCoordinateAxesProjectionIcon(overlay, state.projectionMode, state.projectionToggleDisabled === true);
   const center = 56;
   const lineLength = 38;
   const sortedAxes = [...state.axes].sort((left, right) => right.depth - left.depth);
@@ -522,6 +657,29 @@ function renderCoordinateAxesOverlay(
     overlay.labelLayer.appendChild(group);
   }
   overlay.labelLayer.appendChild(overlay.centerDot);
+}
+
+function renderCoordinateAxesProjectionIcon(
+  overlay: CoordinateAxesOverlayElements,
+  mode: LocalEditorBrowserViewportProjectionMode,
+  disabled: boolean,
+): void {
+  overlay.projectionIcon.dataset.viewportProjectionMode = mode;
+  overlay.projectionIcon.setAttribute(
+    'aria-label',
+    disabled
+      ? `编辑视口投影：${VIEWPORT_PROJECTION_LABELS[mode]}，Main Camera 预览中不可切换`
+      : `编辑视口投影：${VIEWPORT_PROJECTION_LABELS[mode]}，点击切换`,
+  );
+  overlay.projectionIcon.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+  overlay.projectionIcon.style.opacity = disabled ? '0.46' : '0.92';
+  overlay.projectionIcon.style.cursor = disabled ? 'not-allowed' : 'pointer';
+  overlay.projectionIconShape.setAttribute(
+    'd',
+    mode === 'orthographic'
+      ? 'M5 6.5H12.5V14H5ZM7.5 4H15V11.5'
+      : 'M4.5 14H13.5L10.5 4H7.5ZM7 10.5H11',
+  );
 }
 
 interface SpatialOverlayElements {
@@ -1332,6 +1490,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     'pointer-events:auto',
   ].join(';');
   const coordinateAxesOverlay = createCoordinateAxesOverlay(doc);
+  const sceneFrameRateOverlay = createSceneFrameRateOverlay(doc);
   const spatialOverlay = createSpatialOverlay(doc);
   const measurementOverlay = createMeasurementOverlay(doc);
   sceneToolOverlay.appendChild(sceneTitle);
@@ -1349,6 +1508,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   workbench.sceneHeader.appendChild(sceneToolOverlay);
   workbench.sceneFrame.appendChild(spatialOverlay.root);
   workbench.sceneFrame.appendChild(measurementOverlay.root);
+  workbench.sceneFrame.appendChild(sceneFrameRateOverlay.root);
   workbench.sceneFrame.appendChild(coordinateAxesOverlay.root);
   root.appendChild(localTestMenu);
   root.appendChild(toolbarOverflowMenu);
@@ -1387,6 +1547,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     applyLocalEditorTheme(workbench.root, activeTheme);
     applyLocalEditorTheme(spatialOverlay.root, activeTheme);
     applyLocalEditorTheme(measurementOverlay.root, activeTheme);
+    applyLocalEditorTheme(sceneFrameRateOverlay.root, activeTheme);
     applyLocalEditorTheme(shortcutHelpPanel, activeTheme);
     applyLocalEditorTheme(boxSelectionOverlay, activeTheme);
     applyLocalEditorTheme(localTestMenu, activeTheme);
@@ -1830,6 +1991,24 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
   sceneCameraButton.addEventListener('click', () => {
     const enabled = currentState?.sceneCameraPreview?.enabled ?? false;
     callbacks.onSceneCameraPreviewToggle?.(!enabled);
+  });
+  const toggleCoordinateAxesProjection = (event: Event): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    const axesState = currentState?.coordinateAxes ?? null;
+    if (!axesState || axesState.projectionToggleDisabled || currentState?.busy) return;
+    const currentMode = axesState.projectionMode;
+    const nextMode: LocalEditorBrowserViewportProjectionMode = currentMode === 'orthographic' ? 'perspective' : 'orthographic';
+    callbacks.onViewportProjectionModeChange?.(nextMode);
+    if (event.type === 'click') coordinateAxesOverlay.projectionIcon.blur();
+  };
+  coordinateAxesOverlay.projectionIcon.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+  });
+  coordinateAxesOverlay.projectionIcon.addEventListener('click', toggleCoordinateAxesProjection);
+  coordinateAxesOverlay.projectionIcon.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    toggleCoordinateAxesProjection(event);
   });
   viewportToolsGroup.addEventListener('click', (event) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -2343,6 +2522,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       ? 'var(--fps-editor-border)'
       : statusToneColor;
     renderCoordinateAxesOverlay(coordinateAxesOverlay, inEditor ? state.coordinateAxes ?? null : null);
+    renderSceneFrameRateOverlay(sceneFrameRateOverlay, inEditor ? state.sceneFrameStats ?? null : null);
     renderSpatialOverlay(spatialOverlay, inEditor ? state.viewportSpatialOverlay ?? null : null);
     renderMeasurementOverlay(measurementOverlay, inEditor ? state.viewportMeasurement ?? null : null);
     const boxSelection = state.boxSelection;
@@ -2372,6 +2552,9 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
     update(state) {
       render(state);
     },
+    updateSceneFrameStats(stats) {
+      renderSceneFrameRateOverlay(sceneFrameRateOverlay, currentState?.mode === 'editor' ? stats : null);
+    },
     setTheme(theme) {
       setActiveTheme(theme);
     },
@@ -2398,6 +2581,7 @@ export function createLocalEditorBrowserUi<TDocument = unknown>(
       overlaySettingsPopover.remove();
       spatialOverlay.root.remove();
       measurementOverlay.root.remove();
+      sceneFrameRateOverlay.root.remove();
       boxSelectionOverlay.remove();
       shortcutHelpPanel.remove();
       hierarchyController.dispose();
