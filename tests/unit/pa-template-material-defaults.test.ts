@@ -1,15 +1,26 @@
-import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { beforeAll, describe, expect, it } from 'vitest';
 
-import {
-  ensureEditorSceneEnvironmentDefaults,
-  reduceEditorSceneDocument,
-} from '../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-session';
-import type { EditorSceneDocument } from '../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-document';
-import { validateSceneJsonV2 } from '../../.local/pa_template/src/config/SceneJsonV2Validator';
+const sessionModuleUrl = new URL('../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-session.ts', import.meta.url);
+const validatorModuleUrl = new URL('../../.local/pa_template/src/config/SceneJsonV2Validator.ts', import.meta.url);
+const hasPaTemplateCompanion = existsSync(sessionModuleUrl) && existsSync(validatorModuleUrl);
+const describePaTemplate = hasPaTemplateCompanion ? describe : describe.skip;
 
-describe('pa_template material defaults', () => {
+let ensureEditorSceneEnvironmentDefaults: any;
+let reduceEditorSceneDocument: any;
+let validateSceneJsonV2: any;
+
+describePaTemplate('pa_template material defaults', () => {
+  beforeAll(async () => {
+    const sessionModule = await import(sessionModuleUrl.href);
+    const validatorModule = await import(validatorModuleUrl.href);
+    ensureEditorSceneEnvironmentDefaults = sessionModule.ensureEditorSceneEnvironmentDefaults;
+    reduceEditorSceneDocument = sessionModule.reduceEditorSceneDocument;
+    validateSceneJsonV2 = validatorModule.validateSceneJsonV2;
+  });
+
   it('injects readonly default PBR and Standard material assets', () => {
-    const document: EditorSceneDocument = {
+    const document = {
       schemaVersion: 1,
       assets: [],
       scene: {
