@@ -1,13 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { beforeAll, describe, expect, it } from 'vitest';
 
-import {
-  ensureEditorSceneEnvironmentDefaults,
-  getEditorSceneInspectorObject,
-} from '../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-session';
-import type { EditorSceneDocument } from '../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-document';
-import type { SceneMaterialAssetConfig } from '../../.local/pa_template/src/config';
+const sessionModuleUrl = new URL('../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-session.ts', import.meta.url);
+const hasPaTemplateCompanion = existsSync(sessionModuleUrl);
+const describePaTemplate = hasPaTemplateCompanion ? describe : describe.skip;
 
-function createMaterialInspectorDocument(materialAsset?: SceneMaterialAssetConfig | null): EditorSceneDocument {
+let ensureEditorSceneEnvironmentDefaults: any;
+let getEditorSceneInspectorObject: any;
+
+function createMaterialInspectorDocument(materialAsset?: any): any {
   return ensureEditorSceneEnvironmentDefaults({
     schemaVersion: 1,
     assets: [],
@@ -39,17 +40,23 @@ function createMaterialInspectorDocument(materialAsset?: SceneMaterialAssetConfi
   });
 }
 
-function getArtistMaterialPropertyPaths(document: EditorSceneDocument): string[] {
+function getArtistMaterialPropertyPaths(document: any): string[] {
   return getEditorSceneInspectorObject(document, 'plane')
     ?.sections.find(section => section.id === 'artistMaterial')
     ?.properties.map(property => property.path) ?? [];
 }
 
-function getInspectorSectionIds(document: EditorSceneDocument, gameObjectId = 'plane'): string[] {
+function getInspectorSectionIds(document: any, gameObjectId = 'plane'): string[] {
   return getEditorSceneInspectorObject(document, gameObjectId)?.sections.map(section => section.id) ?? [];
 }
 
-describe('pa_template material inspector', () => {
+describePaTemplate('pa_template material inspector', () => {
+  beforeAll(async () => {
+    const sessionModule = await import(sessionModuleUrl.href);
+    ensureEditorSceneEnvironmentDefaults = sessionModule.ensureEditorSceneEnvironmentDefaults;
+    getEditorSceneInspectorObject = sessionModule.getEditorSceneInspectorObject;
+  });
+
   it('edits the shared material asset instead of exposing root node override parameters', () => {
     const document = createMaterialInspectorDocument({
       id: 'mat_shared_pbr',

@@ -1,14 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { beforeAll, describe, expect, it } from 'vitest';
 
-import {
-  createEditorSceneAssetActionPatch,
-  createEditorSceneInspectorPropertyPatch,
-  ensureEditorSceneEnvironmentDefaults,
-  reduceEditorSceneDocument,
-} from '../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-session';
-import type { EditorSceneDocument } from '../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-document';
+const sessionModuleUrl = new URL('../../.local/pa_template/src/fps-game-editor-adapter/editor-scene-session.ts', import.meta.url);
+const hasPaTemplateCompanion = existsSync(sessionModuleUrl);
+const describePaTemplate = hasPaTemplateCompanion ? describe : describe.skip;
 
-function createMaterialAssetActionDocument(): EditorSceneDocument {
+let createEditorSceneAssetActionPatch: any;
+let createEditorSceneInspectorPropertyPatch: any;
+let ensureEditorSceneEnvironmentDefaults: any;
+let reduceEditorSceneDocument: any;
+
+function createMaterialAssetActionDocument(): any {
   return ensureEditorSceneEnvironmentDefaults({
     schemaVersion: 1,
     assets: [],
@@ -43,7 +45,15 @@ function createMaterialAssetActionDocument(): EditorSceneDocument {
   });
 }
 
-describe('pa_template material asset actions', () => {
+describePaTemplate('pa_template material asset actions', () => {
+  beforeAll(async () => {
+    const sessionModule = await import(sessionModuleUrl.href);
+    createEditorSceneAssetActionPatch = sessionModule.createEditorSceneAssetActionPatch;
+    createEditorSceneInspectorPropertyPatch = sessionModule.createEditorSceneInspectorPropertyPatch;
+    ensureEditorSceneEnvironmentDefaults = sessionModule.ensureEditorSceneEnvironmentDefaults;
+    reduceEditorSceneDocument = sessionModule.reduceEditorSceneDocument;
+  });
+
   it('creates shared material asset field patches from material editor actions', () => {
     const document = createMaterialAssetActionDocument();
     const result = createEditorSceneAssetActionPatch({

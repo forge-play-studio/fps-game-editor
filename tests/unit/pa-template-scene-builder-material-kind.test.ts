@@ -1,14 +1,26 @@
-import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 
-import { configService } from '../../.local/pa_template/src/config';
-import type { SceneConfig, ScenePrimitiveNode } from '../../.local/pa_template/src/config';
-import { SceneBuilder } from '../../.local/pa_template/src/services/SceneBuilder';
+const configModuleUrl = new URL('../../.local/pa_template/src/config/index.ts', import.meta.url);
+const sceneBuilderModuleUrl = new URL('../../.local/pa_template/src/services/SceneBuilder.ts', import.meta.url);
+const hasPaTemplateCompanion = existsSync(configModuleUrl) && existsSync(sceneBuilderModuleUrl);
+const describePaTemplate = hasPaTemplateCompanion ? describe : describe.skip;
 
-describe('pa_template SceneBuilder material kind projection', () => {
+let configService: any;
+let SceneBuilder: any;
+
+describePaTemplate('pa_template SceneBuilder material kind projection', () => {
+  beforeAll(async () => {
+    const configModule = await import(configModuleUrl.href);
+    const sceneBuilderModule = await import(sceneBuilderModuleUrl.href);
+    configService = configModule.configService;
+    SceneBuilder = sceneBuilderModule.SceneBuilder;
+  });
+
   it('creates primitive runtime materials from bound material asset kind', () => {
     const previousSceneDocument = structuredClone(configService.getSceneDocument());
     const { engine, scene } = createScene();
@@ -45,7 +57,7 @@ function createScene(): { engine: NullEngine; scene: Scene } {
   return { engine, scene };
 }
 
-function createMaterialKindSceneDocument(): SceneConfig {
+function createMaterialKindSceneDocument(): any {
   return {
     scene: {
       rootId: 'root',
@@ -72,10 +84,10 @@ function createMaterialKindSceneDocument(): SceneConfig {
       materials: [],
       textures: [],
     },
-  } as SceneConfig;
+  };
 }
 
-function createPrimitiveNode(id: string, materialAssetId: string): ScenePrimitiveNode {
+function createPrimitiveNode(id: string, materialAssetId: string): any {
   return {
     id,
     kind: 'primitive',
