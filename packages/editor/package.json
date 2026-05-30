@@ -1,6 +1,6 @@
 {
   "name": "@fps-games/editor",
-  "version": "0.1.3-beta.1",
+  "version": "0.1.3-beta.2",
   "type": "module",
   "description": "Aggregate public entrypoint for fps-game-editor.",
   "repository": {
@@ -26,12 +26,12 @@
     "prepack": "node ../../scripts/prepare-single-package.mjs"
   },
   "dependencies": {
-    "@fps-games/babylon-renderer": "0.1.3-beta.1",
-    "@fps-games/editor-babylon": "0.1.3-beta.1",
-    "@fps-games/editor-browser": "0.1.3-beta.1",
-    "@fps-games/editor-core": "0.1.3-beta.1",
-    "@fps-games/editor-forge-play": "0.1.3-beta.1",
-    "@fps-games/editor-protocol": "0.1.3-beta.1"
+    "@fps-games/babylon-renderer": "0.1.3-beta.2",
+    "@fps-games/editor-babylon": "0.1.3-beta.2",
+    "@fps-games/editor-browser": "0.1.3-beta.2",
+    "@fps-games/editor-core": "0.1.3-beta.2",
+    "@fps-games/editor-forge-play": "0.1.3-beta.2",
+    "@fps-games/editor-protocol": "0.1.3-beta.2"
   },
   "bundleDependencies": [
     "@fps-games/babylon-renderer",
