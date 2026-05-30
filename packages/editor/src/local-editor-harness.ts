@@ -474,7 +474,11 @@ export interface LocalEditorHarnessPersistenceAdapter<TDocument, TAsset = LocalE
     summary?: string;
   }>;
   saveDocument?(document: TDocument): LocalEditorMaybePromise<{ document: TDocument; summary?: string }>;
-  runGame(): LocalEditorMaybePromise<void>;
+  runGame(context?: LocalEditorHarnessRunGameContext): LocalEditorMaybePromise<void>;
+}
+
+export interface LocalEditorHarnessRunGameContext {
+  reason: 'save' | 'discard';
 }
 
 export interface LocalEditorHarnessWorldAdapter<TAsset = LocalEditorHarnessAssetItem> {
@@ -854,6 +858,21 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     },
   });
 
+  const runGameFromEditor = async (reason: LocalEditorHarnessRunGameContext['reason']): Promise<void> => {
+    cancelActiveOperation(state);
+    disposeEditorWorld(state);
+    state.mode = 'game';
+    state.session = null;
+    state.source = null;
+    state.status = reason === 'save' ? 'Saved scene; starting game' : 'Discarded editor changes; starting game';
+    state.statusTone = 'default';
+    state.statusToneStatus = state.status;
+    state.statusDetails = '';
+    harness.render();
+    await options.persistenceAdapter.runGame({ reason });
+    harness.render();
+  };
+
   harness = {
     render() {
       syncSceneCameraPreview(state, options);
@@ -993,19 +1012,11 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     async saveAndRunGame() {
       const saved = await harness.saveScene();
       if (!saved) return false;
-      await harness.discardAndRunGame();
+      await runGameFromEditor('save');
       return true;
     },
     async discardAndRunGame() {
-      cancelActiveOperation(state);
-      disposeEditorWorld(state);
-      state.session = null;
-      state.source = null;
-      state.status = 'Reloading game';
-      state.statusTone = 'default';
-      state.statusToneStatus = state.status;
-      state.statusDetails = '';
-      await options.persistenceAdapter.runGame();
+      await runGameFromEditor('discard');
     },
     dispose() {
       disposeEditorWorld(state);
