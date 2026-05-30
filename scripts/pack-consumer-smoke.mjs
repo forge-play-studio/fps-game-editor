@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import {
+  collectEditorBundledPackages,
+  internalPackageNameToDir,
+  readJson,
+} from './internal-package-graph.mjs';
 
 const root = process.cwd();
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fps-editor-pack-smoke-'));
@@ -9,6 +14,9 @@ const packDir = path.join(tmpRoot, 'pack');
 const consumerDir = path.join(tmpRoot, 'consumer');
 const npmCacheDir = path.join(tmpRoot, 'npm-cache');
 const rootTsc = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'tsc.cmd' : 'tsc');
+const rootVite = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite');
+const rootPackageJson = readJson(path.join(root, 'package.json'));
+const expectedBundledPackages = collectEditorBundledPackages(root);
 fs.mkdirSync(packDir, { recursive: true });
 fs.mkdirSync(consumerDir, { recursive: true });
 fs.mkdirSync(npmCacheDir, { recursive: true });
@@ -35,6 +43,7 @@ fs.writeFileSync(path.join(consumerDir, 'package.json'), JSON.stringify({
   private: true,
   dependencies: {
     '@fps-games/editor': tarball,
+    '@babylonjs/core': rootPackageJson.devDependencies?.['@babylonjs/core'] ?? '^8.0.0',
   },
 }, null, 2));
 fs.writeFileSync(path.join(consumerDir, 'tsconfig.json'), JSON.stringify({
@@ -60,6 +69,33 @@ fs.writeFileSync(path.join(consumerDir, 'src', 'index.ts'), [
   'void maybeHarness;',
   '',
 ].join('\n'));
+fs.writeFileSync(path.join(consumerDir, 'src', 'runtime-import.ts'), [
+  'export {};',
+  '',
+  "const editor = await import('@fps-games/editor');",
+  "if (typeof editor.createLocalEditorHarness !== 'function') {",
+  "  throw new Error('Expected createLocalEditorHarness export to be a function.');",
+  '}',
+  '',
+].join('\n'));
+fs.writeFileSync(path.join(consumerDir, 'vite.config.mjs'), [
+  'export default {',
+  "  logLevel: 'warn',",
+  '  build: {',
+  "    target: 'esnext',",
+  '    modulePreload: false,',
+  "    outDir: 'dist',",
+  '    rollupOptions: {',
+  "      input: 'src/runtime-import.ts',",
+  '      output: {',
+  "        entryFileNames: 'runtime-import.mjs',",
+  "        chunkFileNames: 'chunks/[name]-[hash].mjs',",
+  '      },',
+  '    },',
+  '  },',
+  '};',
+  '',
+].join('\n'));
 
 run('npm', ['install', '--ignore-scripts', '--package-lock=false', '--no-audit', '--no-fund'], {
   cwd: consumerDir,
@@ -69,19 +105,33 @@ run(rootTsc, ['-p', path.join(consumerDir, 'tsconfig.json'), '--noEmit'], {
   cwd: consumerDir,
   stdio: 'inherit',
 });
+run(rootVite, ['build', '--config', path.join(consumerDir, 'vite.config.mjs')], {
+  cwd: consumerDir,
+  stdio: 'inherit',
+});
+run(process.execPath, [path.join(consumerDir, 'dist', 'runtime-import.mjs')], {
+  cwd: consumerDir,
+  stdio: 'inherit',
+});
 
-const internalPackageJson = path.join(
-  consumerDir,
-  'node_modules',
-  '@fps-games',
-  'editor',
-  'node_modules',
-  '@fps-games',
-  'editor-core',
-  'package.json',
-);
-if (!fs.existsSync(internalPackageJson)) {
-  throw new Error('Bundled internal dependency @fps-games/editor-core was not installed inside @fps-games/editor.');
+for (const pkg of expectedBundledPackages) {
+  const packageDir = path.join(
+    consumerDir,
+    'node_modules',
+    '@fps-games',
+    'editor',
+    'node_modules',
+    '@fps-games',
+    internalPackageNameToDir(pkg.json.name),
+  );
+  const packageJsonPath = path.join(packageDir, 'package.json');
+  const mainPath = path.join(packageDir, pkg.json.main?.replace(/^\.\//, '') ?? 'dist/index.js');
+  if (!fs.existsSync(packageJsonPath)) {
+    throw new Error(`Bundled internal dependency ${pkg.json.name} was not installed inside @fps-games/editor.`);
+  }
+  if (!fs.existsSync(mainPath)) {
+    throw new Error(`Bundled internal dependency ${pkg.json.name} is missing ${path.relative(packageDir, mainPath)}.`);
+  }
 }
 
 console.log(`[pack-consumer-smoke] ok ${tarball}`);

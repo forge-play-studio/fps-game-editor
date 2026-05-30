@@ -1,34 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  collectEditorBundledPackages,
+  internalPackageNameToDir,
+  readJson,
+  writeJson,
+} from './internal-package-graph.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDir, '..');
 const aggregateRoot = path.join(root, 'packages', 'editor');
 const bundledScopeRoot = path.join(aggregateRoot, 'node_modules', '@fps-games');
 
-const bundledPackages = [
-  'editor-protocol',
-  'editor-browser',
-  'editor-core',
-  'editor-forge-play',
-  'editor-babylon',
-];
-
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
-}
-
-function writeJson(file, value) {
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function copyBundledPackage(packageDirName) {
-  const sourceRoot = path.join(root, 'packages', packageDirName);
-  const sourcePackageJsonPath = path.join(sourceRoot, 'package.json');
+function copyBundledPackage(pkg) {
+  const sourceRoot = path.join(root, pkg.dirName);
+  const sourcePackageJsonPath = pkg.path;
   const sourceDist = path.join(sourceRoot, 'dist');
   const sourcePackageJson = readJson(sourcePackageJsonPath);
-  const targetRoot = path.join(bundledScopeRoot, packageDirName.replace(/^editor-?/, 'editor-'));
+  const targetRoot = path.join(bundledScopeRoot, internalPackageNameToDir(sourcePackageJson.name));
   const targetDist = path.join(targetRoot, 'dist');
 
   if (!fs.existsSync(sourceDist)) {
@@ -50,6 +40,8 @@ function copyBundledPackage(packageDirName) {
     types: sourcePackageJson.types,
     exports: sourcePackageJson.exports,
     dependencies: sourcePackageJson.dependencies,
+    peerDependencies: sourcePackageJson.peerDependencies,
+    optionalDependencies: sourcePackageJson.optionalDependencies,
   };
 
   for (const key of Object.keys(bundledPackageJson)) {
@@ -59,7 +51,13 @@ function copyBundledPackage(packageDirName) {
   writeJson(path.join(targetRoot, 'package.json'), bundledPackageJson);
 }
 
+const bundledPackages = collectEditorBundledPackages(root);
+fs.rmSync(bundledScopeRoot, { recursive: true, force: true });
 fs.mkdirSync(bundledScopeRoot, { recursive: true });
-for (const packageDirName of bundledPackages) copyBundledPackage(packageDirName);
+for (const pkg of bundledPackages) copyBundledPackage(pkg);
 
-console.log(`[prepare-single-package] bundled ${bundledPackages.length} internal packages into packages/editor`);
+console.log(
+  `[prepare-single-package] bundled ${bundledPackages.length} internal packages into packages/editor: ${
+    bundledPackages.map((pkg) => pkg.json.name).join(', ')
+  }`,
+);
