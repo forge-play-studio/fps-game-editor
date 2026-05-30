@@ -290,6 +290,193 @@ describe('Babylon editor projection runtime helpers', () => {
     engine.dispose();
   });
 
+  it('emits a projection batch settled event after all async model imports are ready', async () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const deferredImports = new Map<string, Deferred<any>>();
+    const readyEvents: Array<{ nodeId: string; async: boolean }> = [];
+    const batchEvents: Array<{
+      batchId: number;
+      nodeIds: string[];
+      asyncNodeIds: string[];
+      settledNodeIds: string[];
+    }> = [];
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      importModel: async ({ node }) => {
+        const deferred = createDeferred<any>();
+        deferredImports.set(node.id, deferred);
+        return deferred.promise;
+      },
+      onProjectionReady: event => readyEvents.push(event),
+      onProjectionBatchSettled: event => batchEvents.push(event),
+    });
+
+    projection.projectNodes([
+      {
+        id: 'asset_a',
+        asset: { id: 'asset_a_model' },
+      },
+      {
+        id: 'sync_cube',
+        primitive: { shape: 'cube' },
+      },
+      {
+        id: 'asset_b',
+        asset: { id: 'asset_b_model' },
+      },
+    ]);
+    await flushMicrotasks();
+
+    expect(batchEvents).toHaveLength(0);
+
+    deferredImports.get('asset_a')?.resolve({
+      meshes: [BABYLON.MeshBuilder.CreateBox('asset_a_mesh', { size: 1 }, scene)],
+      transformNodes: [],
+      animationGroups: [],
+    });
+    await flushMicrotasks();
+
+    expect(readyEvents.map(event => event.nodeId)).toEqual(['asset_a']);
+    expect(batchEvents).toHaveLength(0);
+
+    deferredImports.get('asset_b')?.resolve({
+      meshes: [BABYLON.MeshBuilder.CreateBox('asset_b_mesh', { size: 1 }, scene)],
+      transformNodes: [],
+      animationGroups: [],
+    });
+    await flushMicrotasks();
+
+    expect(readyEvents.map(event => event.nodeId)).toEqual(['asset_a', 'asset_b']);
+    expect(batchEvents).toHaveLength(1);
+    expect(batchEvents[0]?.batchId).toBe(1);
+    expect(batchEvents[0]?.nodeIds).toEqual(['asset_a', 'sync_cube', 'asset_b']);
+    expect(batchEvents[0]?.asyncNodeIds).toEqual(['asset_a', 'asset_b']);
+    expect([...batchEvents[0]!.settledNodeIds].sort()).toEqual(['asset_a', 'asset_b', 'sync_cube']);
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('ignores stale async projection readiness after a newer projection batch replaces it', async () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const staleImport = createDeferred<any>();
+    const readyEvents: Array<{ nodeId: string; async: boolean }> = [];
+    const batchEvents: Array<{
+      batchId: number;
+      nodeIds: string[];
+      asyncNodeIds: string[];
+      settledNodeIds: string[];
+    }> = [];
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      importModel: async () => staleImport.promise,
+      onProjectionReady: event => readyEvents.push(event),
+      onProjectionBatchSettled: event => batchEvents.push(event),
+    });
+
+    projection.projectNodes([
+      {
+        id: 'stale_asset',
+        asset: { id: 'stale_asset_model' },
+      },
+    ]);
+    await flushMicrotasks();
+
+    projection.projectNodes([
+      {
+        id: 'replacement_cube',
+        primitive: { shape: 'cube' },
+      },
+    ]);
+    await flushMicrotasks();
+
+    expect(batchEvents).toHaveLength(1);
+    expect(batchEvents[0]?.nodeIds).toEqual(['replacement_cube']);
+    expect(batchEvents[0]?.asyncNodeIds).toEqual([]);
+
+    staleImport.resolve({
+      meshes: [BABYLON.MeshBuilder.CreateBox('stale_asset_mesh', { size: 1 }, scene)],
+      transformNodes: [],
+      animationGroups: [],
+    });
+    await flushMicrotasks();
+
+    expect(readyEvents).toHaveLength(0);
+    expect(batchEvents).toHaveLength(1);
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('keeps an earlier async projection batch alive when a later single-node projection is added', async () => {
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    const deferredImports = new Map<string, Deferred<any>>();
+    const batchEvents: Array<{
+      batchId: number;
+      nodeIds: string[];
+      asyncNodeIds: string[];
+      settledNodeIds: string[];
+    }> = [];
+    const projection = createBabylonEditorProjection({
+      babylon: BABYLON as any,
+      scene: scene as any,
+      importModel: async ({ node }) => {
+        const deferred = createDeferred<any>();
+        deferredImports.set(node.id, deferred);
+        return deferred.promise;
+      },
+      onProjectionBatchSettled: event => batchEvents.push(event),
+    });
+
+    projection.projectNodes([
+      {
+        id: 'batch_asset_a',
+        asset: { id: 'batch_asset_a_model' },
+      },
+      {
+        id: 'batch_asset_b',
+        asset: { id: 'batch_asset_b_model' },
+      },
+    ]);
+    await flushMicrotasks();
+
+    projection.projectNode({
+      id: 'late_sync_cube',
+      primitive: { shape: 'cube' },
+    });
+    await flushMicrotasks();
+
+    expect(batchEvents).toHaveLength(1);
+    expect(batchEvents[0]?.nodeIds).toEqual(['late_sync_cube']);
+
+    deferredImports.get('batch_asset_a')?.resolve({
+      meshes: [BABYLON.MeshBuilder.CreateBox('batch_asset_a_mesh', { size: 1 }, scene)],
+      transformNodes: [],
+      animationGroups: [],
+    });
+    deferredImports.get('batch_asset_b')?.resolve({
+      meshes: [BABYLON.MeshBuilder.CreateBox('batch_asset_b_mesh', { size: 1 }, scene)],
+      transformNodes: [],
+      animationGroups: [],
+    });
+    await flushMicrotasks();
+
+    expect(batchEvents).toHaveLength(2);
+    expect(batchEvents[1]?.nodeIds).toEqual(['batch_asset_a', 'batch_asset_b']);
+    expect(batchEvents[1]?.asyncNodeIds).toEqual(['batch_asset_a', 'batch_asset_b']);
+
+    projection.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
   it('detaches shared imported material before applying a slot material profile', async () => {
     const engine = new BABYLON.NullEngine();
     const scene = new BABYLON.Scene(engine);
@@ -340,6 +527,28 @@ describe('Babylon editor projection runtime helpers', () => {
     engine.dispose();
   });
 });
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T) => void;
+};
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 5; index += 1) {
+    await Promise.resolve();
+  }
+}
 
 function createFakeRootProjectionRuntime() {
   const scene: { meshes: any[] } = { meshes: [] };

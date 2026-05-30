@@ -18,6 +18,7 @@ export interface BabylonEditorShadowPreviewOptions {
 export interface BabylonEditorShadowPreviewController {
   setOptions(options?: BabylonEditorShadowPreviewOptions | null): void;
   refresh(): void;
+  rebuild(): void;
   dispose(): void;
 }
 
@@ -77,6 +78,10 @@ export function createBabylonEditorShadowPreviewController(
       syncPlanar();
     },
     refresh() {
+      syncPlanar();
+    },
+    rebuild() {
+      disposePlanar();
       syncPlanar();
     },
     dispose() {

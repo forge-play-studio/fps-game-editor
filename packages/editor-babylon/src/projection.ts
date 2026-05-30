@@ -134,11 +134,19 @@ export interface BabylonEditorProjectionOptions {
   importModel?: BabylonEditorProjectionImporter;
   logger?: Pick<Console, 'warn'>;
   onProjectionReady?: (event: BabylonEditorProjectionReadyEvent) => void;
+  onProjectionBatchSettled?: (event: BabylonEditorProjectionBatchSettledEvent) => void;
 }
 
 export interface BabylonEditorProjectionReadyEvent {
   nodeId: string;
   async: boolean;
+}
+
+export interface BabylonEditorProjectionBatchSettledEvent {
+  batchId: number;
+  nodeIds: string[];
+  asyncNodeIds: string[];
+  settledNodeIds: string[];
 }
 
 export interface ProjectedBabylonEditorNode {
@@ -185,6 +193,16 @@ export interface BabylonEditorProjectionBounds {
   size: BabylonEditorProjectionVec3;
 }
 
+interface BabylonEditorProjectionBatch {
+  id: number;
+  generation: number;
+  nodeIds: string[];
+  asyncNodeIds: string[];
+  pendingNodeIds: Set<string>;
+  settledNodeIds: Set<string>;
+  notifyScheduled: boolean;
+}
+
 function requireBabylonCtor<T>(value: T | undefined, name: string): T {
   if (!value) throw new Error(`Babylon runtime missing ${name}`);
   return value;
@@ -194,6 +212,54 @@ export function createBabylonEditorProjection(
   options: BabylonEditorProjectionOptions,
 ): BabylonEditorProjection {
   const projections = new Map<string, ProjectedBabylonEditorNode>();
+  let nextBatchId = 1;
+  let projectionGeneration = 0;
+
+  const createBatch = (nodeIds: string[]): BabylonEditorProjectionBatch => {
+    const batch: BabylonEditorProjectionBatch = {
+      id: nextBatchId,
+      generation: projectionGeneration,
+      nodeIds,
+      asyncNodeIds: [],
+      pendingNodeIds: new Set(),
+      settledNodeIds: new Set(),
+      notifyScheduled: false,
+    };
+    nextBatchId += 1;
+    return batch;
+  };
+
+  const scheduleBatchSettled = (batch: BabylonEditorProjectionBatch): void => {
+    if (batch.pendingNodeIds.size > 0 || batch.notifyScheduled) return;
+    batch.notifyScheduled = true;
+    void Promise.resolve().then(() => {
+      batch.notifyScheduled = false;
+      if (batch.generation !== projectionGeneration || batch.pendingNodeIds.size > 0) return;
+      options.onProjectionBatchSettled?.({
+        batchId: batch.id,
+        nodeIds: [...batch.nodeIds],
+        asyncNodeIds: [...batch.asyncNodeIds],
+        settledNodeIds: [...batch.settledNodeIds],
+      });
+    });
+  };
+
+  const trackAsyncProjection = (
+    batch: BabylonEditorProjectionBatch,
+    node: BabylonEditorProjectionNode,
+    projection: ProjectedBabylonEditorNode,
+  ): Promise<void> => {
+    batch.asyncNodeIds.push(node.id);
+    batch.pendingNodeIds.add(node.id);
+    return loadModelProjection(options, node, projection).finally(() => {
+      batch.pendingNodeIds.delete(node.id);
+      batch.settledNodeIds.add(node.id);
+      if (projections.get(node.id) === projection && !projection.root.isDisposed?.()) {
+        options.onProjectionReady?.({ nodeId: node.id, async: true });
+      }
+      scheduleBatchSettled(batch);
+    });
+  };
 
   const disposeProjectedNode = (projection: ProjectedBabylonEditorNode): void => {
     for (const animationGroup of projection.animationGroups) {
@@ -206,13 +272,17 @@ export function createBabylonEditorProjection(
   };
 
   const disposeAll = (): void => {
+    projectionGeneration += 1;
     for (const projection of projections.values()) {
       disposeProjectedNode(projection);
     }
     projections.clear();
   };
 
-  const projectNode = (node: BabylonEditorProjectionNode): ProjectedBabylonEditorNode | null => {
+  const projectNodeInBatch = (
+    node: BabylonEditorProjectionNode,
+    batch: BabylonEditorProjectionBatch,
+  ): ProjectedBabylonEditorNode | null => {
     removeNode(node.id);
     const root = createProjectionRoot(options.babylon, options.scene, node);
     if (!root) return null;
@@ -231,13 +301,21 @@ export function createBabylonEditorProjection(
       attachRootProjection(options.babylon, options.scene, node, projection);
     } else if (!attachRuntimeProjection(options.babylon, options.scene, node, projection)) {
       if (node.asset && options.importModel) {
-        projection.loadPromise = loadModelProjection(options, node, projection);
+        projection.loadPromise = trackAsyncProjection(batch, node, projection);
       } else if (node.primitive) {
         attachPrimitiveProjection(options.babylon, options.scene, node, projection);
       } else {
         attachFallbackProjection(options.babylon, options.scene, node, projection, !!node.asset);
       }
     }
+    if (!projection.loadPromise) batch.settledNodeIds.add(node.id);
+    return projection;
+  };
+
+  const projectNode = (node: BabylonEditorProjectionNode): ProjectedBabylonEditorNode | null => {
+    const batch = createBatch([node.id]);
+    const projection = projectNodeInBatch(node, batch);
+    scheduleBatchSettled(batch);
     return projection;
   };
 
@@ -250,8 +328,11 @@ export function createBabylonEditorProjection(
 
   return {
     projectNodes(nodes) {
+      const nodeList = [...nodes];
       disposeAll();
-      for (const node of nodes) projectNode(node);
+      const batch = createBatch(nodeList.map(node => node.id));
+      for (const node of nodeList) projectNodeInBatch(node, batch);
+      scheduleBatchSettled(batch);
     },
     projectNode,
     removeNode,
@@ -486,10 +567,6 @@ async function loadModelProjection(
     options.logger?.warn?.(`[BabylonEditorProjection] Failed to project model "${asset.sourceId ?? asset.id ?? node.id}"`, error);
     if (!projection.root.isDisposed?.()) {
       attachFallbackProjection(options.babylon, options.scene, node, projection, true);
-    }
-  } finally {
-    if (!projection.root.isDisposed?.()) {
-      options.onProjectionReady?.({ nodeId: node.id, async: true });
     }
   }
 }

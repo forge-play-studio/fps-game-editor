@@ -565,6 +565,7 @@ interface LocalEditorHarnessState<TDocument, TPatch, TAsset> {
   gridVisible: boolean;
   projection: BabylonEditorProjection | null;
   shadowPreview: BabylonEditorShadowPreviewController | null;
+  projectionShadowPreviewRebuildFrame: number | null;
   gizmo: BabylonTransformGizmoController | null;
   sceneCameraPreview: BabylonSceneCameraPreviewController | null;
   sceneCameraPreviewEnabled: boolean;
@@ -623,6 +624,7 @@ export function createLocalEditorHarness<TDocument, TPatch, TAsset = LocalEditor
     gridVisible: true,
     projection: null,
     shadowPreview: null,
+    projectionShadowPreviewRebuildFrame: null,
     gizmo: null,
     sceneCameraPreview: null,
     sceneCameraPreviewEnabled: false,
@@ -1435,6 +1437,11 @@ async function createEditorWorld<TDocument, TPatch, TAsset>(
       syncCurrentSelectionToSceneArtifacts(state);
       viewportRenderCoordinator.invalidateScene(`projection-${event.nodeId}-ready`);
     },
+    onProjectionBatchSettled(event) {
+      if (event.asyncNodeIds.length === 0) return;
+      syncCurrentSelectionToSceneArtifacts(state);
+      scheduleProjectionShadowPreviewRebuild(state, `projection-batch-${event.batchId}-settled`);
+    },
   });
   const gizmo = createBabylonTransformGizmoController({
     babylon,
@@ -1702,6 +1709,10 @@ function disposeEditorWorld<TDocument, TPatch, TAsset>(
   };
   state.gizmo?.dispose();
   state.gizmo = null;
+  if (state.projectionShadowPreviewRebuildFrame !== null) {
+    window.cancelAnimationFrame(state.projectionShadowPreviewRebuildFrame);
+    state.projectionShadowPreviewRebuildFrame = null;
+  }
   state.shadowPreview?.dispose();
   state.shadowPreview = null;
   state.projection?.dispose();
@@ -1721,6 +1732,20 @@ function requestEditorSceneFrame<TDocument, TPatch, TAsset>(
   reason: string,
 ): void {
   state.viewportRenderCoordinator?.requestFrame(reason);
+}
+
+function scheduleProjectionShadowPreviewRebuild<TDocument, TPatch, TAsset>(
+  state: LocalEditorHarnessState<TDocument, TPatch, TAsset>,
+  reason: string,
+): void {
+  if (state.projectionShadowPreviewRebuildFrame !== null) {
+    window.cancelAnimationFrame(state.projectionShadowPreviewRebuildFrame);
+  }
+  state.projectionShadowPreviewRebuildFrame = window.requestAnimationFrame(() => {
+    state.projectionShadowPreviewRebuildFrame = null;
+    state.shadowPreview?.rebuild();
+    state.viewportRenderCoordinator?.invalidateScene(reason);
+  });
 }
 
 async function runExclusive<TDocument, TPatch, TAsset>(

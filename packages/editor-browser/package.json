@@ -1,6 +1,6 @@
 {
   "name": "@fps-games/editor-browser",
-  "version": "0.1.3-beta.2",
+  "version": "0.1.3-beta.3",
   "private": true,
   "type": "module",
   "description": "Browser host adapters for fps-game-editor.",
@@ -17,7 +17,7 @@
     "dist"
   ],
   "dependencies": {
-    "@fps-games/editor-core": "0.1.3-beta.2"
+    "@fps-games/editor-core": "0.1.3-beta.3"
   },
   "scripts": {
     "build": "tsc -b",
